@@ -132,9 +132,8 @@ func NewStyles(width int) Styles {
 }
 
 // Application ASCII title
-const asciiTitle = `
- _____ _____ __ __ _____
-|   __|   __|  |  |     |
-|__   |__   |     | | | |
-|_____|_____|__|__|_|_|_|
-`
+const asciiTitle = "    _   _        \n" +
+	" __| |_| |_ _  _ \n" +
+	"/ _|  _|  _| || |\n" +
+	"\\__|\\__|\\__|\\_, |\n" +
+	"            |__/ "

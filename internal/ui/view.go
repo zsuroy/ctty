@@ -39,6 +39,10 @@ func (m Model) View() string {
 		if m.helpForm != nil {
 			return m.helpForm.View()
 		}
+	case ViewSerial:
+		if m.serialForm != nil {
+			return m.serialForm.View()
+		}
 	case ViewFileSelector:
 		if m.fileSelectorForm != nil {
 			return m.fileSelectorForm.View()
@@ -114,7 +118,7 @@ func (m Model) renderListView() string {
 	// Add the help text
 	var helpText string
 	if !m.searchMode {
-		helpText = " ↑/↓: navigate • Enter: connect • p: ping all • i: info • h: help • q: quit"
+		helpText = " ↑/↓: navigate • Enter: connect • p: ping all • i: info • t: serial • h: help • q: quit"
 	} else {
 		helpText = " Type to filter • Enter: validate • Tab: switch • ESC: quit"
 	}

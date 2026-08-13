@@ -9,6 +9,7 @@ import (
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/connectivity"
 	"github.com/zsuroy/ctty/internal/version"
+	"github.com/zsuroy/ctty/internal/serialconfig"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -134,6 +135,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fileSelectorForm.width = m.width
 			m.fileSelectorForm.height = m.height
 			m.fileSelectorForm.styles = m.styles
+		}
+		if m.serialForm != nil {
+			m.serialForm.width = m.width
+			m.serialForm.height = m.height
+			m.serialForm.styles = m.styles
 		}
 		return m, nil
 
@@ -385,6 +391,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.Focus()
 		return m, nil
 
+	case serialConnectMsg:
+		// Suspend TUI via tea.Exec — Bubble Tea releases the terminal
+		// to normal mode, calls our ExecCommand.Run() (which opens the
+		// serial port and bridges stdin/stdout), then restores the TUI.
+		m.serialForm = nil
+		m.viewMode = ViewList
+		m.table.Focus()
+		return m, tea.Exec(serialconfig.NewExecCommand(msg.device), func(err error) tea.Msg {
+			return tea.Quit()
+		})
+
+	case serialDoneMsg:
+		// Return to SSH host list
+		m.serialForm = nil
+		m.viewMode = ViewList
+		m.table.Focus()
+		return m, nil
+
 	case tea.KeyMsg:
 		// Handle view-specific key presses
 		switch m.viewMode {
@@ -435,6 +459,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var newForm *fileSelectorModel
 				newForm, cmd = m.fileSelectorForm.Update(msg)
 				m.fileSelectorForm = newForm
+				return m, cmd
+			}
+		case ViewSerial:
+			if m.serialForm != nil {
+				updatedModel, cmd := m.serialForm.Update(msg)
+				if sm, ok := updatedModel.(*serialFormModel); ok {
+					m.serialForm = sm
+				}
 				return m, cmd
 			}
 		case ViewList:
@@ -701,6 +733,13 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.viewMode = ViewPortForward
 				return m, textinput.Blink
 			}
+		}
+	case "t":
+		if !m.searchMode && !m.deleteMode {
+			// Open serial device manager
+			m.serialForm = NewSerialForm(m.styles, m.width, m.height)
+			m.viewMode = ViewSerial
+			return m, nil
 		}
 	case "h":
 		if !m.searchMode && !m.deleteMode {

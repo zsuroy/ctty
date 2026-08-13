@@ -42,6 +42,7 @@ const (
 	ViewPortForward
 	ViewHelp
 	ViewFileSelector
+	ViewSerial
 )
 
 // PortForwardType defines the type of port forwarding
@@ -98,6 +99,7 @@ type Model struct {
 	portForwardForm  *portForwardModel
 	helpForm         *helpModel
 	fileSelectorForm *fileSelectorModel
+	serialForm       *serialFormModel
 
 	// Terminal size and styles
 	width  int
