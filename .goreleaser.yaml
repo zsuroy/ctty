@@ -121,12 +121,12 @@ release:
     ### Installation Script (Recommended)
     **Unix/Linux/macOS:**
     ```bash
-    curl -sSL https://github.com/zsuroy/ctty/raw/main/install/unix.sh | bash
+    curl -sSL https://github.com/zsuroy/ctty/raw/master/install/unix.sh | bash
     ```
 
     **Windows (PowerShell):**
     ```powershell
-    iwr -useb https://github.com/zsuroy/ctty/raw/main/install/windows.ps1 | iex
+    iwr -useb https://github.com/zsuroy/ctty/raw/master/install/windows.ps1 | iex
     ```
 
     ### Manual Installation
@@ -138,7 +138,7 @@ release:
 
     ---
 
-    📖 **Documentation:** See the updated [README](https://github.com/zsuroy/ctty/blob/main/README.md)
+    📖 **Documentation:** See the updated [README](https://github.com/zsuroy/ctty/blob/master/README.md)
 
     🐛 **Issues:** Found a bug? Open an [issue](https://github.com/zsuroy/ctty/issues)
 

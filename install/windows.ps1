@@ -1,6 +1,6 @@
 # ctty Windows Installation Script
 # Usage: 
-#   Online:  irm https://raw.githubusercontent.com/zsuroy/ctty/main/install/windows.ps1 | iex
+#   Online:  irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/windows.ps1 | iex
 #   Local:   .\install\windows.ps1 -LocalBinary ".\ctty.exe"
 
 param(

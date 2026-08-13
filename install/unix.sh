@@ -7,7 +7,7 @@ USE_SUDO="false"
 OS=""
 ARCH=""
 FORCE_INSTALL="${FORCE_INSTALL:-false}"
-ctty_VERSION="${ctty_VERSION:-latest}"
+CTTY_VERSION="${CTTY_VERSION:-latest}"
 
 RED='\033[0;31m'
 PURPLE='\033[0;35m'
@@ -19,12 +19,12 @@ usage() {
     printf "${PURPLE}ctty Installation Script${NC}\n\n"
     printf "Usage:\n"
     printf "  Default (latest stable):     ${GREEN}bash install.sh${NC}\n"
-    printf "  Specific version:            ${GREEN}ctty_VERSION=v1.8.0 bash install.sh${NC}\n"
-    printf "  Beta/pre-release:            ${GREEN}ctty_VERSION=v1.8.1-beta bash install.sh${NC}\n"
+    printf "  Specific version:            ${GREEN}CTTY_VERSION=v0.1.0 bash install.sh${NC}\n"
+    printf "  Beta/pre-release:            ${GREEN}CTTY_VERSION=v0.1.0-beta bash install.sh${NC}\n"
     printf "  Force install:               ${GREEN}FORCE_INSTALL=true bash install.sh${NC}\n"
     printf "  Custom install directory:    ${GREEN}INSTALL_DIR=/opt/bin bash install.sh${NC}\n\n"
     printf "Environment variables:\n"
-    printf "  ctty_VERSION    - Version to install (default: latest)\n"
+    printf "  CTTY_VERSION    - Version to install (default: latest)\n"
     printf "  FORCE_INSTALL   - Skip confirmation prompts (default: false)\n"
     printf "  INSTALL_DIR     - Installation directory (default: /usr/local/bin)\n\n"
 }
@@ -61,7 +61,7 @@ runAsRoot() {
 }
 
 getLatestVersion() {
-    if [ "$ctty_VERSION" = "latest" ]; then
+    if [ "$CTTY_VERSION" = "latest" ]; then
         printf "${YELLOW}Fetching latest stable version...${NC}\n"
         LATEST_VERSION=$(curl -s https://api.github.com/repos/zsuroy/ctty/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [ -z "$LATEST_VERSION" ]; then
@@ -69,15 +69,15 @@ getLatestVersion() {
             exit 1
         fi
     else
-        printf "${YELLOW}Using specified version: $ctty_VERSION${NC}\n"
+        printf "${YELLOW}Using specified version: $CTTY_VERSION${NC}\n"
         # Validate that the specified version exists
-        RELEASE_CHECK=$(curl -s "https://api.github.com/repos/zsuroy/ctty/releases/tags/$ctty_VERSION" | grep '"tag_name":')
+        RELEASE_CHECK=$(curl -s "https://api.github.com/repos/zsuroy/ctty/releases/tags/$CTTY_VERSION" | grep '"tag_name":')
         if [ -z "$RELEASE_CHECK" ]; then
-            printf "${RED}Version $ctty_VERSION not found. Available versions:${NC}\n"
+            printf "${RED}Version $CTTY_VERSION not found. Available versions:${NC}\n"
             curl -s https://api.github.com/repos/zsuroy/ctty/releases | grep '"tag_name":' | head -10 | sed -E 's/.*"([^"]+)".*/  - \1/'
             exit 1
         fi
-        LATEST_VERSION="$ctty_VERSION"
+        LATEST_VERSION="$CTTY_VERSION"
     fi
     printf "${GREEN}Installing version: $LATEST_VERSION${NC}\n"
 }
@@ -210,7 +210,7 @@ main() {
         exit 0
     fi
     
-    printf "${PURPLE}Installing ctty - SSH Connection Manager${NC}\n\n"
+    printf "${PURPLE}Installing ctty - Connection Manager${NC}\n\n"
     
     # Set up system detection
     setSystem

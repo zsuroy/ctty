@@ -68,12 +68,12 @@ brew install zsuroy/ctty/ctty
 
 **Unix/Linux/macOS (One-line install):**
 ```bash
-curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/main/install/unix.sh | bash
+curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/zsuroy/ctty/main/install/windows.ps1 | iex
+irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/windows.ps1 | iex
 ```
 
 **Alternative methods:**
@@ -94,6 +94,14 @@ sudo mv ctty-linux-amd64 /usr/local/bin/ctty
 Invoke-WebRequest -Uri "https://github.com/zsuroy/ctty/releases/latest/download/ctty-windows-amd64.zip" -OutFile "ctty-windows-amd64.zip"
 Expand-Archive ctty-windows-amd64.zip -DestinationPath C:\tools\
 # Add C:\tools to your PATH environment variable
+```
+
+**From source (requires Go 1.23+):**
+```bash
+git clone https://github.com/zsuroy/ctty.git
+cd ctty
+go build -o ctty .
+sudo mv ctty /usr/local/bin/
 ```
 
 ## 📖 Usage
@@ -151,9 +159,15 @@ Press `t` from the main TUI to enter the serial device manager. Available serial
 - Detected ports appear automatically with default settings (115200 8N1)
 - Saved devices (with custom names and settings) appear at the top
 - `Enter` - Connect to selected serial device
+- `i` - Show device info (name, port, baud, parity, etc.)
 - `a` - Add a new serial device with custom settings
 - `d` - Delete a saved serial device
+- `/` - Search/filter devices by name or port path
 - `Esc`/`q` - Return to SSH host list
+
+**Device info view:**
+- `e` or `Enter` - Edit parameters (baud rate, data bits, parity, stop bits) before connecting
+- `Esc`/`i` - Back to device list
 
 **Adding a serial device:**
 - **Name** - Friendly alias (e.g., `Switch-Console`)
@@ -163,7 +177,16 @@ Press `t` from the main TUI to enter the serial device manager. Available serial
 - **Parity** - `none`, `even`, or `odd` (default: `none`)
 - **Stop Bits** - 1 or 2 (default: 1)
 
+**Editing parameters before connect:**
+- Baud rate can be typed directly or cycled via `←/→` through presets (9600/19200/38400/57600/115200/230400/460800/921600)
+- Press `Enter` to connect with the modified parameters
+
 **Connecting:** The TUI suspends and bridges your terminal directly to the serial port. Press `Ctrl+]` or `Ctrl+C` to disconnect and return to the TUI.
+
+You can also launch the serial manager directly:
+```bash
+ctty serial    # Skip the SSH host list, go straight to serial devices
+```
 
 
 ### Port Forwarding

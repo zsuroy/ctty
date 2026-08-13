@@ -52,11 +52,27 @@ ctty 是一个快速、原生的终端工具，用于管理你的所有连接 �
 
 ### 安装
 
-**从源码构建：**
+**Homebrew（macOS 推荐）：**
+```bash
+brew install zsuroy/ctty/ctty
+```
+
+**Unix/Linux/macOS（一行安装）：**
+```bash
+curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh | bash
+```
+
+**Windows（PowerShell）：**
+```powershell
+irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/windows.ps1 | iex
+```
+
+**从源码构建（需要 Go 1.23+）：**
 ```bash
 git clone https://github.com/zsuroy/ctty.git
 cd ctty
 go build -o ctty .
+sudo mv ctty /usr/local/bin/
 ```
 
 ## 📖 用法
@@ -90,10 +106,15 @@ ctty
 - 检测到的端口自动出现，使用默认设置（115200 8N1）
 - 保存的设备（带自定义名称和设置）排在顶部
 - `Enter` - 连接到选中的串口设备
-- `e` - 编辑参数后连接（波特率/数据位/校验/停止位）
+- `i` - 查看设备信息（名称、端口、波特率等）
 - `a` - 添加新的串口设备
 - `d` - 删除已保存的串口设备
+- `/` - 搜索/过滤设备（按名称或端口路径）
 - `Esc`/`q` - 返回 SSH 主机列表
+
+**设备信息页：**
+- `e` 或 `Enter` - 编辑参数后连接（波特率/数据位/校验/停止位）
+- `Esc`/`i` - 返回设备列表
 
 **编辑参数：**
 - **波特率** - 可直接输入，或用 `←/→` 在常用值间切换（9600/19200/38400/57600/115200/230400/460800/921600）
@@ -102,6 +123,11 @@ ctty
 - **停止位** - 1 或 2（默认：1）
 
 **连接：** TUI 暂停并将终端直接桥接到串口。按 `Ctrl+]` 或 `Ctrl+C` 断开并返回 TUI。
+
+也可以直接启动串口管理器：
+```bash
+ctty serial    # 跳过 SSH 主机列表，直接进入串口设备管理
+```
 
 串口设备配置存储在 `~/.config/ctty/serial.json`，与 `~/.ssh/config` 分离。
 

@@ -7,7 +7,7 @@ This directory contains installation scripts for ctty.
 ### Quick Install (Recommended)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/main/install/unix.sh | bash
+curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh | bash
 ```
 
 **Note:** When using the pipe method, the installer will automatically proceed with installation if ctty is already installed.
@@ -17,38 +17,38 @@ curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/main/install/unix.sh | b
 ### Quick Install (Recommended)
 
 ```powershell
-irm https://raw.githubusercontent.com/zsuroy/ctty/main/install/windows.ps1 | iex
+irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/windows.ps1 | iex
 ```
 
 ### Install Options
 
 **Force install without prompts:**
 ```powershell
-iex "& { $(irm https://raw.githubusercontent.com/zsuroy/ctty/main/install/windows.ps1) } -Force"
+iex "& { $(irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/windows.ps1) } -Force"
 ```
 
 **Custom installation directory:**
 ```powershell
-iex "& { $(irm https://raw.githubusercontent.com/zsuroy/ctty/main/install/windows.ps1) } -InstallDir 'C:\tools'"
+iex "& { $(irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/windows.ps1) } -InstallDir 'C:\tools'"
 ```
 
 ## Unix/Linux/macOS Advanced Options
 
 **Force install without prompts:**
 ```bash
-FORCE_INSTALL=true bash -c "$(curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/main/install/unix.sh)"
+FORCE_INSTALL=true bash -c "$(curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh)"
 ```
 
 **Disable auto-install when using pipe:**
 ```bash
-FORCE_INSTALL=false bash -c "$(curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/main/install/unix.sh)"
+FORCE_INSTALL=false bash -c "$(curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh)"
 ```
 
 ### Manual Install
 
 1. Download the script:
 ```bash
-curl -O https://raw.githubusercontent.com/zsuroy/ctty/main/install/unix.sh
+curl -O https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh
 ```
 
 2. Make it executable:
