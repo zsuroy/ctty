@@ -18,7 +18,7 @@
 ctty is a fast, native terminal tool for managing all your connections — SSH hosts, serial devices, and SFTP file transfers — without the overhead of Electron apps. Built with Go and featuring an intuitive TUI interface, it brings the convenience of GUI connection managers like Tabby to the terminal, with zero bloat.
 
 **Why ctty?**
-- **Tabby too heavy?** ctty is a single ~15MB binary, no Electron, no browser engine — just pure Go
+- **Tabby too heavy?** ctty is a single ~5MB binary, no Electron, no browser engine — just pure Go
 - **Need serial + SSH + SFTP in one tool?** Most terminal emulators only do SSH; ctty covers all three
 - **Want to stay in the terminal?** No context switching between apps — everything is keyboard-driven
 
