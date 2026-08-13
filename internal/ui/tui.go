@@ -173,3 +173,18 @@ func RunInteractiveMode(hosts []config.SSHHost, configFile string, searchMode bo
 
 	return nil
 }
+
+// RunSerialMode starts the TUI directly in the serial device manager view.
+func RunSerialMode(currentVersion string, noUpdateCheck bool) error {
+	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
+	m.serialForm = NewSerialForm(m.styles, m.width, m.height)
+	m.viewMode = ViewSerial
+	m.serialOnly = true
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	_, err := p.Run()
+	if err != nil {
+		return fmt.Errorf("error running TUI: %w", err)
+	}
+	return nil
+}

@@ -146,6 +146,7 @@ func (m *serialConnectFormModel) cycleBaud(dir int) {
 		}
 	}
 	m.inputs[0].SetValue(strconv.Itoa(baudRates[m.baudIndex]))
+	m.inputs[0].CursorEnd()
 }
 
 func (m *serialConnectFormModel) nextField() {

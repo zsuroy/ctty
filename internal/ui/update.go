@@ -403,8 +403,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 	case serialDoneMsg:
-		// Return to SSH host list
 		m.serialForm = nil
+		if m.serialOnly {
+			// Launched via 'ctty serial' — exit entirely
+			return m, tea.Quit
+		}
+		// Return to SSH host list
 		m.viewMode = ViewList
 		m.table.Focus()
 		return m, nil

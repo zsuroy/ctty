@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -26,7 +27,11 @@ type serialFormModel struct {
 	addForm     *serialAddFormModel
 	deleteMode  bool
 	deleteIndex int
+	infoIndex   int
 	ready       bool
+	searchInput    textinput.Model
+	searchMode     bool
+	filteredDevices []serialconfig.SerialDevice
 }
 
 type serialMode int
@@ -36,6 +41,7 @@ const (
 	serialAdd
 	serialDeleteConfirm
 	serialConnectSettings
+	serialInfo
 )
 
 // serialConnectMsg tells the parent model to suspend the TUI and connect.
@@ -57,7 +63,13 @@ func NewSerialForm(styles Styles, width, height int) *serialFormModel {
 		height: height,
 	}
 
+	m.searchInput = textinput.New()
+	m.searchInput.Placeholder = "Search devices..."
+	m.searchInput.CharLimit = 50
+	m.searchInput.Width = 25
+
 	m.loadDevices()
+	m.filteredDevices = m.devices
 	m.buildTable()
 	m.mode = serialList
 	m.ready = true
@@ -108,7 +120,7 @@ func (m *serialFormModel) buildTable() {
 	}
 
 	rows := []table.Row{}
-	for _, d := range m.devices {
+	for _, d := range m.filteredDevices {
 		rows = append(rows, table.Row{
 			d.Name,
 			d.Device,
@@ -142,6 +154,30 @@ func (m *serialFormModel) buildTable() {
 
 func (m *serialFormModel) refreshTable() {
 	m.loadDevices()
+	m.filterDevices()
+	m.buildTable()
+}
+
+// filterDevices filters the device list by the current search input.
+func (m *serialFormModel) filterDevices() {
+	query := strings.ToLower(m.searchInput.Value())
+	if query == "" {
+		m.filteredDevices = m.devices
+		return
+	}
+	filtered := m.devices[:0]
+	for _, d := range m.devices {
+		if strings.Contains(strings.ToLower(d.Name), query) ||
+			strings.Contains(strings.ToLower(d.Device), query) {
+			filtered = append(filtered, d)
+		}
+	}
+	m.filteredDevices = filtered
+}
+
+// updateFilteredDevices re-applies the filter and rebuilds the table rows.
+func (m *serialFormModel) updateFilteredDevices() {
+	m.filterDevices()
 	m.buildTable()
 }
 
@@ -164,6 +200,8 @@ func (m *serialFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleAddKeys(msg)
 		case serialConnectSettings:
 			return m.handleConnectSettingsKeys(msg)
+		case serialInfo:
+			return m.handleInfoKeys(msg)
 		case serialDeleteConfirm:
 			return m.handleDeleteConfirmKeys(msg)
 		}
@@ -176,41 +214,58 @@ func (m *serialFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *serialFormModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle search mode separately
+	if m.searchMode {
+		return m.handleSearchKeys(msg)
+	}
+
 	switch msg.String() {
 	case "esc", "q":
 		return m, func() tea.Msg { return serialDoneMsg{} }
+	case "/", "ctrl+f":
+		m.searchMode = true
+		m.searchInput.Focus()
+		m.table.Blur()
+		return m, textinput.Blink
+	case "tab":
+		// Toggle focus between search and table
+		if m.searchMode {
+			m.searchMode = false
+			m.searchInput.Blur()
+			m.table.Focus()
+		}
+		return m, nil
 	case "enter":
-		if len(m.devices) == 0 {
+		if len(m.filteredDevices) == 0 {
 			return m, nil
 		}
 		idx := m.table.Cursor()
-		if idx >= 0 && idx < len(m.devices) {
-			dev := m.devices[idx]
+		if idx >= 0 && idx < len(m.filteredDevices) {
+			dev := m.filteredDevices[idx]
 			return m, func() tea.Msg {
 				return serialConnectMsg{device: dev}
 			}
 		}
-	case "e":
-		if len(m.devices) == 0 {
+	case "i":
+		if len(m.filteredDevices) == 0 {
 			return m, nil
 		}
 		idx := m.table.Cursor()
-		if idx >= 0 && idx < len(m.devices) {
-			dev := m.devices[idx]
-			m.connectForm = newSerialConnectForm(m.styles, m.width, m.height, dev)
-			m.mode = serialConnectSettings
-			return m, m.connectForm.Init()
+		if idx >= 0 && idx < len(m.filteredDevices) {
+			m.infoIndex = idx
+			m.mode = serialInfo
+			return m, nil
 		}
 	case "a":
 		m.mode = serialAdd
 		m.addForm = newSerialAddForm(m.styles, m.width, m.height, m.availablePorts)
 		return m, m.addForm.Init()
 	case "d":
-		if len(m.devices) == 0 {
+		if len(m.filteredDevices) == 0 {
 			return m, nil
 		}
 		idx := m.table.Cursor()
-		if idx >= 0 && idx < len(m.devices) {
+		if idx >= 0 && idx < len(m.filteredDevices) {
 			m.mode = serialDeleteConfirm
 			m.deleteIndex = idx
 			return m, nil
@@ -222,11 +277,34 @@ func (m *serialFormModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *serialFormModel) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.searchMode = false
+		m.searchInput.Blur()
+		m.table.Focus()
+		return m, nil
+	case "enter", "tab":
+		m.searchMode = false
+		m.searchInput.Blur()
+		m.table.Focus()
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	oldValue := m.searchInput.Value()
+	m.searchInput, cmd = m.searchInput.Update(msg)
+	if m.searchInput.Value() != oldValue {
+		m.updateFilteredDevices()
+	}
+	return m, cmd
+}
+
 func (m *serialFormModel) handleDeleteConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
-		if m.deleteIndex >= 0 && m.deleteIndex < len(m.devices) {
-			dev := m.devices[m.deleteIndex]
+		if m.deleteIndex >= 0 && m.deleteIndex < len(m.filteredDevices) {
+			dev := m.filteredDevices[m.deleteIndex]
 			_ = serialconfig.Delete(dev.Name)
 		}
 		m.mode = serialList
@@ -238,6 +316,52 @@ func (m *serialFormModel) handleDeleteConfirmKeys(msg tea.KeyMsg) (tea.Model, te
 		return m, nil
 	}
 	return m, nil
+}
+
+func (m *serialFormModel) handleInfoKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q", "i":
+		m.mode = serialList
+		m.infoIndex = -1
+		return m, nil
+	case "e", "enter":
+		if m.infoIndex >= 0 && m.infoIndex < len(m.filteredDevices) {
+			dev := m.filteredDevices[m.infoIndex]
+			m.connectForm = newSerialConnectForm(m.styles, m.width, m.height, dev)
+			m.mode = serialConnectSettings
+			m.infoIndex = -1
+			return m, m.connectForm.Init()
+		}
+	}
+	return m, nil
+}
+
+func (m *serialFormModel) renderInfo() string {
+	if m.infoIndex < 0 || m.infoIndex >= len(m.filteredDevices) {
+		return ""
+	}
+	dev := m.filteredDevices[m.infoIndex]
+
+	saved := "yes"
+	if strings.HasPrefix(dev.Name, "(auto)") {
+		saved = "no (auto-detected)"
+	}
+
+	lines := []string{
+		m.styles.Header.Render("  Serial Device Info"),
+		"",
+		fmt.Sprintf("  Name:       %s", dev.Name),
+		fmt.Sprintf("  Device:     %s", dev.Device),
+		fmt.Sprintf("  Baud Rate:  %d", dev.BaudRate),
+		fmt.Sprintf("  Data Bits:  %d", dev.DataBits),
+		fmt.Sprintf("  Parity:     %s", dev.Parity),
+		fmt.Sprintf("  Stop Bits:  %d", dev.StopBits),
+		fmt.Sprintf("  Saved:      %s", saved),
+		"",
+		m.styles.HelpText.Render("  e/Enter: edit params • Esc/i: back to list"),
+	}
+
+	return m.styles.FormContainer.Render(strings.Join(lines, "\n"))
 }
 
 func (m *serialFormModel) handleAddKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -297,6 +421,8 @@ func (m *serialFormModel) View() string {
 		if m.connectForm != nil {
 			return m.connectForm.View()
 		}
+	case serialInfo:
+		return m.renderInfo()
 	case serialDeleteConfirm:
 		return m.renderDeleteConfirm()
 	}
@@ -311,22 +437,35 @@ func (m *serialFormModel) renderList() string {
 	b.WriteString(m.styles.Header.Render("  Serial Connections"))
 	b.WriteString("\n\n")
 
+	// Search bar
+	searchPrompt := "Search (/ to focus): "
+	if m.searchMode {
+		b.WriteString(m.styles.SearchFocused.Render(searchPrompt + m.searchInput.View()))
+	} else {
+		b.WriteString(m.styles.SearchUnfocused.Render(searchPrompt + m.searchInput.View()))
+	}
+	b.WriteString("\n\n")
+
 	// Table
 	b.WriteString(m.styles.TableFocused.Render(m.table.View()))
 	b.WriteString("\n\n")
 
 	// Help
-	helpText := "  ↑/↓: navigate • Enter: connect • e: edit params • a: add • d: delete • Esc: back"
+	var helpText string
+	if m.searchMode {
+		helpText = "  Type to filter • Enter: confirm • Tab: switch • ESC: back"
+	} else {
+		helpText = "  ↑/↓: navigate • Enter: connect • i: info • a: add • d: delete • /: search • Esc: back"
+	}
 	b.WriteString(m.styles.HelpText.Render(helpText))
-
 	return m.styles.FormContainer.Render(b.String())
 }
 
 func (m *serialFormModel) renderDeleteConfirm() string {
-	if m.deleteIndex < 0 || m.deleteIndex >= len(m.devices) {
+	if m.deleteIndex < 0 || m.deleteIndex >= len(m.filteredDevices) {
 		return ""
 	}
-	dev := m.devices[m.deleteIndex]
+	dev := m.filteredDevices[m.deleteIndex]
 	msg := fmt.Sprintf("Delete serial device '%s' (%s)? [y/n]", dev.Name, dev.Device)
 	return m.styles.Error.Render(msg)
 }
