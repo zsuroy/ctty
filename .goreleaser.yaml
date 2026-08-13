@@ -1,0 +1,155 @@
+version: 2
+project_name: ctty
+
+before:
+  hooks:
+  - go mod tidy
+  - go test ./...
+
+builds:
+- id: ctty
+  main: ./main.go
+  binary: ctty
+  goos:
+  - linux
+  - windows
+  - darwin
+  goarch:
+  - amd64
+  - arm64
+  - "386"
+  - arm
+  goarm:
+  - "6"
+  - "7"
+  ignore:
+  # Skip ARM for Windows (not commonly used)
+  - goos: windows
+    goarch: arm
+  - goos: windows
+    goarch: arm64
+  env:
+  - CGO_ENABLED=0
+  ldflags:
+  - -s -w
+  - -X github.com/zsuroy/ctty/cmd.AppVersion={{.Version}}
+  flags:
+  - -trimpath
+
+archives:
+- id: ctty
+  formats: [ "tar.gz" ]
+  # Use zip for Windows
+  format_overrides:
+  - goos: windows
+    formats: [ "zip" ]
+  # Template for archive name
+  name_template: >-
+    {{ .ProjectName }}_ {{- title .Os }}_ {{- if eq .Arch "amd64" }}x86_64 {{- else if eq .Arch "386" }}i386 {{- else }}{{ .Arch }}{{ end }} {{- if .Arm }}v{{ .Arm }}{{ end }}
+  files:
+  - LICENSE
+  - README.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+    - "^docs:"
+    - "^test:"
+    - "^ci:"
+    - "^chore:"
+    - "^build:"
+  groups:
+  - title: Features
+    regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+    order: 0
+  - title: Bug fixes
+    regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+    order: 1
+  - title: Others
+    order: 999
+
+# Homebrew tap configuration (Formula pour CLI)
+brews:
+- name: ctty
+  repository:
+    owner: zsuroy
+    name: homebrew-ctty
+    # Token with repo permissions for your homebrew-ctty repo
+    token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+  commit_author:
+    name: goreleaserbot
+    email: bot@goreleaser.com
+  commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+  homepage: "https://github.com/zsuroy/ctty"
+  description: "A lightweight terminal connection manager for SSH, serial, and SFTP"
+  license: MIT
+  skip_upload: auto
+  # Test command to verify installation
+  test: |
+    system "#{bin}/ctty --version"
+
+# Release configuration
+release:
+  github:
+    owner: zsuroy
+    name: ctty
+  prerelease: auto
+  draft: false
+  replace_existing_draft: true
+  target_commitish: "{{ .Commit }}"
+  name_template: "{{.ProjectName}} {{.Version}}"
+  header: |
+    ## ctty {{.Version}}
+
+    Thank you for downloading ctty!
+
+  footer: |
+    ## Installation
+
+    ### Homebrew (macOS/Linux)
+    ```bash
+    brew tap zsuroy/ctty
+    brew install ctty
+    ```
+
+    ### Installation Script (Recommended)
+    **Unix/Linux/macOS:**
+    ```bash
+    curl -sSL https://github.com/zsuroy/ctty/raw/main/install/unix.sh | bash
+    ```
+
+    **Windows (PowerShell):**
+    ```powershell
+    iwr -useb https://github.com/zsuroy/ctty/raw/main/install/windows.ps1 | iex
+    ```
+
+    ### Manual Installation
+    Download the appropriate binary for your platform from the assets above, extract it, and place it in your PATH.
+
+    ## Full Changelog
+
+    See all changes at https://github.com/zsuroy/ctty/compare/{{.PreviousTag}}...{{.Tag}}
+
+    ---
+
+    📖 **Documentation:** See the updated [README](https://github.com/zsuroy/ctty/blob/main/README.md)
+
+    🐛 **Issues:** Found a bug? Open an [issue](https://github.com/zsuroy/ctty/issues)
+
+    ---
+
+    Released with ❤️ by [GoReleaser](https://github.com/goreleaser/goreleaser)
+
+# Snapshot builds (for non-tag builds)
+snapshot:
+  version_template: "{{ .Tag }}-snapshot-{{.ShortCommit}}"
+
+# Metadata for package managers
+metadata:
+  mod_timestamp: "{{ .CommitTimestamp }}"

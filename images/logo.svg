@@ -1,0 +1,138 @@
+<svg
+  width="512"
+  height="512"
+  viewBox="0 0 512 512"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <defs>
+    <!-- 主渐变 -->
+    <linearGradient id="cttyGradient" x1="82" y1="105" x2="430" y2="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6EEB55"/>
+      <stop offset="0.35" stop-color="#22D3EE"/>
+      <stop offset="0.7" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#6366F1"/>
+    </linearGradient>
+
+    <!-- 轻微光晕 -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- 背景渐变 -->
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512">
+      <stop offset="0" stop-color="#111827"/>
+      <stop offset="1" stop-color="#080B12"/>
+    </linearGradient>
+  </defs>
+
+  <!-- App Icon Background -->
+  <rect
+    x="16"
+    y="16"
+    width="480"
+    height="480"
+    rx="108"
+    fill="url(#bg)"
+  />
+
+  <!-- ========================= -->
+  <!-- Connection Lines -->
+  <!-- ========================= -->
+
+  <g
+    stroke="url(#cttyGradient)"
+    stroke-width="16"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    filter="url(#glow)"
+  >
+
+    <!-- Terminal upper-right connection -->
+    <path
+      d="M350 164
+         L388 126
+         L414 126"
+    />
+
+    <!-- Right connection -->
+    <path
+      d="M350 256
+         L414 256
+         L440 256"
+    />
+
+    <!-- Bottom connection -->
+    <path
+      d="M350 348
+         L388 386
+         L414 386"
+    />
+
+  </g>
+
+  <!-- ========================= -->
+  <!-- Connection Nodes -->
+  <!-- ========================= -->
+
+  <g
+    fill="#0B111C"
+    stroke="url(#cttyGradient)"
+    stroke-width="12"
+  >
+
+    <!-- Top -->
+    <circle cx="430" cy="110" r="25"/>
+
+    <!-- Right -->
+    <circle cx="460" cy="256" r="25"/>
+
+    <!-- Bottom -->
+    <circle cx="430" cy="402" r="25"/>
+
+  </g>
+
+  <!-- ========================= -->
+  <!-- Terminal Body -->
+  <!-- ========================= -->
+
+  <rect
+    x="72"
+    y="116"
+    width="290"
+    height="280"
+    rx="54"
+    fill="#0B111C"
+    stroke="url(#cttyGradient)"
+    stroke-width="16"
+  />
+
+  <!-- ========================= -->
+  <!-- Terminal Prompt -->
+  <!-- ========================= -->
+
+  <g
+    stroke="#F8FAFC"
+    stroke-width="20"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <!-- > -->
+    <path
+      d="M135 205
+         L190 256
+         L135 307"
+    />
+
+    <!-- _ -->
+    <path
+      d="M222 307
+         H280"
+    />
+  </g>
+
+</svg>
