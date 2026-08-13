@@ -6,6 +6,8 @@
 
 # 🚀 ctty - Connection Manager
 
+[English](README.md) | [中文](README_CN.md)
+
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=for-the-badge&logo=go)](https://golang.org/)
 [![Release](https://img.shields.io/github/v/release/zsuroy/ctty?style=for-the-badge)](https://github.com/zsuroy/ctty/releases)
 [![License](https://img.shields.io/github/license/zsuroy/ctty?style=for-the-badge)](LICENSE)
