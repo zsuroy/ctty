@@ -5,7 +5,6 @@ package i18n
 import (
 	"os"
 	"os/exec"
-	"strings"
 )
 
 // detectPlatformLanguage detects the system language on Linux, Android/Termux, and other Unix platforms.

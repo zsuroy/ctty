@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] - 2026-08-14
 
 ### Added
 
@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **TUI Sort Mode Cycling** — Fixed `s` key cycling to loop through all 4 columns (`Name ↓` ➔ `Hostname ↓` ➔ `Tags ↓` ➔ `Last Login ↓`) instead of only toggling between first and last; added column sort indicators for Hostname and Tags
 - **TUI & CLI Search Filtering** — Fixed an issue where viewport height calculation truncated matching search results; improved multi-word search intersection and added `#` prefix support for tag searches
+
+## [0.2.0]  - 2026-08-14
 
 ### Added
 

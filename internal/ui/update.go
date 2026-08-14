@@ -549,6 +549,14 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.table.Focus()
 			return m, nil
 		}
+		if m.searchMode {
+			// Exit search mode back to table
+			m.searchMode = false
+			m.updateTableStyles()
+			m.searchInput.Blur()
+			m.table.Focus()
+			return m, nil
+		}
 		// Use configurable key bindings for quit
 		if m.appConfig != nil && m.appConfig.KeyBindings.ShouldQuitOnKey(key) {
 			return m, tea.Quit
