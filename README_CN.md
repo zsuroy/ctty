@@ -69,6 +69,12 @@ brew install zsuroy/ctty/ctty
 curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh | bash
 ```
 
+**Termux（Android）：**
+```bash
+curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh | bash
+```
+安装器自动检测 Termux（通过 `$PREFIX`/`$TERMUX_VERSION`），安装到 `$PREFIX/bin` 且不使用 `sudo`。
+
 **Windows（PowerShell）：**
 ```powershell
 irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/windows.ps1 | iex
@@ -652,6 +658,12 @@ ctty 记住你的端口转发配置以便快速复用：
 - 标准 SSH 配置文件：`~/.ssh/config`
 - 完全兼容 OpenSSH 功能
 - 自动保持文件权限
+
+**Termux（Android）：**
+- 由 `install/unix.sh` 安装器自动检测
+- 安装到 `$PREFIX/bin`（如 `~/termux/files/usr/bin`），而非 `/usr/local/bin`
+- 无需 `sudo`，以 Termux 用户权限运行
+- 架构检测（`aarch64 → arm64`、`armv7* → armv7`）保持不变，标准发布产物可直接安装
 
 ## 🏗️ 配置
 

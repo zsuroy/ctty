@@ -15,6 +15,15 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# detect Termux： make sure $PREFIX exist com.termux or $TERMUX_VERSION
+if [ -n "$PREFIX" ] && [ -d "/data/data/com.termux" ] 2>/dev/null || [ -n "$TERMUX_VERSION" ]; then
+    IS_TERMUX="true"
+    INSTALL_DIR="$PREFIX/bin"
+    EXECUTABLE_PATH="$INSTALL_DIR/$EXECUTABLE_NAME"
+else
+    IS_TERMUX="false"
+fi
+
 usage() {
     printf "${PURPLE}ctty Installation Script${NC}\n\n"
     printf "Usage:\n"
@@ -43,10 +52,11 @@ setSystem() {
     OS=$(echo `uname`|tr '[:upper:]' '[:lower:]')
     
     # Determine if we need sudo
-    if [ "$OS" = "linux" ]; then
+    if [ "$IS_TERMUX" = "true" ]; then
+        USE_SUDO="false"
+    elif [ "$OS" = "linux" ]; then
         USE_SUDO="true"
-    fi
-    if [ "$OS" = "darwin" ]; then
+    elif [ "$OS" = "darwin" ]; then
         USE_SUDO="true"
     fi
 }
@@ -215,6 +225,10 @@ main() {
     # Set up system detection
     setSystem
     printf "${GREEN}Detected system: $OS ($ARCH)${NC}\n"
+
+    if [ "$IS_TERMUX" = "true" ]; then
+        printf "Running in Termux, installing to: $INSTALL_DIR\n"
+    fi
     
     # Get and validate version FIRST (this can fail early)
     getLatestVersion

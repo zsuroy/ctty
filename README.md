@@ -71,6 +71,12 @@ brew install zsuroy/ctty/ctty
 curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh | bash
 ```
 
+**Termux (Android):**
+```bash
+curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh | bash
+```
+The installer auto-detects Termux (via `$PREFIX`/`$TERMUX_VERSION`) and installs to `$PREFIX/bin` without `sudo`.
+
 **Windows (PowerShell):**
 ```powershell
 irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/windows.ps1 | iex
@@ -654,6 +660,12 @@ ctty remembers your port forwarding configurations for easy reuse:
 - Standard SSH configuration file: `~/.ssh/config`
 - Full compatibility with OpenSSH features
 - Preserves file permissions automatically
+
+**Termux (Android):**
+- Detected automatically by the `install/unix.sh` installer
+- Installs to `$PREFIX/bin` (e.g. `~/termux/files/usr/bin`), not `/usr/local/bin`
+- No `sudo` — runs with the Termux user permissions
+- Architecture detection (`aarch64 → arm64`, `armv7* → armv7`) works unchanged, so the standard release artifacts install correctly
 
 ## 🏗️ Configuration
 
