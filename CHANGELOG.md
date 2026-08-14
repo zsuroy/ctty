@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **SSH Password Storage & Zero-Touch Auto-Login** — Save passwords securely for SSH hosts with automated, hands-free login:
+  - Added optional masked `Password` (`••••••`) field in Add & Edit Host forms with instant toggle and validation
+  - Local AES-256-GCM encrypted credential vault stored at `~/.config/ctty/credentials.json` with strict `0600` permissions (never pollutes or modifies standard `~/.ssh/config`)
+  - Seamless OpenSSH `SSH_ASKPASS` protocol bridge: connects automatically without installing `sshpass` or third-party binaries, fully compatible with macOS, Linux, Windows, and Termux
+  - Integrated with SFTP client: hosts with saved passwords automatically connect to SFTP with 0 password prompts
+  - Host details modal (`i` key) indicates whether a password is saved (`•••••••• (Saved)`)
 - **Seamless Zero-Host TUI Support** — Removed blocking CLI prompts when `~/.ssh/config` has no hosts; users can directly enter the TUI to use serial management, change settings, or press `a` to add hosts with friendly empty-state guidance
 - **Universal Tab Navigation** — `Tab` / `Shift+Tab` key now smoothly switches between Remote and Local file browsers in SFTP mode, toggles between search input and list in Serial mode, and cycles focus across all tables
 - **Multi-Line Main Help Bar** — Split bottom help footer into two clean, well-spaced lines displaying all core operations and tools (`a`, `e`, `d`, `s`, `p`, `f`, `i`, `o`, `t`, `S`, `H`, `h`, `q`)
@@ -25,15 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **SSH Tag Color Highlighting** — Automatic color-coding for SSH host tags across the TUI host list, host info popup, and `ctty search` CLI output:
   - Built-in semantic color mapping for common tags (`prod`, `staging`, `dev`, `db`, `web`, `api`, `k8s`, `work`, `personal`, `home`, `hidden`, etc.)
   - Deterministic hash-based palette for arbitrary custom tags (same tag consistently gets the same vibrant color)
-  - Custom tag color overrides supported via `tag_colors` field in `~/.ctty/config.json`
+  - Custom tag color overrides supported via `tag_colors` field in `~/.config/ctty/config.json`
   - Dynamic color profile adaptation (TrueColor ➔ ANSI 256 ➔ ANSI 16 ➔ plain ASCII) for seamless compatibility across macOS, Windows, Linux, and Termux
   - Precise ANSI-aware character width and safe truncation via `x/ansi` to prevent escape sequence corruption and preserve selection backgrounds
 - **i18n Internationalization Support** — Full bilingual (English & Simplified Chinese) support across TUI and CLI:
   - Automatic language detection from system environment (`$LC_ALL`, `$LC_MESSAGES`, `$LANG`, `CTTY_LANG`, macOS `AppleLocale`, Windows Win32 API, Android `getprop`)
-  - Configurable in `~/.ctty/config.json` via `"language": "zh_CN"` (or `"en"`, `"auto"`)
+  - Configurable in `~/.config/ctty/config.json` via `"language": "zh_CN"` (or `"en"`, `"auto"`)
   - Command-line override via `--lang zh` or `--lang en`
   - Complete translations for SSH host list, Serial Device Manager, SFTP file browser, search bars, help menus, status/relative time strings, host details, and delete confirmation dialogs
-- **Interactive Settings Modal (`S` key)** — Dedicated settings & preferences screen in TUI to configure Interface Language (Auto / 简体中文 / English), Automatic Update Checking, and ESC Key Behavior, with instant auto-save to `~/.ctty/config.json`
+- **Interactive Settings Modal (`S` key)** — Dedicated settings & preferences screen in TUI to configure Interface Language (Auto / 简体中文 / English), Automatic Update Checking, and ESC Key Behavior, with instant auto-save to `~/.config/ctty/config.json`
 - **CLI `ctty sftp <host>` Command** — Direct entrypoint to open the SFTP file browser TUI for a specified host with full shell tab completion
 - **Termux (Android) install support** — `install/unix.sh` auto-detects Termux (via `$PREFIX`/`$TERMUX_VERSION`), installs to `$PREFIX/bin`, and skips `sudo`
 

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/zsuroy/ctty/internal/config"
+	"github.com/zsuroy/ctty/internal/credential"
 	"github.com/zsuroy/ctty/internal/history"
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/ui"
@@ -191,16 +193,30 @@ func connectToHost(hostName string, remoteCommand []string) {
 		fmt.Printf("Connecting to %s...\n", hostName)
 	}
 
+	env := os.Environ()
+	if pass, ok := credential.GetPassword(hostName); ok && pass != "" {
+		selfPath, err := os.Executable()
+		if err == nil {
+			env = append(env,
+				"SSH_ASKPASS="+selfPath,
+				"SSH_ASKPASS_REQUIRE=force",
+				"CTTY_ASKPASS_TOKEN="+base64.StdEncoding.EncodeToString([]byte(pass)),
+				"DISPLAY=ctty:0",
+			)
+		}
+	}
+
 	sshPath, lookErr := exec.LookPath("ssh")
 	if lookErr == nil {
 		argv := append([]string{"ssh"}, args...)
 		// On Unix, Exec replaces the process and never returns on success.
 		// On Windows, Exec is not supported and returns an error; fall through to the exec.Command fallback.
-		_ = syscall.Exec(sshPath, argv, os.Environ())
+		_ = syscall.Exec(sshPath, argv, env)
 	}
 
 	// Fallback for Windows or if LookPath failed
 	sshCmd := exec.Command("ssh", args...)
+	sshCmd.Env = env
 	sshCmd.Stdin = os.Stdin
 	sshCmd.Stdout = os.Stdout
 	sshCmd.Stderr = os.Stderr
@@ -219,6 +235,15 @@ func connectToHost(hostName string, remoteCommand []string) {
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() {
+	// Handle OpenSSH AskPass callback
+	if token := os.Getenv("CTTY_ASKPASS_TOKEN"); token != "" && os.Getenv("SSH_ASKPASS") != "" {
+		plain, err := base64.StdEncoding.DecodeString(token)
+		if err == nil {
+			fmt.Print(string(plain))
+			os.Exit(0)
+		}
+	}
+
 	if err := RootCmd.Execute(); err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "unknown command") {

@@ -823,7 +823,7 @@ This will be automatically converted to:
 ctty supports a configuration file to customize its behavior, including language, key bindings, update checking, and custom tag colors. You can also configure these interactively in the TUI by pressing `S`.
 
 **Configuration File Location:**
-- **Linux/macOS**: `~/.ctty/config.json` (or `~/.config/ctty/config.json`)
+- **Linux/macOS**: `~/.config/ctty/config.json` (respects `$XDG_CONFIG_HOME`)
 - **Windows**: `%APPDATA%\ctty\config.json`
 
 **Example Configuration:**
@@ -899,7 +899,7 @@ ctty/
 ├── internal/
 │   ├── config/         # SSH & App configuration management
 │   │   ├── ssh.go      # SSH config parsing, manipulation, and include support
-│   │   └── appconfig.go# App settings (~/.ctty/config.json)
+│   │   └── appconfig.go# App settings (~/.config/ctty/config.json)
 │   ├── connectivity/   # SSH connectivity checking
 │   │   └── ping.go     # Asynchronous SSH ping functionality
 │   ├── history/        # Connection history tracking

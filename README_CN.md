@@ -820,7 +820,7 @@ SSH Options: -o Compression=yes -o ServerAliveInterval=60 -o StrictHostKeyChecki
 ctty 支持配置文件来自定义行为，包括界面语言、快捷键、自动更新检查以及自定义标签颜色。你也可以直接在 TUI 界面中按 `S` 键打开设置面板进行可视化配置。
 
 **配置文件位置：**
-- **Linux/macOS**: `~/.ctty/config.json`（或 `~/.config/ctty/config.json`）
+- **Linux/macOS**: `~/.config/ctty/config.json`（遵循 `$XDG_CONFIG_HOME`）
 - **Windows**: `%APPDATA%\ctty\config.json`
 
 **示例配置：**
@@ -896,7 +896,7 @@ ctty/
 ├── internal/
 │   ├── config/         # SSH 与应用配置管理
 │   │   ├── ssh.go      # SSH 配置解析、修改与 Include 展开
-│   │   └── appconfig.go# 应用设置 (~/.ctty/config.json)
+│   │   └── appconfig.go# 应用设置 (~/.config/ctty/config.json)
 │   ├── connectivity/   # SSH 连通性检查
 │   │   └── ping.go     # 异步 SSH ping 功能
 │   ├── history/        # 连接历史跟踪

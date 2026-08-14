@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zsuroy/ctty/internal/config"
+	"github.com/zsuroy/ctty/internal/credential"
 	"github.com/zsuroy/ctty/internal/i18n"
 )
 
@@ -88,6 +89,11 @@ func (m *infoFormModel) View() string {
 	b.WriteString(m.styles.FormTitle.Render(title))
 	b.WriteString("\n\n")
 
+	hasPassword := i18n.T("info.not_set")
+	if _, ok := credential.GetPassword(m.host.Name); ok {
+		hasPassword = i18n.T("info.password_saved")
+	}
+
 	// Create info sections with consistent formatting
 	sections := []struct {
 		label string
@@ -98,6 +104,7 @@ func (m *infoFormModel) View() string {
 		{i18n.T("info.hostname_ip"), m.host.Hostname},
 		{i18n.T("info.user"), formatOptionalValue(m.host.User)},
 		{i18n.T("info.port"), formatOptionalValue(m.host.Port)},
+		{i18n.T("info.password"), hasPassword},
 		{i18n.T("info.identity_file"), formatOptionalValue(m.host.Identity)},
 		{i18n.T("info.proxy_jump"), formatOptionalValue(m.host.ProxyJump)},
 		{i18n.T("info.proxy_command"), formatOptionalValue(m.host.ProxyCommand)},

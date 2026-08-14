@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/zsuroy/ctty/internal/config"
+	"github.com/zsuroy/ctty/internal/credential"
+	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/validation"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -49,7 +51,7 @@ func NewAddForm(hostname string, styles Styles, width, height int, configFile st
 		}
 	}
 
-	inputs := make([]textinput.Model, 11)
+	inputs := make([]textinput.Model, numAddInputs)
 
 	// Name input
 	inputs[nameInput] = textinput.New()
@@ -78,6 +80,14 @@ func NewAddForm(hostname string, styles Styles, width, height int, configFile st
 	inputs[portInput].Placeholder = "22"
 	inputs[portInput].CharLimit = 5
 	inputs[portInput].Width = 30
+
+	// Password input
+	inputs[passwordInput] = textinput.New()
+	inputs[passwordInput].Placeholder = i18n.T("form.password_placeholder")
+	inputs[passwordInput].EchoMode = textinput.EchoPassword
+	inputs[passwordInput].EchoCharacter = '•'
+	inputs[passwordInput].CharLimit = 100
+	inputs[passwordInput].Width = 30
 
 	// Identity input
 	inputs[identityInput] = textinput.New()
@@ -142,14 +152,16 @@ const (
 	hostnameInput
 	userInput
 	portInput
+	passwordInput
 	identityInput
 	proxyJumpInput
 	proxyCommandInput
-	optionsInput
 	tagsInput
 	// Advanced tab inputs
+	optionsInput
 	remoteCommandInput
 	requestTTYInput
+	numAddInputs
 )
 
 // Messages for communication with parent model
@@ -236,11 +248,11 @@ func (m *addFormModel) getFirstInputForTab(tab int) int {
 func (m *addFormModel) getInputsForCurrentTab() []int {
 	switch m.currentTab {
 	case tabGeneral:
-		return []int{nameInput, hostnameInput, userInput, portInput, identityInput, proxyJumpInput, proxyCommandInput, tagsInput}
+		return []int{nameInput, hostnameInput, userInput, portInput, passwordInput, identityInput, proxyJumpInput, proxyCommandInput, tagsInput}
 	case tabAdvanced:
 		return []int{optionsInput, remoteCommandInput, requestTTYInput}
 	default:
-		return []int{nameInput, hostnameInput, userInput, portInput, identityInput, proxyJumpInput, proxyCommandInput, tagsInput}
+		return []int{nameInput, hostnameInput, userInput, portInput, passwordInput, identityInput, proxyJumpInput, proxyCommandInput, tagsInput}
 	}
 }
 
@@ -323,7 +335,7 @@ func (m *addFormModel) View() string {
 
 	var b strings.Builder
 
-	b.WriteString(m.styles.FormTitle.Render("Add SSH Host Configuration"))
+	b.WriteString(m.styles.FormTitle.Render(i18n.T("form.add_title")))
 	b.WriteString("\n\n")
 
 	// Render tabs
@@ -344,11 +356,11 @@ func (m *addFormModel) View() string {
 	}
 
 	// Help text
-	b.WriteString(m.styles.FormHelp.Render("Tab/Shift+Tab: navigate • Ctrl+J/K: switch tabs"))
+	b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_add_1")))
 	b.WriteString("\n")
-	b.WriteString(m.styles.FormHelp.Render("Enter on last field: submit • Ctrl+S: save • Ctrl+C/Esc: cancel"))
+	b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_add_2")))
 	b.WriteString("\n")
-	b.WriteString(m.styles.FormHelp.Render("* Required fields"))
+	b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_required")))
 
 	return b.String()
 }
@@ -389,10 +401,10 @@ func (m *addFormModel) renderHeightWarning() string {
 	required := m.getMinimumHeight()
 	current := m.height
 
-	warning := m.styles.ErrorText.Render("⚠️  Terminal height is too small!")
-	details := m.styles.FormField.Render(fmt.Sprintf("Current: %d lines, Required: %d lines", current, required))
-	instruction := m.styles.FormHelp.Render("Please resize your terminal window and try again.")
-	instruction2 := m.styles.FormHelp.Render("Press Ctrl+C to cancel or resize terminal window.")
+	warning := m.styles.ErrorText.Render(i18n.T("form.height_warning_title"))
+	details := m.styles.FormField.Render(fmt.Sprintf(i18n.T("form.height_warning_details"), current, required))
+	instruction := m.styles.FormHelp.Render(i18n.T("form.height_warning_resize"))
+	instruction2 := m.styles.FormHelp.Render(i18n.T("form.height_warning_cancel"))
 
 	return warning + "\n\n" + details + "\n\n" + instruction + "\n" + instruction2
 }
@@ -400,13 +412,15 @@ func (m *addFormModel) renderHeightWarning() string {
 // renderTabs renders the tab headers
 func (m *addFormModel) renderTabs() string {
 	var generalTab, advancedTab string
+	generalLabel := i18n.T("form.tab_general")
+	advancedLabel := i18n.T("form.tab_advanced")
 
 	if m.currentTab == tabGeneral {
-		generalTab = m.styles.FocusedLabel.Render("[ General ]")
-		advancedTab = m.styles.FormField.Render("  Advanced  ")
+		generalTab = m.styles.FocusedLabel.Render(fmt.Sprintf("[ %s ]", generalLabel))
+		advancedTab = m.styles.FormField.Render(fmt.Sprintf("  %s  ", advancedLabel))
 	} else {
-		generalTab = m.styles.FormField.Render("  General  ")
-		advancedTab = m.styles.FocusedLabel.Render("[ Advanced ]")
+		generalTab = m.styles.FormField.Render(fmt.Sprintf("  %s  ", generalLabel))
+		advancedTab = m.styles.FocusedLabel.Render(fmt.Sprintf("[ %s ]", advancedLabel))
 	}
 
 	return generalTab + "  " + advancedTab
@@ -420,14 +434,15 @@ func (m *addFormModel) renderGeneralTab() string {
 		index int
 		label string
 	}{
-		{nameInput, "Host Name *"},
-		{hostnameInput, "Hostname/IP *"},
-		{userInput, "User"},
-		{portInput, "Port"},
-		{identityInput, "Identity File"},
-		{proxyJumpInput, "ProxyJump"},
-		{proxyCommandInput, "ProxyCommand"},
-		{tagsInput, "Tags (comma-separated)"},
+		{nameInput, i18n.T("form.host_name")},
+		{hostnameInput, i18n.T("form.hostname_ip")},
+		{userInput, i18n.T("form.user")},
+		{portInput, i18n.T("form.port")},
+		{passwordInput, i18n.T("form.password")},
+		{identityInput, i18n.T("form.identity_file")},
+		{proxyJumpInput, i18n.T("form.proxy_jump")},
+		{proxyCommandInput, i18n.T("form.proxy_command")},
+		{tagsInput, i18n.T("form.tags")},
 	}
 
 	for _, field := range fields {
@@ -440,7 +455,7 @@ func (m *addFormModel) renderGeneralTab() string {
 		b.WriteString(m.inputs[field.index].View())
 		b.WriteString("\n")
 		if field.index == tagsInput && m.focused == tagsInput {
-			b.WriteString(m.styles.FormHelp.Render(`  tip: use "hidden" to hide this host from the list`))
+			b.WriteString(m.styles.FormHelp.Render(i18n.T("form.tip_hidden")))
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
@@ -457,9 +472,9 @@ func (m *addFormModel) renderAdvancedTab() string {
 		index int
 		label string
 	}{
-		{optionsInput, "SSH Options"},
-		{remoteCommandInput, "Remote Command"},
-		{requestTTYInput, "Request TTY"},
+		{optionsInput, i18n.T("form.ssh_options")},
+		{remoteCommandInput, i18n.T("form.remote_command")},
+		{requestTTYInput, i18n.T("form.request_tty")},
 	}
 
 	for _, field := range fields {
@@ -544,6 +559,7 @@ func (m *addFormModel) submitForm() tea.Cmd {
 		if tagsStr != "" {
 			for _, tag := range strings.Split(tagsStr, ",") {
 				tag = strings.TrimSpace(tag)
+				tag = strings.TrimPrefix(tag, "#")
 				if tag != "" {
 					tags = append(tags, tag)
 				}
@@ -572,6 +588,13 @@ func (m *addFormModel) submitForm() tea.Cmd {
 		} else {
 			err = config.AddSSHHost(host)
 		}
+
+		if err == nil {
+			if pass := strings.TrimSpace(m.inputs[passwordInput].Value()); pass != "" {
+				_ = credential.SetPassword(name, pass)
+			}
+		}
+
 		return addFormSubmitMsg{hostname: name, err: err}
 	}
 }

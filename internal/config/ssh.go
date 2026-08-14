@@ -236,14 +236,18 @@ func parseSSHConfigFileWithProcessedFiles(configPath string, processedFiles map[
 			continue
 		}
 
-		// Check for tags comment
-		if strings.HasPrefix(line, "# Tags:") {
-			tagsStr := strings.TrimPrefix(line, "# Tags:")
-			tagsStr = strings.TrimSpace(tagsStr)
+		// Check for tags comment (supports # Tags:, # tags:, # Tag:, # tag:, #tags:, #tag:)
+		lineLower := strings.ToLower(line)
+		if strings.HasPrefix(lineLower, "# tags:") || strings.HasPrefix(lineLower, "# tag:") || strings.HasPrefix(lineLower, "#tags:") || strings.HasPrefix(lineLower, "#tag:") {
+			var tagsStr string
+			if idx := strings.Index(line, ":"); idx != -1 {
+				tagsStr = strings.TrimSpace(line[idx+1:])
+			}
 			if tagsStr != "" {
 				// Split tags by comma and trim whitespace
 				for _, tag := range strings.Split(tagsStr, ",") {
 					tag = strings.TrimSpace(tag)
+					tag = strings.TrimPrefix(tag, "#")
 					if tag != "" {
 						pendingTags = append(pendingTags, tag)
 					}
@@ -376,6 +380,10 @@ func parseSSHConfigFileWithProcessedFiles(configPath string, processedFiles map[
 
 	// Add the last host if it exists
 	if currentHost != nil {
+		if len(currentHost.Tags) == 0 && len(pendingTags) > 0 {
+			currentHost.Tags = pendingTags
+			pendingTags = nil
+		}
 		hosts = append(hosts, *currentHost)
 
 		// Handle aliases: create duplicate hosts for each alias
@@ -1635,10 +1643,12 @@ func FilterVisibleHosts(hosts []SSHHost) []SSHHost {
 	return visible
 }
 
-// hostHasTag reports whether the given tag list contains the target tag (case-insensitive).
+// hostHasTag reports whether the given tag list contains the target tag (case-insensitive, ignores '#' prefix).
 func hostHasTag(tags []string, target string) bool {
+	targetClean := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(target)), "#")
 	for _, t := range tags {
-		if strings.EqualFold(t, target) {
+		tClean := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(t)), "#")
+		if tClean == targetClean {
 			return true
 		}
 	}

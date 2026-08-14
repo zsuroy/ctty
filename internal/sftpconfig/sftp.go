@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/zsuroy/ctty/internal/config"
+	"github.com/zsuroy/ctty/internal/credential"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -120,6 +121,13 @@ func ConnectWithPassword(hostName string, configFile string, password string) (*
 	sshConfig, err := buildSSHConfig(host)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build SSH config: %w", err)
+	}
+
+	// If password not passed explicitly, check credential store
+	if password == "" {
+		if saved, ok := credential.GetPassword(hostName); ok && saved != "" {
+			password = saved
+		}
 	}
 
 	// Add password auth if provided

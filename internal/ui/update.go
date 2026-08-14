@@ -8,6 +8,7 @@ import (
 
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/connectivity"
+	"github.com/zsuroy/ctty/internal/credential"
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
 	"github.com/zsuroy/ctty/internal/version"
@@ -610,6 +611,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Confirm deletion
 			var err error
 			if m.deleteHost != nil {
+				_ = credential.DeletePassword(m.deleteHost.Name)
 				err = config.DeleteSSHHostWithLine(*m.deleteHost)
 			}
 			if err != nil {

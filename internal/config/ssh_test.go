@@ -1786,3 +1786,59 @@ Host "quoted1" "quoted2"
 		}
 	}
 }
+
+func TestHiddenHostsFiltering(t *testing.T) {
+	hosts := []SSHHost{
+		{Name: "visible-1", Hostname: "1.1.1.1", Tags: []string{"prod", "web"}},
+		{Name: "hidden-1", Hostname: "2.2.2.2", Tags: []string{"hidden"}},
+		{Name: "hidden-2", Hostname: "3.3.3.3", Tags: []string{"#hidden", "db"}},
+		{Name: "hidden-3", Hostname: "4.4.4.4", Tags: []string{"HIDDEN"}},
+		{Name: "visible-2", Hostname: "5.5.5.5", Tags: []string{"dev"}},
+	}
+
+	visible := FilterVisibleHosts(hosts)
+	if len(visible) != 2 {
+		t.Fatalf("Expected 2 visible hosts, got %d", len(visible))
+	}
+	if visible[0].Name != "visible-1" || visible[1].Name != "visible-2" {
+		t.Fatalf("Unexpected visible hosts: %+v", visible)
+	}
+}
+
+func TestTagParsingVariants(t *testing.T) {
+	configContent := `# tags: #hidden, #prod
+Host server1
+    HostName 1.2.3.4
+
+Host server2
+    HostName 5.6.7.8
+    # Tags: #dev, web
+`
+	tmpFile, err := os.CreateTemp("", "ssh_config_tags_test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(configContent); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+	tmpFile.Close()
+
+	hosts, err := ParseSSHConfigFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to parse config: %v", err)
+	}
+
+	if len(hosts) != 2 {
+		t.Fatalf("Expected 2 hosts, got %d", len(hosts))
+	}
+
+	if !hostHasTag(hosts[0].Tags, "hidden") {
+		t.Errorf("Expected server1 to have hidden tag, got %+v", hosts[0].Tags)
+	}
+	if !hostHasTag(hosts[1].Tags, "dev") {
+		t.Errorf("Expected server2 to have dev tag, got %+v", hosts[1].Tags)
+	}
+}
+

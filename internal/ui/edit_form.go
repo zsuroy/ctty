@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/zsuroy/ctty/internal/config"
+	"github.com/zsuroy/ctty/internal/credential"
+	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/validation"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -91,60 +93,62 @@ func NewEditForm(hostName string, styles Styles, width, height int, configFile s
 		}
 	}
 
-	inputs := make([]textinput.Model, 10)
+	inputs := make([]textinput.Model, 11)
 
-	// Hostname input
+	// 0: Hostname input
 	inputs[0] = textinput.New()
 	inputs[0].Placeholder = "192.168.1.100 or example.com"
 	inputs[0].CharLimit = 100
 	inputs[0].Width = 30
 	inputs[0].SetValue(host.Hostname)
 
-	// User input
+	// 1: User input
 	inputs[1] = textinput.New()
 	inputs[1].Placeholder = "root"
 	inputs[1].CharLimit = 50
 	inputs[1].Width = 30
 	inputs[1].SetValue(host.User)
 
-	// Port input
+	// 2: Port input
 	inputs[2] = textinput.New()
 	inputs[2].Placeholder = "22"
 	inputs[2].CharLimit = 5
 	inputs[2].Width = 30
 	inputs[2].SetValue(host.Port)
 
-	// Identity input
+	// 3: Password input
 	inputs[3] = textinput.New()
-	inputs[3].Placeholder = "~/.ssh/id_rsa"
-	inputs[3].CharLimit = 200
-	inputs[3].Width = 50
-	inputs[3].SetValue(host.Identity)
-
-	// ProxyJump input
-	inputs[4] = textinput.New()
-	inputs[4].Placeholder = "jump-server"
-	inputs[4].CharLimit = 100
-	inputs[4].Width = 30
-	inputs[4].SetValue(host.ProxyJump)
-
-	// ProxyCommand input
-	inputs[5] = textinput.New()
-	inputs[5].Placeholder = "ssh -W %h:%p Jumphost"
-	inputs[5].CharLimit = 200
-	inputs[5].Width = 50
-	inputs[5].SetValue(host.ProxyCommand)
-
-	// Options input
-	inputs[6] = textinput.New()
-	inputs[6].Placeholder = "-o StrictHostKeyChecking=no"
-	inputs[6].CharLimit = 200
-	inputs[6].Width = 50
-	if host.Options != "" {
-		inputs[6].SetValue(config.FormatSSHOptionsForCommand(host.Options))
+	inputs[3].Placeholder = i18n.T("form.password_placeholder")
+	inputs[3].EchoMode = textinput.EchoPassword
+	inputs[3].EchoCharacter = '•'
+	inputs[3].CharLimit = 100
+	inputs[3].Width = 30
+	if pass, ok := credential.GetPassword(hostName); ok {
+		inputs[3].SetValue(pass)
 	}
 
-	// Tags input
+	// 4: Identity input
+	inputs[4] = textinput.New()
+	inputs[4].Placeholder = "~/.ssh/id_rsa"
+	inputs[4].CharLimit = 200
+	inputs[4].Width = 50
+	inputs[4].SetValue(host.Identity)
+
+	// 5: ProxyJump input
+	inputs[5] = textinput.New()
+	inputs[5].Placeholder = "jump-server"
+	inputs[5].CharLimit = 100
+	inputs[5].Width = 30
+	inputs[5].SetValue(host.ProxyJump)
+
+	// 6: ProxyCommand input
+	inputs[6] = textinput.New()
+	inputs[6].Placeholder = "ssh -W %h:%p Jumphost"
+	inputs[6].CharLimit = 200
+	inputs[6].Width = 50
+	inputs[6].SetValue(host.ProxyCommand)
+
+	// 7: Tags input
 	inputs[7] = textinput.New()
 	inputs[7].Placeholder = "production, web, database"
 	inputs[7].CharLimit = 200
@@ -153,19 +157,28 @@ func NewEditForm(hostName string, styles Styles, width, height int, configFile s
 		inputs[7].SetValue(strings.Join(host.Tags, ", "))
 	}
 
-	// Remote Command input
+	// 8: Options input
 	inputs[8] = textinput.New()
-	inputs[8].Placeholder = "ls -la, htop, bash"
-	inputs[8].CharLimit = 300
-	inputs[8].Width = 70
-	inputs[8].SetValue(host.RemoteCommand)
+	inputs[8].Placeholder = "-o StrictHostKeyChecking=no"
+	inputs[8].CharLimit = 200
+	inputs[8].Width = 50
+	if host.Options != "" {
+		inputs[8].SetValue(config.FormatSSHOptionsForCommand(host.Options))
+	}
 
-	// RequestTTY input
+	// 9: Remote Command input
 	inputs[9] = textinput.New()
-	inputs[9].Placeholder = "yes, no, force, auto"
-	inputs[9].CharLimit = 10
-	inputs[9].Width = 30
-	inputs[9].SetValue(host.RequestTTY)
+	inputs[9].Placeholder = "ls -la, htop, bash"
+	inputs[9].CharLimit = 300
+	inputs[9].Width = 70
+	inputs[9].SetValue(host.RemoteCommand)
+
+	// 10: RequestTTY input
+	inputs[10] = textinput.New()
+	inputs[10].Placeholder = "yes, no, force, auto"
+	inputs[10].CharLimit = 10
+	inputs[10].Width = 30
+	inputs[10].SetValue(host.RequestTTY)
 
 	return &editFormModel{
 		hostInputs:       hostInputs,
@@ -260,19 +273,19 @@ func (m *editFormModel) updateFocus() tea.Cmd {
 func (m *editFormModel) getPropertiesForCurrentTab() []int {
 	switch m.currentTab {
 	case 0: // General
-		return []int{0, 1, 2, 3, 4, 5, 7} // hostname, user, port, identity, proxyjump, proxycommand, tags
+		return []int{0, 1, 2, 3, 4, 5, 6, 7} // hostname, user, port, password, identity, proxyjump, proxycommand, tags
 	case 1: // Advanced
-		return []int{6, 8, 9} // options, remotecommand, requesttty
+		return []int{8, 9, 10} // options, remotecommand, requesttty
 	default:
-		return []int{0, 1, 2, 3, 4, 5, 7}
+		return []int{0, 1, 2, 3, 4, 5, 6, 7}
 	}
 }
 
 // getFirstPropertyForTab returns the first property index for a given tab
 func (m *editFormModel) getFirstPropertyForTab(tab int) int {
-	properties := []int{0, 1, 2, 3, 4, 5, 7} // General tab
+	properties := []int{0, 1, 2, 3, 4, 5, 6, 7} // General tab
 	if tab == 1 {
-		properties = []int{6, 8, 9} // Advanced tab
+		properties = []int{8, 9, 10} // Advanced tab
 	}
 	if len(properties) > 0 {
 		return properties[0]
@@ -399,10 +412,10 @@ func (m *editFormModel) renderHeightWarning() string {
 	required := m.getMinimumHeight()
 	current := m.height
 
-	warning := m.styles.ErrorText.Render("⚠️  Terminal height is too small!")
-	details := m.styles.FormField.Render(fmt.Sprintf("Current: %d lines, Required: %d lines", current, required))
-	instruction := m.styles.FormHelp.Render("Please resize your terminal window and try again.")
-	instruction2 := m.styles.FormHelp.Render("Press Ctrl+C to cancel or resize terminal window.")
+	warning := m.styles.ErrorText.Render(i18n.T("form.height_warning_title"))
+	details := m.styles.FormField.Render(fmt.Sprintf(i18n.T("form.height_warning_details"), current, required))
+	instruction := m.styles.FormHelp.Render(i18n.T("form.height_warning_resize"))
+	instruction2 := m.styles.FormHelp.Render(i18n.T("form.height_warning_cancel"))
 
 	return warning + "\n\n" + details + "\n\n" + instruction + "\n" + instruction2
 }
@@ -498,20 +511,20 @@ func (m *editFormModel) View() string {
 		b.WriteString("\n\n")
 	}
 
-	b.WriteString(m.styles.Header.Render("Edit SSH Host"))
+	b.WriteString(m.styles.Header.Render(i18n.T("form.edit_title")))
 	b.WriteString("\n\n")
 
 	if m.host != nil && m.host.SourceFile != "" {
 		labelStyle := m.styles.FormField
 		pathStyle := m.styles.FormField
-		configInfo := labelStyle.Render("Config file: ") + pathStyle.Render(formatConfigFile(m.host.SourceFile))
+		configInfo := labelStyle.Render(i18n.T("form.config_file")) + pathStyle.Render(formatConfigFile(m.host.SourceFile))
 		b.WriteString(configInfo)
 	}
 
 	b.WriteString("\n\n")
 
 	// Host Names Section
-	b.WriteString(m.styles.FormTitle.Render("Host Names"))
+	b.WriteString(m.styles.FormTitle.Render(i18n.T("form.host_names_section")))
 	b.WriteString("\n\n")
 
 	for i, hostInput := range m.hostInputs {
@@ -519,14 +532,14 @@ func (m *editFormModel) View() string {
 		if m.focusArea == focusAreaHosts && m.focused == i {
 			hostStyle = m.styles.FocusedLabel
 		}
-		b.WriteString(hostStyle.Render(fmt.Sprintf("Host Name %d *", i+1)))
+		b.WriteString(hostStyle.Render(fmt.Sprintf(i18n.T("form.host_name_num"), i+1)))
 		b.WriteString("\n")
 		b.WriteString(hostInput.View())
 		b.WriteString("\n\n")
 	}
 
 	// Properties Section
-	b.WriteString(m.styles.FormTitle.Render("Common Properties"))
+	b.WriteString(m.styles.FormTitle.Render(i18n.T("form.common_properties_section")))
 	b.WriteString("\n\n")
 
 	// Render tabs for properties
@@ -548,13 +561,13 @@ func (m *editFormModel) View() string {
 
 	// Show different help based on number of hosts
 	if len(m.hostInputs) > 1 {
-		b.WriteString(m.styles.FormHelp.Render("Tab/↑↓/Enter: navigate • Ctrl+J/K: switch tabs • Ctrl+A: add host • Ctrl+D: delete host"))
+		b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_multi_host")))
 		b.WriteString("\n")
 	} else {
-		b.WriteString(m.styles.FormHelp.Render("Tab/↑↓/Enter: navigate • Ctrl+J/K: switch tabs • Ctrl+A: add host"))
+		b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_single_host")))
 		b.WriteString("\n")
 	}
-	b.WriteString(m.styles.FormHelp.Render("Ctrl+S: save • Ctrl+C/Esc: cancel • * Required fields"))
+	b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_save_cancel")))
 
 	return b.String()
 }
@@ -562,13 +575,15 @@ func (m *editFormModel) View() string {
 // renderEditTabs renders the tab headers for properties
 func (m *editFormModel) renderEditTabs() string {
 	var generalTab, advancedTab string
+	generalLabel := i18n.T("form.tab_general")
+	advancedLabel := i18n.T("form.tab_advanced")
 
 	if m.currentTab == 0 {
-		generalTab = m.styles.FocusedLabel.Render("[ General ]")
-		advancedTab = m.styles.FormField.Render("  Advanced  ")
+		generalTab = m.styles.FocusedLabel.Render(fmt.Sprintf("[ %s ]", generalLabel))
+		advancedTab = m.styles.FormField.Render(fmt.Sprintf("  %s  ", advancedLabel))
 	} else {
-		generalTab = m.styles.FormField.Render("  General  ")
-		advancedTab = m.styles.FocusedLabel.Render("[ Advanced ]")
+		generalTab = m.styles.FormField.Render(fmt.Sprintf("  %s  ", generalLabel))
+		advancedTab = m.styles.FocusedLabel.Render(fmt.Sprintf("[ %s ]", advancedLabel))
 	}
 
 	return generalTab + "  " + advancedTab
@@ -582,13 +597,14 @@ func (m *editFormModel) renderEditGeneralTab() string {
 		index int
 		label string
 	}{
-		{0, "Hostname/IP *"},
-		{1, "User"},
-		{2, "Port"},
-		{3, "Identity File"},
-		{4, "Proxy Jump"},
-		{5, "Proxy Command"},
-		{7, "Tags (comma-separated)"},
+		{0, i18n.T("form.hostname_ip")},
+		{1, i18n.T("form.user")},
+		{2, i18n.T("form.port")},
+		{3, i18n.T("form.password")},
+		{4, i18n.T("form.identity_file")},
+		{5, i18n.T("form.proxy_jump")},
+		{6, i18n.T("form.proxy_command")},
+		{7, i18n.T("form.tags")},
 	}
 
 	for _, field := range fields {
@@ -601,7 +617,7 @@ func (m *editFormModel) renderEditGeneralTab() string {
 		b.WriteString(m.inputs[field.index].View())
 		b.WriteString("\n")
 		if field.index == 7 && m.focusArea == focusAreaProperties && m.focused == 7 {
-			b.WriteString(m.styles.FormHelp.Render(`  tip: use "hidden" to hide this host from the list`))
+			b.WriteString(m.styles.FormHelp.Render(i18n.T("form.tip_hidden")))
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
@@ -618,9 +634,9 @@ func (m *editFormModel) renderEditAdvancedTab() string {
 		index int
 		label string
 	}{
-		{6, "SSH Options"},
-		{8, "Remote Command"},
-		{9, "Request TTY"},
+		{8, i18n.T("form.ssh_options")},
+		{9, i18n.T("form.remote_command")},
+		{10, i18n.T("form.request_tty")},
 	}
 
 	for _, field := range fields {
@@ -687,19 +703,21 @@ func (m *editFormModel) submitEditForm() tea.Cmd {
 		}
 
 		if len(hostNames) == 0 {
-			return editFormSubmitMsg{err: fmt.Errorf("at least one host name is required")}
+			return editFormSubmitMsg{err: fmt.Errorf("%s", i18n.T("form.err_host_name_req"))}
 		}
 
 		// Get property values using direct indices
-		hostname := strings.TrimSpace(m.inputs[0].Value())                                   // hostnameInput
-		user := strings.TrimSpace(m.inputs[1].Value())                                       // userInput
-		port := strings.TrimSpace(m.inputs[2].Value())                                       // portInput
-		identity := strings.TrimSpace(m.inputs[3].Value())                                   // identityInput
-		proxyJump := strings.TrimSpace(m.inputs[4].Value())                                  // proxyJumpInput
-		proxyCommand := strings.TrimSpace(m.inputs[5].Value())                               // proxyCommandInput
-		options := config.ParseSSHOptionsFromCommand(strings.TrimSpace(m.inputs[6].Value())) // optionsInput
-		remoteCommand := strings.TrimSpace(m.inputs[8].Value())                              // remoteCommandInput
-		requestTTY := strings.TrimSpace(m.inputs[9].Value())                                 // requestTTYInput
+		hostname := strings.TrimSpace(m.inputs[0].Value())
+		user := strings.TrimSpace(m.inputs[1].Value())
+		port := strings.TrimSpace(m.inputs[2].Value())
+		password := strings.TrimSpace(m.inputs[3].Value())
+		identity := strings.TrimSpace(m.inputs[4].Value())
+		proxyJump := strings.TrimSpace(m.inputs[5].Value())
+		proxyCommand := strings.TrimSpace(m.inputs[6].Value())
+		tagsStr := strings.TrimSpace(m.inputs[7].Value())
+		options := config.ParseSSHOptionsFromCommand(strings.TrimSpace(m.inputs[8].Value()))
+		remoteCommand := strings.TrimSpace(m.inputs[9].Value())
+		requestTTY := strings.TrimSpace(m.inputs[10].Value())
 
 		// Set defaults
 		if port == "" {
@@ -708,7 +726,7 @@ func (m *editFormModel) submitEditForm() tea.Cmd {
 
 		// Validate hostname
 		if hostname == "" {
-			return editFormSubmitMsg{err: fmt.Errorf("hostname is required")}
+			return editFormSubmitMsg{err: fmt.Errorf("%s", i18n.T("form.err_hostname_req"))}
 		}
 
 		// Validate all host names
@@ -719,11 +737,11 @@ func (m *editFormModel) submitEditForm() tea.Cmd {
 		}
 
 		// Parse tags
-		tagsStr := strings.TrimSpace(m.inputs[7].Value()) // tagsInput
 		var tags []string
 		if tagsStr != "" {
 			for _, tag := range strings.Split(tagsStr, ",") {
 				tag = strings.TrimSpace(tag)
+				tag = strings.TrimPrefix(tag, "#")
 				if tag != "" {
 					tags = append(tags, tag)
 				}
@@ -756,6 +774,19 @@ func (m *editFormModel) submitEditForm() tea.Cmd {
 		} else {
 			// Multi-host editing or conversion from single to multi
 			err = config.UpdateMultiHostBlock(m.originalHosts, hostNames, commonHost, m.actualConfigFile)
+		}
+
+		if err == nil {
+			for _, name := range hostNames {
+				if m.originalName != name {
+					_ = credential.RenameHost(m.originalName, name)
+				}
+				if password != "" {
+					_ = credential.SetPassword(name, password)
+				} else {
+					_ = credential.DeletePassword(name)
+				}
+			}
 		}
 
 		return editFormSubmitMsg{hostname: hostNames[0], err: err}
