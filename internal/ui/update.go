@@ -807,8 +807,8 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "s":
 		if !m.searchMode && !m.deleteMode {
-			// Cycle through sort modes (only 2 modes now)
-			m.sortMode = (m.sortMode + 1) % 2
+			// Cycle through all sort modes (Name -> Hostname -> Tags -> Last Login)
+			m.sortMode = (m.sortMode + 1) % NumSortModes
 			// Re-apply the current filter with the new sort mode
 			if m.searchInput.Value() != "" {
 				m.filteredHosts = m.filterHosts(m.searchInput.Value())

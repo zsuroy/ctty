@@ -9,15 +9,18 @@ import (
 
 // sortHosts sorts hosts according to the current sort mode
 func (m Model) sortHosts(hosts []config.SSHHost) []config.SSHHost {
-	if m.historyManager == nil {
-		return sortHostsByName(hosts)
-	}
-
 	switch m.sortMode {
-	case SortByLastUsed:
-		return m.historyManager.SortHostsByLastUsed(hosts)
 	case SortByName:
-		fallthrough
+		return sortHostsByName(hosts)
+	case SortByHostname:
+		return sortHostsByHostname(hosts)
+	case SortByTags:
+		return sortHostsByTags(hosts)
+	case SortByLastUsed:
+		if m.historyManager != nil {
+			return m.historyManager.SortHostsByLastUsed(hosts)
+		}
+		return sortHostsByName(hosts)
 	default:
 		return sortHostsByName(hosts)
 	}
@@ -30,6 +33,48 @@ func sortHostsByName(hosts []config.SSHHost) []config.SSHHost {
 
 	sort.Slice(sorted, func(i, j int) bool {
 		return strings.ToLower(sorted[i].Name) < strings.ToLower(sorted[j].Name)
+	})
+
+	return sorted
+}
+
+// sortHostsByHostname sorts a slice of SSH hosts alphabetically by hostname
+func sortHostsByHostname(hosts []config.SSHHost) []config.SSHHost {
+	sorted := make([]config.SSHHost, len(hosts))
+	copy(sorted, hosts)
+
+	sort.Slice(sorted, func(i, j int) bool {
+		h1 := strings.ToLower(sorted[i].Hostname)
+		h2 := strings.ToLower(sorted[j].Hostname)
+		if h1 == h2 {
+			return strings.ToLower(sorted[i].Name) < strings.ToLower(sorted[j].Name)
+		}
+		return h1 < h2
+	})
+
+	return sorted
+}
+
+// sortHostsByTags sorts a slice of SSH hosts by tags (hosts with tags first, alphabetically)
+func sortHostsByTags(hosts []config.SSHHost) []config.SSHHost {
+	sorted := make([]config.SSHHost, len(hosts))
+	copy(sorted, hosts)
+
+	sort.Slice(sorted, func(i, j int) bool {
+		t1 := strings.ToLower(strings.Join(sorted[i].Tags, " "))
+		t2 := strings.ToLower(strings.Join(sorted[j].Tags, " "))
+
+		// If one has tags and the other doesn't, the one with tags comes first
+		if t1 != "" && t2 == "" {
+			return true
+		}
+		if t1 == "" && t2 != "" {
+			return false
+		}
+		if t1 == t2 {
+			return strings.ToLower(sorted[i].Name) < strings.ToLower(sorted[j].Name)
+		}
+		return t1 < t2
 	})
 
 	return sorted

@@ -216,22 +216,26 @@ func (m *Model) updateTableColumns() {
 
 	// Create new columns with updated widths and sort indicators
 	nameTitle := "Name"
+	hostnameTitle := "Hostname"
+	tagsTitle := "Tags"
 	lastLoginTitle := "Last Login"
 
 	// Add sort indicators based on current sort mode
 	switch m.sortMode {
 	case SortByName:
 		nameTitle += " ↓"
+	case SortByHostname:
+		hostnameTitle += " ↓"
+	case SortByTags:
+		tagsTitle += " ↓"
 	case SortByLastUsed:
 		lastLoginTitle += " ↓"
 	}
 
 	columns := []table.Column{
 		{Title: nameTitle, Width: nameWidth},
-		{Title: "Hostname", Width: hostnameWidth},
-		// {Title: "User", Width: userWidth},      // Commented to save space
-		// {Title: "Port", Width: portWidth},      // Commented to save space
-		{Title: "Tags", Width: tagsWidth},
+		{Title: hostnameTitle, Width: hostnameWidth},
+		{Title: tagsTitle, Width: tagsWidth},
 		{Title: lastLoginTitle, Width: lastLoginWidth},
 	}
 

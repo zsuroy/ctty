@@ -16,13 +16,20 @@ type SortMode int
 
 const (
 	SortByName SortMode = iota
+	SortByHostname
+	SortByTags
 	SortByLastUsed
+	NumSortModes
 )
 
 func (s SortMode) String() string {
 	switch s {
 	case SortByName:
 		return "Name (A-Z)"
+	case SortByHostname:
+		return "Hostname (A-Z)"
+	case SortByTags:
+		return "Tags (A-Z)"
 	case SortByLastUsed:
 		return "Last Login"
 	default:
