@@ -482,7 +482,7 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusMsg = "Loading " + parent + "..."
 		return m, m.loadDirCmd(parent)
 
-	case "u":
+	case "u", "tab", "shift+tab":
 		// Upload: switch table to show local files
 		m.mode = sftpUploadSelect
 		if m.localCwd == "" {
@@ -728,7 +728,7 @@ func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	key := msg.String()
 
 	switch key {
-	case "esc":
+	case "esc", "tab", "shift+tab":
 		m.mode = sftpBrowse
 		m.updateTableRows()
 		return m, nil

@@ -137,33 +137,7 @@ func runInteractiveMode() {
 		log.Fatalf("Error reading SSH config file: %v", err)
 	}
 
-	if len(hosts) == 0 {
-		fmt.Println("No SSH hosts found in your ~/.ssh/config file.")
-		fmt.Print("Would you like to add a new host now? [y/N]: ")
-		var response string
-		_, err := fmt.Scanln(&response)
-		if err == nil && (response == "y" || response == "Y") {
-			err := ui.RunAddForm("", configFile)
-			if err != nil {
-				fmt.Printf("Error adding host: %v\n", err)
-			}
-			// After adding, try to reload hosts and continue if any exist
-			if configFile != "" {
-				hosts, err = config.ParseSSHConfigFile(configFile)
-			} else {
-				hosts, err = config.ParseSSHConfig()
-			}
-			if err != nil || len(hosts) == 0 {
-				fmt.Println("No hosts available, exiting.")
-				os.Exit(1)
-			}
-		} else {
-			fmt.Println("No hosts available, exiting.")
-			os.Exit(1)
-		}
-	}
-
-	// Run the interactive TUI
+	// Run the interactive TUI directly (even with 0 hosts)
 	if err := ui.RunInteractiveMode(hosts, configFile, searchMode, AppVersion, noUpdateCheck); err != nil {
 		log.Fatalf("Error running interactive mode: %v", err)
 	}

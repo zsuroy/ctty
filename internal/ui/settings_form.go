@@ -1,11 +1,11 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/i18n"
 )
@@ -213,7 +213,14 @@ func (m *settingsFormModel) renderRow(b *strings.Builder, idx settingsField, lab
 		valStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(PrimaryColor)).Bold(true)
 	}
 
-	b.WriteString(labelStyle.Render(fmt.Sprintf("  %-28s", label)))
+	displayLabel := "  " + label
+	sw := ansi.StringWidth(displayLabel)
+	targetWidth := 24
+	if sw < targetWidth {
+		displayLabel += strings.Repeat(" ", targetWidth-sw)
+	}
+
+	b.WriteString(labelStyle.Render(displayLabel))
 	b.WriteString(arrowStyle.Render("◂ "))
 	b.WriteString(valStyle.Render(value))
 	b.WriteString(arrowStyle.Render(" ▸"))

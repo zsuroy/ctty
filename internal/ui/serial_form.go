@@ -229,13 +229,11 @@ func (m *serialFormModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.table.Blur()
 		return m, textinput.Blink
 	case "tab":
-		// Toggle focus between search and table
-		if m.searchMode {
-			m.searchMode = false
-			m.searchInput.Blur()
-			m.table.Focus()
-		}
-		return m, nil
+		// Switch focus from table to search input
+		m.searchMode = true
+		m.searchInput.Focus()
+		m.table.Blur()
+		return m, textinput.Blink
 	case "enter":
 		if len(m.filteredDevices) == 0 {
 			return m, nil

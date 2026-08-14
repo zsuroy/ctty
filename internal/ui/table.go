@@ -372,10 +372,14 @@ func (m *Model) renderTableView() string {
 	}
 
 	if hostCount == 0 {
+		emptyMsg := i18n.T("table.no_matching")
+		if len(m.hosts) == 0 && m.searchInput.Value() == "" {
+			emptyMsg = i18n.T("table.empty_hosts")
+		}
 		emptyRow := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(SecondaryColor)).
 			Italic(true).
-			Render(i18n.T("table.no_matching"))
+			Render(emptyMsg)
 		renderedRows = append(renderedRows, emptyRow)
 	}
 
