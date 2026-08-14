@@ -67,8 +67,12 @@ func (m Model) renderListView() string {
 	// Build the interface components
 	components := []string{}
 
-	// Add the ASCII title
-	components = append(components, m.styles.Header.Render(asciiTitle))
+	// Add title (compact on small terminal heights < 20 lines)
+	if m.height < 20 {
+		components = append(components, m.styles.Header.Render("🚀 ctty"))
+	} else {
+		components = append(components, m.styles.Header.Render(asciiTitle))
+	}
 
 	// Add update notification if available (between title and search)
 	if m.updateInfo != nil && m.updateInfo.Available {

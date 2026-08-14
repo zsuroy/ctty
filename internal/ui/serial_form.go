@@ -7,9 +7,9 @@ import (
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -17,21 +17,21 @@ import (
 // It shows saved serial devices + detected ports, and lets the user
 // connect, add, or delete entries.
 type serialFormModel struct {
-	styles     Styles
-	width       int
-	height      int
-	table       table.Model
-	devices     []serialconfig.SerialDevice
-	availablePorts []string
-	mode        serialMode
-	connectForm *serialConnectFormModel
-	addForm     *serialAddFormModel
-	deleteMode  bool
-	deleteIndex int
-	infoIndex   int
-	ready       bool
-	searchInput    textinput.Model
-	searchMode     bool
+	styles          Styles
+	width           int
+	height          int
+	table           table.Model
+	devices         []serialconfig.SerialDevice
+	availablePorts  []string
+	mode            serialMode
+	connectForm     *serialConnectFormModel
+	addForm         *serialAddFormModel
+	deleteMode      bool
+	deleteIndex     int
+	infoIndex       int
+	ready           bool
+	searchInput     textinput.Model
+	searchMode      bool
 	filteredDevices []serialconfig.SerialDevice
 }
 
@@ -110,29 +110,90 @@ func (m *serialFormModel) loadDevices() {
 	m.availablePorts = scanned
 }
 
-func (m *serialFormModel) buildTable() {
-	columns := []table.Column{
-		{Title: i18n.T("serial.col_name"), Width: 22},
-		{Title: i18n.T("serial.col_device"), Width: 30},
+func (m *serialFormModel) getColumns() []table.Column {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+
+	if w < 60 {
+		rem := w - 20
+		if rem < 16 {
+			rem = 16
+		}
+		nameW := rem / 2
+		devW := rem - nameW
+		return []table.Column{
+			{Title: i18n.T("serial.col_name"), Width: nameW},
+			{Title: i18n.T("serial.col_device"), Width: devW},
+			{Title: i18n.T("serial.col_baud"), Width: 8},
+		}
+	} else if w < 90 {
+		rem := w - 34
+		if rem < 20 {
+			rem = 20
+		}
+		nameW := rem / 2
+		devW := rem - nameW
+		return []table.Column{
+			{Title: i18n.T("serial.col_name"), Width: nameW},
+			{Title: i18n.T("serial.col_device"), Width: devW},
+			{Title: i18n.T("serial.col_baud"), Width: 8},
+			{Title: i18n.T("serial.col_data"), Width: 5},
+			{Title: i18n.T("serial.col_stop"), Width: 5},
+		}
+	}
+
+	rem := w - 46
+	if rem < 24 {
+		rem = 24
+	}
+	nameW := rem / 2
+	devW := rem - nameW
+	return []table.Column{
+		{Title: i18n.T("serial.col_name"), Width: nameW},
+		{Title: i18n.T("serial.col_device"), Width: devW},
 		{Title: i18n.T("serial.col_baud"), Width: 8},
 		{Title: i18n.T("serial.col_data"), Width: 6},
 		{Title: i18n.T("serial.col_parity"), Width: 8},
 		{Title: i18n.T("serial.col_stop"), Width: 6},
 	}
+}
+
+func (m *serialFormModel) buildTable() {
+	columns := m.getColumns()
 
 	rows := []table.Row{}
 	for _, d := range m.filteredDevices {
-		rows = append(rows, table.Row{
-			d.Name,
-			d.Device,
-			fmt.Sprintf("%d", d.BaudRate),
-			fmt.Sprintf("%d", d.DataBits),
-			d.Parity,
-			fmt.Sprintf("%d", d.StopBits),
-		})
+		if len(columns) == 3 {
+			rows = append(rows, table.Row{
+				d.Name,
+				d.Device,
+				fmt.Sprintf("%d", d.BaudRate),
+			})
+		} else if len(columns) == 5 {
+			rows = append(rows, table.Row{
+				d.Name,
+				d.Device,
+				fmt.Sprintf("%d", d.BaudRate),
+				fmt.Sprintf("%d", d.DataBits),
+				fmt.Sprintf("%d", d.StopBits),
+			})
+		} else {
+			rows = append(rows, table.Row{
+				d.Name,
+				d.Device,
+				fmt.Sprintf("%d", d.BaudRate),
+				fmt.Sprintf("%d", d.DataBits),
+				d.Parity,
+				fmt.Sprintf("%d", d.StopBits),
+			})
+		}
 	}
 	if len(rows) == 0 {
-		rows = append(rows, table.Row{i18n.T("serial.no_ports"), "", "", "", "", ""})
+		emptyRow := make(table.Row, len(columns))
+		emptyRow[0] = i18n.T("serial.no_ports")
+		rows = append(rows, emptyRow)
 	}
 
 	s := table.DefaultStyles()
@@ -143,11 +204,16 @@ func (m *serialFormModel) buildTable() {
 		BorderBottom(true).
 		Bold(false)
 
+	availHeight := m.height - 8
+	if availHeight < 2 {
+		availHeight = 2
+	}
+
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithRows(rows),
 		table.WithFocused(true),
-		table.WithHeight(min(len(rows)+2, 15)),
+		table.WithHeight(availHeight),
 		table.WithStyles(s),
 	)
 	m.table = t
@@ -193,6 +259,13 @@ func (m *serialFormModel) Init() tea.Cmd {
 
 func (m *serialFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.styles = NewStyles(m.width)
+		m.buildTable()
+		return m, nil
+
 	case tea.KeyMsg:
 		switch m.mode {
 		case serialList:
@@ -346,21 +419,23 @@ func (m *serialFormModel) renderInfo() string {
 		saved = i18n.T("serial.saved_no")
 	}
 
-	lines := []string{
-		m.styles.Header.Render(i18n.T("serial.info_title")),
-		"",
-		fmt.Sprintf("  %-12s%s", i18n.T("serial.field_name"), dev.Name),
-		fmt.Sprintf("  %-12s%s", i18n.T("serial.field_device"), dev.Device),
-		fmt.Sprintf("  %-12s%d", i18n.T("serial.field_baud"), dev.BaudRate),
-		fmt.Sprintf("  %-12s%d", i18n.T("serial.field_data"), dev.DataBits),
-		fmt.Sprintf("  %-12s%s", i18n.T("serial.field_parity"), dev.Parity),
-		fmt.Sprintf("  %-12s%d", i18n.T("serial.field_stop"), dev.StopBits),
-		i18n.T("serial.field_saved", saved),
-		"",
-		m.styles.HelpText.Render(i18n.T("serial.help_info")),
-	}
+	var components []string
+	components = append(components, m.styles.Header.Render(i18n.T("serial.info_title")))
+	components = append(components, fmt.Sprintf("  %-14s %s", i18n.T("serial.field_name"), dev.Name))
+	components = append(components, fmt.Sprintf("  %-14s %s", i18n.T("serial.field_device"), dev.Device))
+	components = append(components, fmt.Sprintf("  %-14s %d", i18n.T("serial.field_baud"), dev.BaudRate))
+	components = append(components, fmt.Sprintf("  %-14s %d", i18n.T("serial.field_data"), dev.DataBits))
+	components = append(components, fmt.Sprintf("  %-14s %s", i18n.T("serial.field_parity"), dev.Parity))
+	components = append(components, fmt.Sprintf("  %-14s %d", i18n.T("serial.field_stop"), dev.StopBits))
+	components = append(components, fmt.Sprintf("  %-14s %s", "Saved Config:", saved))
+	components = append(components, m.styles.HelpText.Render(i18n.T("serial.help_info")))
 
-	return m.styles.FormContainer.Render(strings.Join(lines, "\n"))
+	return m.styles.App.Render(
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			components...,
+		),
+	)
 }
 
 func (m *serialFormModel) handleAddKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -430,24 +505,21 @@ func (m *serialFormModel) View() string {
 }
 
 func (m *serialFormModel) renderList() string {
-	var b strings.Builder
+	components := []string{}
 
 	// Header
-	b.WriteString(m.styles.Header.Render(i18n.T("serial.title")))
-	b.WriteString("\n\n")
+	components = append(components, m.styles.Header.Render(i18n.T("serial.title")))
 
 	// Search bar
 	searchPrompt := i18n.T("search.prompt")
 	if m.searchMode {
-		b.WriteString(m.styles.SearchFocused.Render(searchPrompt + m.searchInput.View()))
+		components = append(components, m.styles.SearchFocused.Render(searchPrompt+m.searchInput.View()))
 	} else {
-		b.WriteString(m.styles.SearchUnfocused.Render(searchPrompt + m.searchInput.View()))
+		components = append(components, m.styles.SearchUnfocused.Render(searchPrompt+m.searchInput.View()))
 	}
-	b.WriteString("\n\n")
 
 	// Table
-	b.WriteString(m.styles.TableFocused.Render(m.table.View()))
-	b.WriteString("\n\n")
+	components = append(components, m.styles.TableFocused.Render(m.table.View()))
 
 	// Help
 	var helpText string
@@ -456,8 +528,14 @@ func (m *serialFormModel) renderList() string {
 	} else {
 		helpText = i18n.T("serial.help_list")
 	}
-	b.WriteString(m.styles.HelpText.Render(helpText))
-	return m.styles.FormContainer.Render(b.String())
+	components = append(components, m.styles.HelpText.Render(helpText))
+
+	return m.styles.App.Render(
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			components...,
+		),
+	)
 }
 
 func (m *serialFormModel) renderDeleteConfirm() string {

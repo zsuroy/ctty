@@ -116,10 +116,10 @@ type Model struct {
 	settingsForm     *settingsFormModel
 
 	// Terminal size and styles
-	width  int
-	height int
-	styles Styles
-	ready  bool
+	width      int
+	height     int
+	styles     Styles
+	ready      bool
 	serialOnly bool // true when launched via 'ctty serial' — Esc exits instead of returning to host list
 
 	// Error handling

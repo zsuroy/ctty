@@ -12,9 +12,9 @@ import (
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/sftpconfig"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -134,15 +134,13 @@ func NewSFTPForm(styles Styles, width, height int, hostName, configFile string) 
 		loading:    true,
 	}
 
+	initHeight := m.calculateTableHeight()
+
+	cols := m.getColumns(false)
 	// Initialize table
 	m.table = table.New(
-		table.WithColumns([]table.Column{
-			{Title: i18n.T("sftp.col_name"), Width: 40},
-			{Title: i18n.T("sftp.col_size"), Width: 10},
-			{Title: i18n.T("sftp.col_modified"), Width: 16},
-			{Title: i18n.T("sftp.col_type"), Width: 6},
-		}),
-		table.WithHeight(20),
+		table.WithColumns(cols),
+		table.WithHeight(initHeight),
 		table.WithFocused(true),
 	)
 
@@ -252,6 +250,18 @@ func (m *sftpFormModel) mkdirCmd(remotePath string) tea.Cmd {
 	}
 }
 
+func (m *sftpFormModel) calculateTableHeight() int {
+	overhead := 13
+	if m.height < 20 {
+		overhead = 9
+	}
+	h := m.height - overhead
+	if h < 2 {
+		h = 2
+	}
+	return h
+}
+
 // Update handles SFTP view messages
 func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -351,30 +361,13 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.styles = NewStyles(m.width)
-		// Dynamic table sizing
-		// otherCols = Size(10) + Modified(16) + Type(6) = 32
-		// overhead = container border(2) + padding(4) + table border(2) + emoji(2) = 10
-		otherCols := 32
-		overhead := 10
-		nameWidth := msg.Width - otherCols - overhead
-		if nameWidth > 50 {
-			nameWidth = 50 // cap for readability
-		}
-		if nameWidth < 20 {
-			nameWidth = 20
-		}
-		// Use more of the terminal height: title(1) + path(1) + table border(2) + help(1) + padding(2) = 7
-		tableHeight := msg.Height - 8
-		if tableHeight < 5 {
-			tableHeight = 5
-		}
-		m.table.SetColumns([]table.Column{
-			{Title: "Name", Width: nameWidth},
-			{Title: "Size", Width: 10},
-			{Title: "Modified", Width: 16},
-			{Title: "Type", Width: 6},
-		})
+		tableHeight := m.calculateTableHeight()
 		m.table.SetHeight(tableHeight)
+		if m.mode == sftpUploadSelect {
+			m.updateLocalTableRows()
+		} else {
+			m.updateTableRows()
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -852,16 +845,25 @@ func (m *sftpFormModel) View() string {
 	var components []string
 
 	// Title bar
-	if m.mode == sftpUploadSelect {
-		components = append(components, m.styles.FormTitle.Render(" "+i18n.T("sftp.title_local")+" "))
-		localStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-		remoteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
-		components = append(components, localStyle.Render(" [LOCAL]  "+m.localCwd))
-		components = append(components, remoteStyle.Render(" [REMOTE] "+m.cwd))
+	if m.height < 20 {
+		if m.mode == sftpUploadSelect {
+			components = append(components, m.styles.Header.Render(i18n.T("sftp.title_local")+" [LOCAL] "+truncatePath(m.localCwd, m.width-25)))
+		} else {
+			title := i18n.T("sftp.title_remote", m.hostName)
+			components = append(components, m.styles.Header.Render(title+" "+truncatePath(m.cwd, m.width-len(title)-10)))
+		}
 	} else {
-		components = append(components, m.styles.FormTitle.Render(" "+i18n.T("sftp.title_remote", m.hostName)+" "))
-		pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(SecondaryColor))
-		components = append(components, pathStyle.Render(" "+m.cwd))
+		if m.mode == sftpUploadSelect {
+			components = append(components, m.styles.Header.Render(i18n.T("sftp.title_local")))
+			localStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+			remoteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
+			components = append(components, localStyle.Render(" [LOCAL]  "+truncatePath(m.localCwd, m.width-12)))
+			components = append(components, remoteStyle.Render(" [REMOTE] "+truncatePath(m.cwd, m.width-12)))
+		} else {
+			components = append(components, m.styles.Header.Render(i18n.T("sftp.title_remote", m.hostName)))
+			pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(SecondaryColor))
+			components = append(components, pathStyle.Render(" "+truncatePath(m.cwd, m.width-10)))
+		}
 	}
 
 	// Search bar (only in browse mode, not upload mode)
@@ -895,27 +897,39 @@ func (m *sftpFormModel) View() string {
 		components = append(components, m.renderDeleteConfirm())
 	}
 
-	// Help text — two lines for better readability
-	var helpLine1, helpLine2 string
-	if m.searchMode {
-		helpLine1 = i18n.T("sftp.help_search_1")
-		helpLine2 = i18n.T("sftp.help_search_2")
-	} else if m.mode == sftpUploadSelect {
-		helpLine1 = i18n.T("sftp.help_upload_1")
-		helpLine2 = i18n.T("sftp.help_upload_2")
+	// Help text — compact on small heights (< 20 lines)
+	if m.height < 20 {
+		var helpLine string
+		if m.searchMode {
+			helpLine = i18n.T("sftp.help_search_1")
+		} else if m.mode == sftpUploadSelect {
+			helpLine = i18n.T("sftp.help_upload_1")
+		} else {
+			helpLine = i18n.T("sftp.help_browse_1")
+		}
+		components = append(components, m.styles.HelpText.Render(helpLine))
 	} else {
-		helpLine1 = i18n.T("sftp.help_browse_1")
-		helpLine2 = i18n.T("sftp.help_browse_2")
+		var helpLine1, helpLine2 string
+		if m.searchMode {
+			helpLine1 = i18n.T("sftp.help_search_1")
+			helpLine2 = i18n.T("sftp.help_search_2")
+		} else if m.mode == sftpUploadSelect {
+			helpLine1 = i18n.T("sftp.help_upload_1")
+			helpLine2 = i18n.T("sftp.help_upload_2")
+		} else {
+			helpLine1 = i18n.T("sftp.help_browse_1")
+			helpLine2 = i18n.T("sftp.help_browse_2")
+		}
+		components = append(components, m.styles.HelpText.Render(helpLine1))
+		components = append(components, m.styles.HelpText.Render(helpLine2))
 	}
-	components = append(components, m.styles.HelpText.Render(helpLine1))
-	components = append(components, m.styles.HelpText.Render(helpLine2))
 
-	content := lipgloss.JoinVertical(lipgloss.Left, components...)
-	// Use MaxWidth/MaxHeight instead of Width/Height to avoid forcing
-	// the container to fill the terminal (which causes layout issues
-	// with border + padding). MaxWidth truncates instead of stretching.
-	container := m.styles.FormContainer.MaxWidth(m.width).MaxHeight(m.height)
-	return container.Render(content)
+	return m.styles.App.Render(
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			components...,
+		),
+	)
 }
 
 func (m *sftpFormModel) renderErrorView() string {
@@ -975,6 +989,54 @@ func (m *sftpFormModel) renderLocalFileList() string {
 	return strings.Join(rows, "\n")
 }
 
+func (m *sftpFormModel) getColumns(isLocal bool) []table.Column {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+
+	titleKey := "sftp.col_name"
+	if isLocal {
+		titleKey = "sftp.col_local_file"
+	}
+
+	if w < 55 {
+		nameW := w - 22
+		if nameW < 8 {
+			nameW = 8
+		}
+		sizeW := 8
+		if w < 30 {
+			sizeW = 6
+		}
+		return []table.Column{
+			{Title: i18n.T(titleKey), Width: nameW},
+			{Title: i18n.T("sftp.col_size"), Width: sizeW},
+		}
+	} else if w < 75 {
+		nameW := w - 30
+		if nameW < 12 {
+			nameW = 12
+		}
+		return []table.Column{
+			{Title: i18n.T(titleKey), Width: nameW},
+			{Title: i18n.T("sftp.col_size"), Width: 10},
+			{Title: i18n.T("sftp.col_type"), Width: 6},
+		}
+	}
+
+	nameW := w - 46
+	if nameW < 20 {
+		nameW = 20
+	}
+	return []table.Column{
+		{Title: i18n.T(titleKey), Width: nameW},
+		{Title: i18n.T("sftp.col_size"), Width: 10},
+		{Title: i18n.T("sftp.col_modified"), Width: 16},
+		{Title: i18n.T("sftp.col_type"), Width: 6},
+	}
+}
+
 func (m *sftpFormModel) updateTableRows() {
 	// Sort: directories first, then by name
 	sort.Slice(m.entries, func(i, j int) bool {
@@ -984,6 +1046,7 @@ func (m *sftpFormModel) updateTableRows() {
 		return m.entries[i].Name < m.entries[j].Name
 	})
 
+	cols := m.getColumns(false)
 	var rows []table.Row
 	for _, entry := range m.entries {
 		name := entry.Name
@@ -998,32 +1061,37 @@ func (m *sftpFormModel) updateTableRows() {
 		if entry.IsDir {
 			entryType = i18n.T("sftp.type_dir")
 		}
-		rows = append(rows, table.Row{name, size, modTime, entryType})
-	}
-	m.table.SetRows(rows)
 
-	// Adjust column widths dynamically — same formula as WindowSizeMsg
-	otherCols := 32 // Size(10) + Modified(16) + Type(6)
-	overhead := 10  // container border(2) + padding(4) + table border(2) + emoji(2)
-	nameWidth := m.width - otherCols - overhead
-	if nameWidth > 50 {
-		nameWidth = 50
+		if len(cols) == 2 {
+			rows = append(rows, table.Row{name, size})
+		} else if len(cols) == 3 {
+			rows = append(rows, table.Row{name, size, entryType})
+		} else {
+			rows = append(rows, table.Row{name, size, modTime, entryType})
+		}
 	}
-	if nameWidth < 20 {
-		nameWidth = 20
-	}
-	m.table.SetColumns([]table.Column{
-		{Title: i18n.T("sftp.col_name"), Width: nameWidth},
-		{Title: i18n.T("sftp.col_size"), Width: 10},
-		{Title: i18n.T("sftp.col_modified"), Width: 16},
-		{Title: i18n.T("sftp.col_type"), Width: 6},
-	})
+	s := table.DefaultStyles()
+	s.Selected = m.styles.Selected
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color(PrimaryColor)).
+		BorderBottom(true).
+		Bold(false)
+
+	cursor := m.table.Cursor()
+	h := m.calculateTableHeight()
+	m.table = table.New(
+		table.WithColumns(cols),
+		table.WithRows(rows),
+		table.WithFocused(true),
+		table.WithHeight(h),
+		table.WithStyles(s),
+	)
+	m.table.SetCursor(cursor)
 }
 
 // updateLocalTableRows populates the table with local files for upload.
 func (m *sftpFormModel) updateLocalTableRows() {
-	// Sort localFiles first: dirs first, then alphabetical.
-	// This ensures table row index aligns with localFiles index.
 	sort.Slice(m.localFiles, func(i, j int) bool {
 		ii, ei := os.Stat(m.localFiles[i])
 		ij, ej := os.Stat(m.localFiles[j])
@@ -1036,6 +1104,7 @@ func (m *sftpFormModel) updateLocalTableRows() {
 		return filepath.Base(m.localFiles[i]) < filepath.Base(m.localFiles[j])
 	})
 
+	cols := m.getColumns(true)
 	var rows []table.Row
 	for _, f := range m.localFiles {
 		info, err := os.Stat(f)
@@ -1052,25 +1121,39 @@ func (m *sftpFormModel) updateLocalTableRows() {
 		}
 		size := formatSize(info.Size())
 		modTime := info.ModTime().Format("Jan 02 15:04")
-		rows = append(rows, table.Row{name, size, modTime, entryType})
-	}
-	m.table.SetRows(rows)
 
-	otherCols := 32
-	overhead := 10
-	nameWidth := m.width - otherCols - overhead
-	if nameWidth > 50 {
-		nameWidth = 50
+		if len(cols) == 2 {
+			rows = append(rows, table.Row{name, size})
+		} else if len(cols) == 3 {
+			rows = append(rows, table.Row{name, size, entryType})
+		} else {
+			rows = append(rows, table.Row{name, size, modTime, entryType})
+		}
 	}
-	if nameWidth < 20 {
-		nameWidth = 20
+	if len(rows) == 0 {
+		emptyRow := make(table.Row, len(cols))
+		emptyRow[0] = i18n.T("sftp.empty_dir")
+		rows = append(rows, emptyRow)
 	}
-	m.table.SetColumns([]table.Column{
-		{Title: i18n.T("sftp.col_local_file"), Width: nameWidth},
-		{Title: i18n.T("sftp.col_size"), Width: 10},
-		{Title: i18n.T("sftp.col_modified"), Width: 16},
-		{Title: i18n.T("sftp.col_type"), Width: 6},
-	})
+
+	s := table.DefaultStyles()
+	s.Selected = m.styles.Selected
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color(PrimaryColor)).
+		BorderBottom(true).
+		Bold(false)
+
+	cursor := m.table.Cursor()
+	h := m.calculateTableHeight()
+	m.table = table.New(
+		table.WithColumns(cols),
+		table.WithRows(rows),
+		table.WithFocused(true),
+		table.WithHeight(h),
+		table.WithStyles(s),
+	)
+	m.table.SetCursor(cursor)
 }
 
 // findEntry finds an entry by name (stripping the emoji prefix)
@@ -1139,5 +1222,18 @@ func formatSize(bytes int64) string {
 		div *= unit
 		exp++
 	}
+	if exp >= len("KMGTPE") {
+		exp = len("KMGTPE") - 1
+	}
 	return fmt.Sprintf("%.1f%cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func truncatePath(path string, maxLen int) string {
+	if maxLen <= 5 {
+		return path
+	}
+	if len(path) <= maxLen {
+		return path
+	}
+	return "..." + path[len(path)-maxLen+3:]
 }

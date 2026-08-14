@@ -41,11 +41,12 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 - **🔍 Smart Search** - Find hosts quickly with built-in filtering and search
 - **📝 Real-time Status** - Live SSH connectivity indicators with asynchronous ping checks and color-coded status
 - **🔌 Serial Connections** - Manage and connect to serial devices (console, switch, router) with configurable baud rate, data bits, parity, and stop bits; auto-detected ports appear in the list instantly
-- **📁 SFTP Support** - Transfer files to and from remote hosts without leaving the terminal
+- **🔑 Password Storage & Zero-Touch Auto-Login** - Save SSH passwords securely in a local AES-256-GCM encrypted vault (`~/.config/ctty/credentials.json`, `0600` permissions) with native OpenSSH `SSH_ASKPASS` protocol bridge (zero third-party dependencies, works on macOS, Linux, Windows, and Termux)
+- **🖥️ Split-Pane & Small Terminal Friendly** - All forms and dialogs (Add/Edit Host, Port Forwarding, Host Info, Help Menu) feature focus-following dynamic viewport scrolling with fixed headers/footers. Works flawlessly in tmux/Zellij splits, VS Code/JetBrains embedded terminals, and tiling WMs (i3/Sway) down to 8~12 lines with zero height blocking or truncation
 - **🌐 Bilingual i18n & Settings UI** - Full English and Simplified Chinese support with automatic OS detection (macOS, Windows, Linux, Termux) and interactive in-TUI Settings menu (`S` key) to configure language, updates, and keybindings
 
 ### 🛠️ **Technical Features**
-- **🔒 Secure** - Works directly with your existing `~/.ssh/config` file
+- **🔒 Secure** - Works directly with your existing `~/.ssh/config` file (credentials stored separately, never pollutes standard SSH configs)
 - **📁 Custom Config Support** - Use any SSH configuration file with the `-c` flag
 - **📂 SSH Include Support** - Full support for SSH Include directives to organize configurations across multiple files
 - **⚙️ SSH Options Support** - Add any SSH configuration option through intuitive forms
@@ -53,8 +54,8 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 - **🔄 Automatic Backups** - Backup configurations automatically before changes
 - **✅ Validation** - Prevent configuration errors with built-in validation
 - **🔗 ProxyJump/ProxyCommand Support** - Secure connection tunneling through bastion hosts
-- **⌨️ Keyboard Shortcuts** - Power user navigation with vim-like shortcuts
-- **🌐 Cross-platform** - Supports Linux, macOS (Intel & Apple Silicon), and Windows
+- **⌨️ Keyboard Shortcuts** - Power user navigation with vim-like shortcuts and universal `Tab`/`Shift+Tab` focus cycling
+- **🌐 Cross-platform** - Supports Linux, macOS (Intel & Apple Silicon), Windows, and Android (Termux)
 - **⚡ Lightweight** - Single binary with no dependencies, zero configuration required
 
 ## 🚀 Quick Start

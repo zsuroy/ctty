@@ -51,7 +51,7 @@ func NewStyles(width int) Styles {
 	return Styles{
 		// Main app container
 		App: lipgloss.NewStyle().
-			Padding(1),
+			Padding(0, 1),
 
 		// Header style
 		Header: lipgloss.NewStyle().

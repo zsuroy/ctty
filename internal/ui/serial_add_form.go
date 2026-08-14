@@ -8,14 +8,14 @@ import (
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 // serialAddFormModel is the form for adding a new serial device.
 type serialAddFormModel struct {
-	styles    Styles
+	styles     Styles
 	width      int
 	height     int
 	inputs     []textinput.Model
@@ -88,7 +88,7 @@ func newSerialAddForm(styles Styles, width, height int, ports []string) *serialA
 	}
 
 	return &serialAddFormModel{
-		styles:    styles,
+		styles:     styles,
 		width:      width,
 		height:     height,
 		inputs:     inputs,
@@ -104,6 +104,11 @@ func (m *serialAddFormModel) Init() tea.Cmd {
 
 func (m *serialAddFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.styles = NewStyles(m.width)
+		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc", "ctrl+c":
@@ -203,10 +208,9 @@ func (m *serialAddFormModel) submit() {
 }
 
 func (m *serialAddFormModel) View() string {
-	var b strings.Builder
+	var components []string
 
-	b.WriteString(m.styles.FormTitle.Render(i18n.T("serial.add_title")))
-	b.WriteString("\n\n")
+	components = append(components, m.styles.Header.Render(i18n.T("serial.add_title")))
 
 	labels := []string{
 		i18n.T("serial.field_name"),
@@ -222,13 +226,15 @@ func (m *serialAddFormModel) View() string {
 		if i == m.focusIndex {
 			style = m.styles.FocusedLabel
 		}
-		b.WriteString(style.Render(label))
-		b.WriteString(m.inputs[i].View())
-		b.WriteString("\n")
+		components = append(components, fmt.Sprintf("  %-12s %s", style.Render(label), m.inputs[i].View()))
 	}
 
-	b.WriteString("\n")
-	b.WriteString(m.styles.FormHelp.Render(i18n.T("serial.help_add")))
+	components = append(components, m.styles.HelpText.Render(i18n.T("serial.help_add")))
 
-	return m.styles.FormContainer.Render(b.String())
+	return m.styles.App.Render(
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			components...,
+		),
+	)
 }

@@ -59,9 +59,12 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 	maxTagsLength += 2
 	maxLastLoginLength += 2
 
-	// Calculate available width (minus borders and separators)
-	// Table has borders (2 chars) + column separators (3 chars between 4 columns)
-	availableWidth := m.width - 5
+	// Calculate available width (minus borders, padding, and separators)
+	// TableFocused border (2) + internal separators (3) + App horizontal padding (2) + margin (2) = 9
+	availableWidth := m.width - 9
+	if availableWidth < 30 {
+		availableWidth = 30
+	}
 
 	totalNeededWidth := maxNameLength + maxHostnameLength + maxTagsLength + maxLastLoginLength
 
@@ -168,14 +171,14 @@ func (m *Model) updateTableHeight() {
 	// - Help text: 1 line
 	// - App margins/spacing: 3 lines
 	// - Safety margin: 3 lines (to ensure UI elements are always visible)
-	// Total reserved: 14 lines minimum to preserve essential UI elements
 	reservedHeight := 14
+	if m.height < 20 {
+		reservedHeight = 9 // Compact single-line title saves lines
+	}
 	availableHeight := m.height - reservedHeight
 	hostCount := len(m.table.Rows())
 
-	// Minimum height should be at least 3 rows for basic usability
-	// Even in very small terminals, we want to show at least header + 2 hosts
-	minTableHeight := 4 // 1 header + 3 data rows minimum
+	minTableHeight := 2 // 1 header + 1 data row minimum
 	maxTableHeight := availableHeight
 	if maxTableHeight < minTableHeight {
 		maxTableHeight = minTableHeight
@@ -192,10 +195,6 @@ func (m *Model) updateTableHeight() {
 		// We need to limit to available space
 		tableHeight += maxDataRows
 	}
-
-	// Add one extra line to prevent the last host from being hidden
-	// This compensates for table rendering quirks in bubble tea
-	tableHeight += 1
 
 	// Update table height
 	m.table.SetHeight(tableHeight)

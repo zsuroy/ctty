@@ -33,6 +33,7 @@ type portForwardModel struct {
 	height         int
 	configFile     string
 	historyManager *history.HistoryManager
+	scrollOffset   int
 }
 
 // portForwardSubmitMsg is sent when the port forward form is submitted
@@ -216,149 +217,219 @@ func (m *portForwardModel) updateInputVisibility() {
 }
 
 func (m *portForwardModel) View() string {
-	var sections []string
-	var fields []string
+	// 1. Header (Title + Host Info)
+	var headerLines []string
+	headerLines = append(headerLines, m.styles.Header.Render(i18n.T("pf.title")))
+	headerLines = append(headerLines, m.styles.HelpText.Render(fmt.Sprintf(i18n.T("pf.host_info"), m.hostName)))
 
-	// Title
-	title := m.styles.Header.Render(i18n.T("pf.title"))
-	sections = append(sections, title)
-
-	// Host info
-	hostInfo := fmt.Sprintf(i18n.T("pf.host_info"), m.hostName)
-	sections = append(sections, m.styles.HelpText.Render(hostInfo))
-
-	// Error message
+	// 2. Footer (Errors + Help)
+	var footerLines []string
 	if m.err != "" {
-		sections = append(sections, m.styles.Error.Render(i18n.T("pf.error_prefix")+m.err))
+		footerLines = append(footerLines, m.styles.Error.Render(i18n.T("pf.error_prefix")+m.err))
 	}
+	footerLines = append(footerLines, m.styles.HelpText.Render(i18n.T("pf.help_text")))
 
-	// Forward type
+	// 3. Body lines & field line positions
+	type fieldPos struct {
+		startLine int
+		endLine   int
+	}
+	fieldPositions := make(map[int]fieldPos)
+	var bodyLines []string
+
+	// Forward type field
+	typeStart := len(bodyLines)
 	typeLabel := i18n.T("pf.forward_type_label")
 	if m.focused == pfTypeInput {
 		typeLabel = m.styles.FocusedLabel.Render(typeLabel)
 	} else {
 		typeLabel = m.styles.Label.Render(typeLabel)
 	}
-	fields = append(fields, typeLabel)
-	fields = append(fields, m.inputs[pfTypeInput].View())
-	fields = append(fields, m.styles.HelpText.Render(i18n.T("pf.use_arrows")))
+	bodyLines = append(bodyLines, typeLabel)
+	bodyLines = append(bodyLines, m.inputs[pfTypeInput].View())
+	bodyLines = append(bodyLines, m.styles.HelpText.Render(i18n.T("pf.use_arrows")))
+	bodyLines = append(bodyLines, "")
+	fieldPositions[pfTypeInput] = fieldPos{startLine: typeStart, endLine: len(bodyLines) - 1}
 
 	switch m.forwardType {
 	case LocalForward:
-		fields = append(fields, "")
-		fields = append(fields, m.styles.HelpText.Render(i18n.T("pf.local_desc")))
-		fields = append(fields, "")
+		bodyLines = append(bodyLines, m.styles.HelpText.Render(i18n.T("pf.local_desc")))
+		bodyLines = append(bodyLines, "")
 
 		// Local port
-		localPortLabel := i18n.T("pf.local_port_label")
+		lpStart := len(bodyLines)
+		lpLabel := i18n.T("pf.local_port_label")
 		if m.focused == pfLocalPortInput {
-			localPortLabel = m.styles.FocusedLabel.Render(localPortLabel)
+			lpLabel = m.styles.FocusedLabel.Render(lpLabel)
 		} else {
-			localPortLabel = m.styles.Label.Render(localPortLabel)
+			lpLabel = m.styles.Label.Render(lpLabel)
 		}
-		fields = append(fields, localPortLabel)
-		fields = append(fields, m.inputs[pfLocalPortInput].View())
+		bodyLines = append(bodyLines, lpLabel)
+		bodyLines = append(bodyLines, m.inputs[pfLocalPortInput].View())
+		bodyLines = append(bodyLines, "")
+		fieldPositions[pfLocalPortInput] = fieldPos{startLine: lpStart, endLine: len(bodyLines) - 1}
 
 		// Remote host
-		remoteHostLabel := i18n.T("pf.remote_host_label")
+		rhStart := len(bodyLines)
+		rhLabel := i18n.T("pf.remote_host_label")
 		if m.focused == pfRemoteHostInput {
-			remoteHostLabel = m.styles.FocusedLabel.Render(remoteHostLabel)
+			rhLabel = m.styles.FocusedLabel.Render(rhLabel)
 		} else {
-			remoteHostLabel = m.styles.Label.Render(remoteHostLabel)
+			rhLabel = m.styles.Label.Render(rhLabel)
 		}
-		fields = append(fields, remoteHostLabel)
-		fields = append(fields, m.inputs[pfRemoteHostInput].View())
+		bodyLines = append(bodyLines, rhLabel)
+		bodyLines = append(bodyLines, m.inputs[pfRemoteHostInput].View())
+		bodyLines = append(bodyLines, "")
+		fieldPositions[pfRemoteHostInput] = fieldPos{startLine: rhStart, endLine: len(bodyLines) - 1}
 
 		// Remote port
-		remotePortLabel := i18n.T("pf.remote_port_label")
+		rpStart := len(bodyLines)
+		rpLabel := i18n.T("pf.remote_port_label")
 		if m.focused == pfRemotePortInput {
-			remotePortLabel = m.styles.FocusedLabel.Render(remotePortLabel)
+			rpLabel = m.styles.FocusedLabel.Render(rpLabel)
 		} else {
-			remotePortLabel = m.styles.Label.Render(remotePortLabel)
+			rpLabel = m.styles.Label.Render(rpLabel)
 		}
-		fields = append(fields, remotePortLabel)
-		fields = append(fields, m.inputs[pfRemotePortInput].View())
+		bodyLines = append(bodyLines, rpLabel)
+		bodyLines = append(bodyLines, m.inputs[pfRemotePortInput].View())
+		bodyLines = append(bodyLines, "")
+		fieldPositions[pfRemotePortInput] = fieldPos{startLine: rpStart, endLine: len(bodyLines) - 1}
 
 	case RemoteForward:
-		fields = append(fields, "")
-		fields = append(fields, m.styles.HelpText.Render(i18n.T("pf.remote_desc")))
-		fields = append(fields, "")
+		bodyLines = append(bodyLines, m.styles.HelpText.Render(i18n.T("pf.remote_desc")))
+		bodyLines = append(bodyLines, "")
 
-		// Remote port
-		remotePortLabel := i18n.T("pf.remote_port_label")
+		// Remote port (using pfLocalPortInput)
+		rpStart := len(bodyLines)
+		rpLabel := i18n.T("pf.remote_port_label")
 		if m.focused == pfLocalPortInput {
-			remotePortLabel = m.styles.FocusedLabel.Render(remotePortLabel)
+			rpLabel = m.styles.FocusedLabel.Render(rpLabel)
 		} else {
-			remotePortLabel = m.styles.Label.Render(remotePortLabel)
+			rpLabel = m.styles.Label.Render(rpLabel)
 		}
-		fields = append(fields, remotePortLabel)
-		fields = append(fields, m.inputs[pfLocalPortInput].View())
+		bodyLines = append(bodyLines, rpLabel)
+		bodyLines = append(bodyLines, m.inputs[pfLocalPortInput].View())
+		bodyLines = append(bodyLines, "")
+		fieldPositions[pfLocalPortInput] = fieldPos{startLine: rpStart, endLine: len(bodyLines) - 1}
 
-		// Local host
-		localHostLabel := i18n.T("pf.local_host_label")
+		// Local host (using pfRemoteHostInput)
+		lhStart := len(bodyLines)
+		lhLabel := i18n.T("pf.local_host_label")
 		if m.focused == pfRemoteHostInput {
-			localHostLabel = m.styles.FocusedLabel.Render(localHostLabel)
+			lhLabel = m.styles.FocusedLabel.Render(lhLabel)
 		} else {
-			localHostLabel = m.styles.Label.Render(localHostLabel)
+			lhLabel = m.styles.Label.Render(lhLabel)
 		}
-		fields = append(fields, localHostLabel)
-		fields = append(fields, m.inputs[pfRemoteHostInput].View())
+		bodyLines = append(bodyLines, lhLabel)
+		bodyLines = append(bodyLines, m.inputs[pfRemoteHostInput].View())
+		bodyLines = append(bodyLines, "")
+		fieldPositions[pfRemoteHostInput] = fieldPos{startLine: lhStart, endLine: len(bodyLines) - 1}
 
-		// Local port
-		localPortLabel := i18n.T("pf.local_port_label")
+		// Local port (using pfRemotePortInput)
+		lpStart := len(bodyLines)
+		lpLabel := i18n.T("pf.local_port_label")
 		if m.focused == pfRemotePortInput {
-			localPortLabel = m.styles.FocusedLabel.Render(localPortLabel)
+			lpLabel = m.styles.FocusedLabel.Render(lpLabel)
 		} else {
-			localPortLabel = m.styles.Label.Render(localPortLabel)
+			lpLabel = m.styles.Label.Render(lpLabel)
 		}
-		fields = append(fields, localPortLabel)
-		fields = append(fields, m.inputs[pfRemotePortInput].View())
+		bodyLines = append(bodyLines, lpLabel)
+		bodyLines = append(bodyLines, m.inputs[pfRemotePortInput].View())
+		bodyLines = append(bodyLines, "")
+		fieldPositions[pfRemotePortInput] = fieldPos{startLine: lpStart, endLine: len(bodyLines) - 1}
 
 	case DynamicForward:
-		fields = append(fields, "")
-		fields = append(fields, m.styles.HelpText.Render(i18n.T("pf.dynamic_desc")))
-		fields = append(fields, "")
+		bodyLines = append(bodyLines, m.styles.HelpText.Render(i18n.T("pf.dynamic_desc")))
+		bodyLines = append(bodyLines, "")
 
 		// SOCKS port
-		socksPortLabel := i18n.T("pf.socks_port_label")
+		spStart := len(bodyLines)
+		spLabel := i18n.T("pf.socks_port_label")
 		if m.focused == pfLocalPortInput {
-			socksPortLabel = m.styles.FocusedLabel.Render(socksPortLabel)
+			spLabel = m.styles.FocusedLabel.Render(spLabel)
 		} else {
-			socksPortLabel = m.styles.Label.Render(socksPortLabel)
+			spLabel = m.styles.Label.Render(spLabel)
 		}
-		fields = append(fields, socksPortLabel)
-		fields = append(fields, m.inputs[pfLocalPortInput].View())
+		bodyLines = append(bodyLines, spLabel)
+		bodyLines = append(bodyLines, m.inputs[pfLocalPortInput].View())
+		bodyLines = append(bodyLines, "")
+		fieldPositions[pfLocalPortInput] = fieldPos{startLine: spStart, endLine: len(bodyLines) - 1}
 	}
 
 	// Bind address (for all types)
-	fields = append(fields, "")
+	baStart := len(bodyLines)
 	bindLabel := i18n.T("pf.bind_address_label")
 	if m.focused == pfBindAddressInput {
 		bindLabel = m.styles.FocusedLabel.Render(bindLabel)
 	} else {
 		bindLabel = m.styles.Label.Render(bindLabel)
 	}
-	fields = append(fields, bindLabel)
-	fields = append(fields, m.inputs[pfBindAddressInput].View())
+	bodyLines = append(bodyLines, bindLabel)
+	bodyLines = append(bodyLines, m.inputs[pfBindAddressInput].View())
+	fieldPositions[pfBindAddressInput] = fieldPos{startLine: baStart, endLine: len(bodyLines) - 1}
 
-	// Join form fields
-	formContent := lipgloss.JoinVertical(lipgloss.Left, fields...)
-	sections = append(sections, formContent)
+	// 4. Viewport calculation & auto-scroll
+	totalHeight := m.height
+	if totalHeight <= 0 {
+		totalHeight = 24
+	}
 
-	// Help text
-	helpText := i18n.T("pf.help_text")
-	sections = append(sections, m.styles.HelpText.Render(helpText))
+	reservedLines := len(headerLines) + len(footerLines) + 4
+	viewportHeight := totalHeight - reservedLines
+	if viewportHeight < 3 {
+		viewportHeight = 3
+	}
 
-	// Join all sections
-	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
+	if len(bodyLines) <= viewportHeight {
+		m.scrollOffset = 0
+	} else {
+		if pos, ok := fieldPositions[m.focused]; ok {
+			if pos.startLine < m.scrollOffset {
+				m.scrollOffset = pos.startLine
+			}
+			if pos.endLine >= m.scrollOffset+viewportHeight {
+				m.scrollOffset = pos.endLine - viewportHeight + 1
+			}
+		}
 
-	// Center the form
+		if m.scrollOffset > len(bodyLines)-viewportHeight {
+			m.scrollOffset = len(bodyLines) - viewportHeight
+		}
+		if m.scrollOffset < 0 {
+			m.scrollOffset = 0
+		}
+	}
+
+	endIdx := m.scrollOffset + viewportHeight
+	if endIdx > len(bodyLines) {
+		endIdx = len(bodyLines)
+	}
+	visibleBody := bodyLines[m.scrollOffset:endIdx]
+
+	var b strings.Builder
+	for _, line := range headerLines {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	for _, line := range visibleBody {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	for _, line := range footerLines {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
 	return lipgloss.Place(
 		m.width,
 		m.height,
 		lipgloss.Center,
 		lipgloss.Center,
-		m.styles.FormContainer.Render(content),
+		m.styles.FormContainer.Render(strings.TrimRight(b.String(), "\n")),
 	)
 }
 

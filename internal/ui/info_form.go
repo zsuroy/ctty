@@ -12,12 +12,13 @@ import (
 )
 
 type infoFormModel struct {
-	hostName   string
-	host       config.SSHHost
-	styles     Styles
-	width      int
-	height     int
-	configFile string
+	hostName     string
+	host         config.SSHHost
+	styles       Styles
+	width        int
+	height       int
+	configFile   string
+	scrollOffset int
 }
 
 // Messages for info form actions
@@ -75,6 +76,16 @@ func (m *infoFormModel) Update(msg tea.Msg) (*infoFormModel, tea.Cmd) {
 		case "e", "enter":
 			// Switch to edit mode
 			return m, func() tea.Msg { return infoFormEditMsg{hostName: m.hostName} }
+
+		case "up", "k":
+			if m.scrollOffset > 0 {
+				m.scrollOffset--
+			}
+			return m, nil
+
+		case "down", "j":
+			m.scrollOffset++
+			return m, nil
 		}
 	}
 
@@ -82,12 +93,11 @@ func (m *infoFormModel) Update(msg tea.Msg) (*infoFormModel, tea.Cmd) {
 }
 
 func (m *infoFormModel) View() string {
-	var b strings.Builder
+	var bodyLines []string
 
 	// Title
 	title := i18n.T("info.title", m.host.Name)
-	b.WriteString(m.styles.FormTitle.Render(title))
-	b.WriteString("\n\n")
+	titleRendered := m.styles.FormTitle.Render(title)
 
 	hasPassword := i18n.T("info.not_set")
 	if _, ok := credential.GetPassword(m.host.Name); ok {
@@ -114,20 +124,17 @@ func (m *infoFormModel) View() string {
 
 	// Render each section
 	for _, section := range sections {
-		// Label style
 		labelStyle := lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("39")). // Bright blue
+			Foreground(lipgloss.Color("39")).
 			Width(15).
 			AlignHorizontal(lipgloss.Right)
 
-		// Value style
 		valueStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255")) // White
+			Foreground(lipgloss.Color("255"))
 
-		// If value is empty or default, use a muted style
 		if section.value == i18n.T("info.not_set") || (section.value == "22" && section.label == i18n.T("info.port")) {
-			valueStyle = valueStyle.Foreground(lipgloss.Color("243")) // Gray
+			valueStyle = valueStyle.Foreground(lipgloss.Color("243"))
 		}
 
 		line := lipgloss.JoinHorizontal(
@@ -136,49 +143,74 @@ func (m *infoFormModel) View() string {
 			" ",
 			valueStyle.Render(section.value),
 		)
-		b.WriteString(line)
-		b.WriteString("\n")
+		bodyLines = append(bodyLines, line)
 	}
 
-	b.WriteString("\n")
+	totalHeight := m.height
+	if totalHeight <= 0 {
+		totalHeight = 24
+	}
+
+	// Calculate viewport height (reserve 6 lines for title, border, actions)
+	viewportHeight := totalHeight - 6
+	if viewportHeight < 4 {
+		viewportHeight = 4
+	}
+
+	if len(bodyLines) <= viewportHeight {
+		m.scrollOffset = 0
+	} else {
+		if m.scrollOffset > len(bodyLines)-viewportHeight {
+			m.scrollOffset = len(bodyLines) - viewportHeight
+		}
+		if m.scrollOffset < 0 {
+			m.scrollOffset = 0
+		}
+	}
+
+	endIdx := m.scrollOffset + viewportHeight
+	if endIdx > len(bodyLines) {
+		endIdx = len(bodyLines)
+	}
+	visibleBody := strings.Join(bodyLines[m.scrollOffset:endIdx], "\n")
 
 	// Action instructions
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("243")).
 		Italic(true)
-
-	b.WriteString(helpStyle.Render(i18n.T("info.actions")))
-	b.WriteString("\n")
-
 	actionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("120")). // Green
+		Foreground(lipgloss.Color("120")).
 		Bold(true)
 
-	b.WriteString("  ")
-	b.WriteString(actionStyle.Render("e/Enter"))
-	b.WriteString(helpStyle.Render(i18n.T("info.action_edit")))
-	b.WriteString("\n")
+	var actionText string
+	if len(bodyLines) > viewportHeight {
+		actionText = helpStyle.Render("↑/↓: scroll  •  ")
+	}
+	actionText += actionStyle.Render("e/Enter") + helpStyle.Render(i18n.T("info.action_edit")) + "  " +
+		actionStyle.Render("q/Esc") + helpStyle.Render(i18n.T("info.action_return"))
 
-	b.WriteString("  ")
-	b.WriteString(actionStyle.Render("q/Esc"))
-	b.WriteString(helpStyle.Render(i18n.T("info.action_return")))
-
-	// Wrap in a border for better visual separation
-	content := b.String()
+	var content strings.Builder
+	content.WriteString(titleRendered)
+	content.WriteString("\n\n")
+	content.WriteString(visibleBody)
+	content.WriteString("\n\n")
+	content.WriteString(actionText)
 
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("39")).
-		Padding(1).
-		Margin(1)
+		Padding(0, 1)
 
-	// Center the info window
+	if m.height >= 22 {
+		borderStyle = borderStyle.Padding(1, 2)
+	}
+
 	return lipgloss.Place(
 		m.width,
 		m.height,
 		lipgloss.Center,
 		lipgloss.Center,
-		borderStyle.Render(content),
+		borderStyle.Render(content.String()),
 	)
 }
 
@@ -215,7 +247,6 @@ func (m standaloneInfoForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case infoFormCancelMsg:
 		return m, tea.Quit
 	case infoFormEditMsg:
-		// For standalone mode, just quit - parent should handle edit transition
 		return m, tea.Quit
 	}
 

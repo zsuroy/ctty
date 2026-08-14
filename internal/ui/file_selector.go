@@ -2,8 +2,8 @@ package ui
 
 import (
 	"fmt"
-	"path/filepath"
 	"github.com/zsuroy/ctty/internal/config"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -146,7 +146,26 @@ func (m *fileSelectorModel) View() string {
 		return b.String()
 	}
 
-	for i, displayName := range m.displayNames {
+	totalHeight := m.height
+	if totalHeight <= 0 {
+		totalHeight = 24
+	}
+	maxVisible := totalHeight - 6
+	if maxVisible < 3 {
+		maxVisible = 3
+	}
+
+	start := 0
+	if m.selected >= maxVisible {
+		start = m.selected - maxVisible + 1
+	}
+	end := start + maxVisible
+	if end > len(m.displayNames) {
+		end = len(m.displayNames)
+	}
+
+	for i := start; i < end; i++ {
+		displayName := m.displayNames[i]
 		if i == m.selected {
 			b.WriteString(m.styles.Selected.Render(fmt.Sprintf("▶ %s", displayName)))
 		} else {

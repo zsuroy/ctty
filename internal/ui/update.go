@@ -139,19 +139,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fileSelectorForm.styles = m.styles
 		}
 		if m.serialForm != nil {
-			m.serialForm.width = m.width
-			m.serialForm.height = m.height
-			m.serialForm.styles = m.styles
+			m.serialForm.Update(msg)
 		}
 		if m.sftpForm != nil {
-			m.sftpForm.width = m.width
-			m.sftpForm.height = m.height
-			m.sftpForm.styles = m.styles
+			m.sftpForm.Update(msg)
 		}
 		if m.settingsForm != nil {
-			m.settingsForm.width = m.width
-			m.settingsForm.height = m.height
-			m.settingsForm.styles = m.styles
+			m.settingsForm.Update(msg)
 		}
 		return m, nil
 
@@ -442,7 +436,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(i18n.T("settings.saved_toast"))
 		}
 		return m, nil
-
 
 	case tea.KeyMsg:
 		// Handle view-specific key presses

@@ -17,15 +17,16 @@ import (
 )
 
 type addFormModel struct {
-	inputs     []textinput.Model
-	focused    int
-	currentTab int // 0 = General, 1 = Advanced
-	err        string
-	styles     Styles
-	success    bool
-	width      int
-	height     int
-	configFile string
+	inputs       []textinput.Model
+	focused      int
+	currentTab   int // 0 = General, 1 = Advanced
+	err          string
+	styles       Styles
+	success      bool
+	width        int
+	height       int
+	configFile   string
+	scrollOffset int
 }
 
 // NewAddForm creates a new add form model
@@ -199,12 +200,14 @@ func (m *addFormModel) Update(msg tea.Msg) (*addFormModel, tea.Cmd) {
 			// Switch to next tab
 			m.currentTab = (m.currentTab + 1) % 2
 			m.focused = m.getFirstInputForTab(m.currentTab)
+			m.scrollOffset = 0
 			return m, m.updateFocus()
 
 		case "ctrl+k":
 			// Switch to previous tab
 			m.currentTab = (m.currentTab - 1 + 2) % 2
 			m.focused = m.getFirstInputForTab(m.currentTab)
+			m.scrollOffset = 0
 			return m, m.updateFocus()
 
 		case "tab", "shift+tab", "enter", "up", "down":
@@ -323,90 +326,30 @@ func (m *addFormModel) handleNavigation(key string) tea.Cmd {
 	return m.updateFocus()
 }
 
-func (m *addFormModel) View() string {
-	if m.success {
-		return ""
-	}
-
-	// Check if terminal height is sufficient
-	if !m.isHeightSufficient() {
-		return m.renderHeightWarning()
-	}
-
-	var b strings.Builder
-
-	b.WriteString(m.styles.FormTitle.Render(i18n.T("form.add_title")))
-	b.WriteString("\n\n")
-
-	// Render tabs
-	b.WriteString(m.renderTabs())
-	b.WriteString("\n\n")
-
-	// Render current tab content
-	switch m.currentTab {
-	case tabGeneral:
-		b.WriteString(m.renderGeneralTab())
-	case tabAdvanced:
-		b.WriteString(m.renderAdvancedTab())
-	}
-
-	if m.err != "" {
-		b.WriteString(m.styles.Error.Render("Error: " + m.err))
-		b.WriteString("\n\n")
-	}
-
-	// Help text
-	b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_add_1")))
-	b.WriteString("\n")
-	b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_add_2")))
-	b.WriteString("\n")
-	b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_required")))
-
-	return b.String()
+type formFieldDef struct {
+	index int
+	label string
 }
 
-// getMinimumHeight calculates the minimum height needed to display the form
-func (m *addFormModel) getMinimumHeight() int {
-	// Title: 1 line + 2 newlines = 3
-	titleLines := 3
-	// Tabs: 1 line + 2 newlines = 3
-	tabLines := 3
-	// Fields in current tab
-	var fieldsCount int
-	if m.currentTab == tabGeneral {
-		fieldsCount = 7 // 7 fields in general tab
-	} else {
-		fieldsCount = 3 // 3 fields in advanced tab
+func (m *addFormModel) getFieldsForTab(tab int) []formFieldDef {
+	if tab == tabGeneral {
+		return []formFieldDef{
+			{nameInput, i18n.T("form.host_name")},
+			{hostnameInput, i18n.T("form.hostname_ip")},
+			{userInput, i18n.T("form.user")},
+			{portInput, i18n.T("form.port")},
+			{passwordInput, i18n.T("form.password")},
+			{identityInput, i18n.T("form.identity_file")},
+			{proxyJumpInput, i18n.T("form.proxy_jump")},
+			{proxyCommandInput, i18n.T("form.proxy_command")},
+			{tagsInput, i18n.T("form.tags")},
+		}
 	}
-	// Each field: label (1) + input (1) + spacing (2) = 4 lines per field, but let's be more conservative
-	fieldsLines := fieldsCount * 3 // Reduced from 4 to 3
-	// Help text: 3 lines
-	helpLines := 3
-	// Error message space when needed: 2 lines
-	errorLines := 0 // Only count when there's actually an error
-	if m.err != "" {
-		errorLines = 2
+	return []formFieldDef{
+		{optionsInput, i18n.T("form.ssh_options")},
+		{remoteCommandInput, i18n.T("form.remote_command")},
+		{requestTTYInput, i18n.T("form.request_tty")},
 	}
-
-	return titleLines + tabLines + fieldsLines + helpLines + errorLines + 1 // +1 minimal safety margin
-}
-
-// isHeightSufficient checks if the current terminal height is sufficient
-func (m *addFormModel) isHeightSufficient() bool {
-	return m.height >= m.getMinimumHeight()
-}
-
-// renderHeightWarning renders a warning message when height is insufficient
-func (m *addFormModel) renderHeightWarning() string {
-	required := m.getMinimumHeight()
-	current := m.height
-
-	warning := m.styles.ErrorText.Render(i18n.T("form.height_warning_title"))
-	details := m.styles.FormField.Render(fmt.Sprintf(i18n.T("form.height_warning_details"), current, required))
-	instruction := m.styles.FormHelp.Render(i18n.T("form.height_warning_resize"))
-	instruction2 := m.styles.FormHelp.Render(i18n.T("form.height_warning_cancel"))
-
-	return warning + "\n\n" + details + "\n\n" + instruction + "\n" + instruction2
 }
 
 // renderTabs renders the tab headers
@@ -426,69 +369,108 @@ func (m *addFormModel) renderTabs() string {
 	return generalTab + "  " + advancedTab
 }
 
-// renderGeneralTab renders the general tab content
-func (m *addFormModel) renderGeneralTab() string {
-	var b strings.Builder
-
-	fields := []struct {
-		index int
-		label string
-	}{
-		{nameInput, i18n.T("form.host_name")},
-		{hostnameInput, i18n.T("form.hostname_ip")},
-		{userInput, i18n.T("form.user")},
-		{portInput, i18n.T("form.port")},
-		{passwordInput, i18n.T("form.password")},
-		{identityInput, i18n.T("form.identity_file")},
-		{proxyJumpInput, i18n.T("form.proxy_jump")},
-		{proxyCommandInput, i18n.T("form.proxy_command")},
-		{tagsInput, i18n.T("form.tags")},
+func (m *addFormModel) View() string {
+	if m.success {
+		return ""
 	}
 
+	// 1. Header (Title + Tabs)
+	var headerLines []string
+	headerLines = append(headerLines, m.styles.FormTitle.Render(i18n.T("form.add_title")))
+	headerLines = append(headerLines, m.renderTabs())
+
+	// 2. Footer (Errors + Help)
+	var footerLines []string
+	if m.err != "" {
+		footerLines = append(footerLines, m.styles.Error.Render("Error: "+m.err))
+	}
+	help1 := m.styles.FormHelp.Render(i18n.T("form.help_add_1"))
+	help2 := m.styles.FormHelp.Render(i18n.T("form.help_add_2")) + " • " + m.styles.FormHelp.Render(i18n.T("form.help_required"))
+	footerLines = append(footerLines, help1, help2)
+
+	// 3. Body lines & field line positions
+	type fieldPos struct {
+		startLine int
+		endLine   int
+	}
+	fieldPositions := make(map[int]fieldPos)
+	var bodyLines []string
+
+	fields := m.getFieldsForTab(m.currentTab)
 	for _, field := range fields {
+		startLine := len(bodyLines)
+
 		fieldStyle := m.styles.FormField
 		if m.focused == field.index {
 			fieldStyle = m.styles.FocusedLabel
 		}
-		b.WriteString(fieldStyle.Render(field.label))
-		b.WriteString("\n")
-		b.WriteString(m.inputs[field.index].View())
-		b.WriteString("\n")
+		bodyLines = append(bodyLines, fieldStyle.Render(field.label))
+		bodyLines = append(bodyLines, m.inputs[field.index].View())
+
 		if field.index == tagsInput && m.focused == tagsInput {
-			b.WriteString(m.styles.FormHelp.Render(i18n.T("form.tip_hidden")))
-			b.WriteString("\n")
+			bodyLines = append(bodyLines, m.styles.FormHelp.Render(i18n.T("form.tip_hidden")))
 		}
-		b.WriteString("\n")
+		bodyLines = append(bodyLines, "") // spacing
+		endLine := len(bodyLines) - 1
+		fieldPositions[field.index] = fieldPos{startLine: startLine, endLine: endLine}
 	}
 
-	return b.String()
-}
+	// 4. Viewport calculation & auto-scroll
+	totalHeight := m.height
+	if totalHeight <= 0 {
+		totalHeight = 24
+	}
 
-// renderAdvancedTab renders the advanced tab content
-func (m *addFormModel) renderAdvancedTab() string {
+	reservedLines := len(headerLines) + len(footerLines) + 2
+	viewportHeight := totalHeight - reservedLines
+	if viewportHeight < 3 {
+		viewportHeight = 3
+	}
+
+	if len(bodyLines) <= viewportHeight {
+		m.scrollOffset = 0
+	} else {
+		if pos, ok := fieldPositions[m.focused]; ok {
+			if pos.startLine < m.scrollOffset {
+				m.scrollOffset = pos.startLine
+			}
+			if pos.endLine >= m.scrollOffset+viewportHeight {
+				m.scrollOffset = pos.endLine - viewportHeight + 1
+			}
+		}
+
+		if m.scrollOffset > len(bodyLines)-viewportHeight {
+			m.scrollOffset = len(bodyLines) - viewportHeight
+		}
+		if m.scrollOffset < 0 {
+			m.scrollOffset = 0
+		}
+	}
+
+	endIdx := m.scrollOffset + viewportHeight
+	if endIdx > len(bodyLines) {
+		endIdx = len(bodyLines)
+	}
+	visibleBody := bodyLines[m.scrollOffset:endIdx]
+
 	var b strings.Builder
-
-	fields := []struct {
-		index int
-		label string
-	}{
-		{optionsInput, i18n.T("form.ssh_options")},
-		{remoteCommandInput, i18n.T("form.remote_command")},
-		{requestTTYInput, i18n.T("form.request_tty")},
-	}
-
-	for _, field := range fields {
-		fieldStyle := m.styles.FormField
-		if m.focused == field.index {
-			fieldStyle = m.styles.FocusedLabel
-		}
-		b.WriteString(fieldStyle.Render(field.label))
+	for _, line := range headerLines {
+		b.WriteString(line)
 		b.WriteString("\n")
-		b.WriteString(m.inputs[field.index].View())
-		b.WriteString("\n\n")
+	}
+	b.WriteString("\n")
+
+	for _, line := range visibleBody {
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 
-	return b.String()
+	for _, line := range footerLines {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // Standalone wrapper for add form

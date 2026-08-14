@@ -40,6 +40,7 @@ type editFormModel struct {
 	actualConfigFile string          // Actual config file to use (either configFile or host.SourceFile)
 	width            int
 	height           int
+	scrollOffset     int
 }
 
 // NewEditForm creates a new edit form model that supports both single and multi-host editing
@@ -368,56 +369,46 @@ func (m *editFormModel) handleEditNavigation(key string) tea.Cmd {
 	return m.updateFocus()
 }
 
-// getMinimumHeight calculates the minimum height needed to display the edit form
-func (m *editFormModel) getMinimumHeight() int {
-	// Title: 1 line + 2 newlines = 3
-	titleLines := 3
-	// Config file info: 1 line + 2 newlines = 3
-	configLines := 3
-	// Host Names section: title (1) + spacing (2) = 3
-	hostSectionLines := 3
-	// Host inputs: number of hosts * 3 lines each (reduced from 4)
-	hostLines := len(m.hostInputs) * 3
-	// Properties section: title (1) + spacing (2) = 3
-	propertiesSectionLines := 3
-	// Tabs: 1 line + 2 newlines = 3
-	tabLines := 3
-	// Fields in current tab
-	var fieldsCount int
+type editFormFieldDef struct {
+	index int
+	label string
+}
+
+func (m *editFormModel) getPropertiesForTab(tab int) []editFormFieldDef {
+	if tab == 0 {
+		return []editFormFieldDef{
+			{0, i18n.T("form.hostname_ip")},
+			{1, i18n.T("form.user")},
+			{2, i18n.T("form.port")},
+			{3, i18n.T("form.password")},
+			{4, i18n.T("form.identity_file")},
+			{5, i18n.T("form.proxy_jump")},
+			{6, i18n.T("form.proxy_command")},
+			{7, i18n.T("form.tags")},
+		}
+	}
+	return []editFormFieldDef{
+		{8, i18n.T("form.ssh_options")},
+		{9, i18n.T("form.remote_command")},
+		{10, i18n.T("form.request_tty")},
+	}
+}
+
+// renderEditTabs renders the tab headers for properties
+func (m *editFormModel) renderEditTabs() string {
+	var generalTab, advancedTab string
+	generalLabel := i18n.T("form.tab_general")
+	advancedLabel := i18n.T("form.tab_advanced")
+
 	if m.currentTab == 0 {
-		fieldsCount = 6 // 6 fields in general tab
+		generalTab = m.styles.FocusedLabel.Render(fmt.Sprintf("[ %s ]", generalLabel))
+		advancedTab = m.styles.FormField.Render(fmt.Sprintf("  %s  ", advancedLabel))
 	} else {
-		fieldsCount = 3 // 3 fields in advanced tab
-	}
-	// Each field: reduced from 4 to 3 lines per field
-	fieldsLines := fieldsCount * 3
-	// Help text: 3 lines
-	helpLines := 3
-	// Error message space when needed: 2 lines
-	errorLines := 0 // Only count when there's actually an error
-	if m.err != "" {
-		errorLines = 2
+		generalTab = m.styles.FormField.Render(fmt.Sprintf("  %s  ", generalLabel))
+		advancedTab = m.styles.FocusedLabel.Render(fmt.Sprintf("[ %s ]", advancedLabel))
 	}
 
-	return titleLines + configLines + hostSectionLines + hostLines + propertiesSectionLines + tabLines + fieldsLines + helpLines + errorLines + 1 // +1 minimal safety margin
-}
-
-// isHeightSufficient checks if the current terminal height is sufficient
-func (m *editFormModel) isHeightSufficient() bool {
-	return m.height >= m.getMinimumHeight()
-}
-
-// renderHeightWarning renders a warning message when height is insufficient
-func (m *editFormModel) renderHeightWarning() string {
-	required := m.getMinimumHeight()
-	current := m.height
-
-	warning := m.styles.ErrorText.Render(i18n.T("form.height_warning_title"))
-	details := m.styles.FormField.Render(fmt.Sprintf(i18n.T("form.height_warning_details"), current, required))
-	instruction := m.styles.FormHelp.Render(i18n.T("form.height_warning_resize"))
-	instruction2 := m.styles.FormHelp.Render(i18n.T("form.height_warning_cancel"))
-
-	return warning + "\n\n" + details + "\n\n" + instruction + "\n" + instruction2
+	return generalTab + "  " + advancedTab
 }
 
 func (m *editFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -499,158 +490,146 @@ func (m *editFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *editFormModel) View() string {
-	// Check if terminal height is sufficient
-	if !m.isHeightSufficient() {
-		return m.renderHeightWarning()
-	}
-
-	var b strings.Builder
-
-	if m.err != "" {
-		b.WriteString(m.styles.Error.Render("Error: " + m.err))
-		b.WriteString("\n\n")
-	}
-
-	b.WriteString(m.styles.Header.Render(i18n.T("form.edit_title")))
-	b.WriteString("\n\n")
-
+	// 1. Header (Title + Config File Info)
+	var headerLines []string
+	headerLines = append(headerLines, m.styles.Header.Render(i18n.T("form.edit_title")))
 	if m.host != nil && m.host.SourceFile != "" {
 		labelStyle := m.styles.FormField
 		pathStyle := m.styles.FormField
 		configInfo := labelStyle.Render(i18n.T("form.config_file")) + pathStyle.Render(formatConfigFile(m.host.SourceFile))
-		b.WriteString(configInfo)
+		headerLines = append(headerLines, configInfo)
 	}
 
-	b.WriteString("\n\n")
+	// 2. Footer (Errors + Help)
+	var footerLines []string
+	if m.err != "" {
+		footerLines = append(footerLines, m.styles.Error.Render("Error: "+m.err))
+	}
+	var helpText string
+	if len(m.hostInputs) > 1 {
+		helpText = m.styles.FormHelp.Render(i18n.T("form.help_multi_host"))
+	} else {
+		helpText = m.styles.FormHelp.Render(i18n.T("form.help_single_host"))
+	}
+	helpText += " • " + m.styles.FormHelp.Render(i18n.T("form.help_save_cancel"))
+	footerLines = append(footerLines, helpText)
+
+	// 3. Body lines & field line positions
+	type fieldPos struct {
+		startLine int
+		endLine   int
+	}
+	hostPositions := make(map[int]fieldPos)
+	propPositions := make(map[int]fieldPos)
+	var bodyLines []string
 
 	// Host Names Section
-	b.WriteString(m.styles.FormTitle.Render(i18n.T("form.host_names_section")))
-	b.WriteString("\n\n")
+	bodyLines = append(bodyLines, m.styles.FormTitle.Render(i18n.T("form.host_names_section")))
+	bodyLines = append(bodyLines, "")
 
 	for i, hostInput := range m.hostInputs {
+		startLine := len(bodyLines)
 		hostStyle := m.styles.FormField
 		if m.focusArea == focusAreaHosts && m.focused == i {
 			hostStyle = m.styles.FocusedLabel
 		}
-		b.WriteString(hostStyle.Render(fmt.Sprintf(i18n.T("form.host_name_num"), i+1)))
-		b.WriteString("\n")
-		b.WriteString(hostInput.View())
-		b.WriteString("\n\n")
+		bodyLines = append(bodyLines, hostStyle.Render(fmt.Sprintf(i18n.T("form.host_name_num"), i+1)))
+		bodyLines = append(bodyLines, hostInput.View())
+		bodyLines = append(bodyLines, "")
+		endLine := len(bodyLines) - 1
+		hostPositions[i] = fieldPos{startLine: startLine, endLine: endLine}
 	}
 
 	// Properties Section
-	b.WriteString(m.styles.FormTitle.Render(i18n.T("form.common_properties_section")))
-	b.WriteString("\n\n")
+	bodyLines = append(bodyLines, m.styles.FormTitle.Render(i18n.T("form.common_properties_section")))
+	bodyLines = append(bodyLines, "")
+	bodyLines = append(bodyLines, m.renderEditTabs())
+	bodyLines = append(bodyLines, "")
 
-	// Render tabs for properties
-	b.WriteString(m.renderEditTabs())
-	b.WriteString("\n\n")
-
-	// Render current tab content
-	switch m.currentTab {
-	case 0: // General
-		b.WriteString(m.renderEditGeneralTab())
-	case 1: // Advanced
-		b.WriteString(m.renderEditAdvancedTab())
-	}
-
-	if m.err != "" {
-		b.WriteString(m.styles.Error.Render("Error: " + m.err))
-		b.WriteString("\n\n")
-	}
-
-	// Show different help based on number of hosts
-	if len(m.hostInputs) > 1 {
-		b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_multi_host")))
-		b.WriteString("\n")
-	} else {
-		b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_single_host")))
-		b.WriteString("\n")
-	}
-	b.WriteString(m.styles.FormHelp.Render(i18n.T("form.help_save_cancel")))
-
-	return b.String()
-}
-
-// renderEditTabs renders the tab headers for properties
-func (m *editFormModel) renderEditTabs() string {
-	var generalTab, advancedTab string
-	generalLabel := i18n.T("form.tab_general")
-	advancedLabel := i18n.T("form.tab_advanced")
-
-	if m.currentTab == 0 {
-		generalTab = m.styles.FocusedLabel.Render(fmt.Sprintf("[ %s ]", generalLabel))
-		advancedTab = m.styles.FormField.Render(fmt.Sprintf("  %s  ", advancedLabel))
-	} else {
-		generalTab = m.styles.FormField.Render(fmt.Sprintf("  %s  ", generalLabel))
-		advancedTab = m.styles.FocusedLabel.Render(fmt.Sprintf("[ %s ]", advancedLabel))
-	}
-
-	return generalTab + "  " + advancedTab
-}
-
-// renderEditGeneralTab renders the general tab content for properties
-func (m *editFormModel) renderEditGeneralTab() string {
-	var b strings.Builder
-
-	fields := []struct {
-		index int
-		label string
-	}{
-		{0, i18n.T("form.hostname_ip")},
-		{1, i18n.T("form.user")},
-		{2, i18n.T("form.port")},
-		{3, i18n.T("form.password")},
-		{4, i18n.T("form.identity_file")},
-		{5, i18n.T("form.proxy_jump")},
-		{6, i18n.T("form.proxy_command")},
-		{7, i18n.T("form.tags")},
-	}
-
+	fields := m.getPropertiesForTab(m.currentTab)
 	for _, field := range fields {
+		startLine := len(bodyLines)
 		fieldStyle := m.styles.FormField
 		if m.focusArea == focusAreaProperties && m.focused == field.index {
 			fieldStyle = m.styles.FocusedLabel
 		}
-		b.WriteString(fieldStyle.Render(field.label))
-		b.WriteString("\n")
-		b.WriteString(m.inputs[field.index].View())
-		b.WriteString("\n")
+		bodyLines = append(bodyLines, fieldStyle.Render(field.label))
+		bodyLines = append(bodyLines, m.inputs[field.index].View())
 		if field.index == 7 && m.focusArea == focusAreaProperties && m.focused == 7 {
-			b.WriteString(m.styles.FormHelp.Render(i18n.T("form.tip_hidden")))
-			b.WriteString("\n")
+			bodyLines = append(bodyLines, m.styles.FormHelp.Render(i18n.T("form.tip_hidden")))
 		}
-		b.WriteString("\n")
+		bodyLines = append(bodyLines, "")
+		endLine := len(bodyLines) - 1
+		propPositions[field.index] = fieldPos{startLine: startLine, endLine: endLine}
 	}
 
-	return b.String()
-}
+	// 4. Viewport calculation & auto-scroll
+	totalHeight := m.height
+	if totalHeight <= 0 {
+		totalHeight = 24
+	}
 
-// renderEditAdvancedTab renders the advanced tab content for properties
-func (m *editFormModel) renderEditAdvancedTab() string {
+	reservedLines := len(headerLines) + len(footerLines) + 2
+	viewportHeight := totalHeight - reservedLines
+	if viewportHeight < 3 {
+		viewportHeight = 3
+	}
+
+	if len(bodyLines) <= viewportHeight {
+		m.scrollOffset = 0
+	} else {
+		var targetPos *fieldPos
+		if m.focusArea == focusAreaHosts {
+			if pos, ok := hostPositions[m.focused]; ok {
+				targetPos = &pos
+			}
+		} else {
+			if pos, ok := propPositions[m.focused]; ok {
+				targetPos = &pos
+			}
+		}
+
+		if targetPos != nil {
+			if targetPos.startLine < m.scrollOffset {
+				m.scrollOffset = targetPos.startLine
+			}
+			if targetPos.endLine >= m.scrollOffset+viewportHeight {
+				m.scrollOffset = targetPos.endLine - viewportHeight + 1
+			}
+		}
+
+		if m.scrollOffset > len(bodyLines)-viewportHeight {
+			m.scrollOffset = len(bodyLines) - viewportHeight
+		}
+		if m.scrollOffset < 0 {
+			m.scrollOffset = 0
+		}
+	}
+
+	endIdx := m.scrollOffset + viewportHeight
+	if endIdx > len(bodyLines) {
+		endIdx = len(bodyLines)
+	}
+	visibleBody := bodyLines[m.scrollOffset:endIdx]
+
 	var b strings.Builder
-
-	fields := []struct {
-		index int
-		label string
-	}{
-		{8, i18n.T("form.ssh_options")},
-		{9, i18n.T("form.remote_command")},
-		{10, i18n.T("form.request_tty")},
-	}
-
-	for _, field := range fields {
-		fieldStyle := m.styles.FormField
-		if m.focusArea == focusAreaProperties && m.focused == field.index {
-			fieldStyle = m.styles.FocusedLabel
-		}
-		b.WriteString(fieldStyle.Render(field.label))
+	for _, line := range headerLines {
+		b.WriteString(line)
 		b.WriteString("\n")
-		b.WriteString(m.inputs[field.index].View())
-		b.WriteString("\n\n")
+	}
+	b.WriteString("\n")
+
+	for _, line := range visibleBody {
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 
-	return b.String()
+	for _, line := range footerLines {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // Standalone wrapper for edit form

@@ -8,8 +8,8 @@ import (
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -23,7 +23,7 @@ type serialConnectFormModel struct {
 	device     serialconfig.SerialDevice
 	inputs     []textinput.Model // 0=baud 1=data 2=parity 3=stop
 	focusIndex int
-	baudIndex  int  // current preset index, -1 = custom
+	baudIndex  int // current preset index, -1 = custom
 	done       bool
 	cancelled  bool
 }
@@ -79,9 +79,14 @@ func (m *serialConnectFormModel) Init() tea.Cmd {
 
 func (m *serialConnectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.styles = NewStyles(m.width)
+		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "esc":
+		case "esc", "ctrl+c":
 			m.cancelled = true
 			return m, nil
 		case "tab", "down":
@@ -191,15 +196,14 @@ func (m *serialConnectFormModel) submit() {
 }
 
 func (m *serialConnectFormModel) View() string {
-	var b strings.Builder
+	var components []string
 
-	b.WriteString(m.styles.FormTitle.Render(i18n.T("serial.edit_title")))
-	b.WriteString("\n\n")
+	// Title
+	components = append(components, m.styles.Header.Render(i18n.T("serial.edit_title")))
 
-	b.WriteString(m.styles.Label.Render(fmt.Sprintf("  %s %s", i18n.T("serial.col_device")+":", m.device.Device)))
-	b.WriteString("\n")
-	b.WriteString(m.styles.Label.Render(fmt.Sprintf("  %s %s", i18n.T("serial.col_name")+":  ", m.device.Name)))
-	b.WriteString("\n\n")
+	// Device & Name info
+	components = append(components, m.styles.Label.Render(fmt.Sprintf("  %-12s %s", i18n.T("serial.col_device")+":", m.device.Device)))
+	components = append(components, m.styles.Label.Render(fmt.Sprintf("  %-12s %s", i18n.T("serial.col_name")+":", m.device.Name)))
 
 	labels := []string{
 		i18n.T("serial.field_baud"),
@@ -213,27 +217,25 @@ func (m *serialConnectFormModel) View() string {
 		if i == m.focusIndex {
 			style = m.styles.FocusedLabel
 		}
-		b.WriteString("  ")
-		b.WriteString(style.Render(label))
-
 		if i == 0 {
-			// Show preset hint next to baud rate
 			hint := ""
 			if m.baudIndex >= 0 {
-				hint = i18n.T("serial.presets_hint", m.baudIndex+1, len(baudRates))
+				hint = " " + i18n.T("serial.presets_hint", m.baudIndex+1, len(baudRates))
 			} else {
-				hint = i18n.T("serial.custom_hint")
+				hint = " " + i18n.T("serial.custom_hint")
 			}
-			b.WriteString(m.inputs[0].View())
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(hint))
+			components = append(components, fmt.Sprintf("  %-12s %s%s", style.Render(label), m.inputs[0].View(), lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(hint)))
 		} else {
-			b.WriteString(m.inputs[i].View())
+			components = append(components, fmt.Sprintf("  %-12s %s", style.Render(label), m.inputs[i].View()))
 		}
-		b.WriteString("\n")
 	}
 
-	b.WriteString("\n")
-	b.WriteString(m.styles.FormHelp.Render(i18n.T("serial.help_edit")))
+	components = append(components, m.styles.HelpText.Render(i18n.T("serial.help_edit")))
 
-	return m.styles.FormContainer.Render(b.String())
+	return m.styles.App.Render(
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			components...,
+		),
+	)
 }
