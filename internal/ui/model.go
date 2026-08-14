@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/connectivity"
 	"github.com/zsuroy/ctty/internal/history"
@@ -52,6 +54,7 @@ const (
 	ViewFileSelector
 	ViewSerial
 	ViewSFTP
+	ViewSettings
 )
 
 // PortForwardType defines the type of port forwarding
@@ -110,6 +113,7 @@ type Model struct {
 	fileSelectorForm *fileSelectorModel
 	serialForm       *serialFormModel
 	sftpForm         *sftpFormModel
+	settingsForm     *settingsFormModel
 
 	// Terminal size and styles
 	width  int
@@ -121,6 +125,21 @@ type Model struct {
 	// Error handling
 	errorMessage string
 	showingError bool
+
+	// Status notification toast
+	statusMessage string
+	statusExpiry  time.Time
+}
+
+// setStatus sets a temporary status toast notification that expires after 3 seconds.
+func (m *Model) setStatus(msg string) {
+	m.statusMessage = msg
+	m.statusExpiry = time.Now().Add(3 * time.Second)
+}
+
+// statusActive returns true if the status notification is currently active.
+func (m Model) statusActive() bool {
+	return m.statusMessage != "" && time.Now().Before(m.statusExpiry)
 }
 
 // applyVisibilityFilter returns hosts filtered according to the showHidden flag.

@@ -51,6 +51,10 @@ func (m Model) View() string {
 		if m.fileSelectorForm != nil {
 			return m.fileSelectorForm.View()
 		}
+	case ViewSettings:
+		if m.settingsForm != nil {
+			return m.settingsForm.View()
+		}
 	case ViewList:
 		return m.renderListView()
 	}
@@ -92,6 +96,16 @@ func (m Model) renderListView() string {
 			Align(lipgloss.Center)
 
 		components = append(components, errorStyle.Render("❌ "+m.errorMessage))
+	}
+
+	// Add status toast notification if active
+	if m.statusActive() {
+		statusStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("10")). // Green color
+			Bold(true).
+			Align(lipgloss.Center)
+
+		components = append(components, statusStyle.Render("✓ "+m.statusMessage))
 	}
 
 	// Add indicator when hidden hosts are shown

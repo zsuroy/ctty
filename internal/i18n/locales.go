@@ -16,7 +16,7 @@ var messages = map[string]map[string]string{
 		"search.prompt":      "Search (/ to focus): ",
 		"search.placeholder": "Search hosts or tags...",
 		"search.help":        " Type to filter • Enter: validate • Tab: switch • ESC: quit",
-		"main.help":          " ↑/↓: navigate • Enter: connect • p: ping all • i: info • t: serial • o: sftp • h: help • q: quit",
+		"main.help":          " ↑/↓: navigate • Enter: connect • p: ping • i: info • t: serial • o: sftp • S: settings • h: help • q: quit",
 		"main.show_hidden":   "  [showing hidden hosts — press H to hide]",
 
 		// Sort Modes
@@ -89,6 +89,7 @@ var messages = map[string]map[string]string{
 		"help.cycle_sort":       "cycle sort modes",
 		"help.sort_name":        "sort by name",
 		"help.sort_recent":      "sort by recent connection",
+		"help.settings":         "open settings & preferences",
 		"help.cat_serial":       "Serial (in serial view)",
 		"help.serial_connect":   "connect to selected port",
 		"help.serial_info":      "show serial device info",
@@ -109,6 +110,14 @@ var messages = map[string]map[string]string{
 		"help.quit":             "quit application",
 		"help.exit_view":        "exit current view",
 		"help.close_prompt":     "Press ESC, h, q or Enter to close",
+
+		// Settings
+		"settings.title":          "⚙️ Settings & Preferences",
+		"settings.lang_label":     "Interface Language",
+		"settings.update_label":   "Check for Updates",
+		"settings.esc_quit_label": "ESC Key Behavior",
+		"settings.help":           "↑/↓/Tab: navigate • ←/→/Space: change • Enter/Ctrl+S: save • Esc: cancel",
+		"settings.saved_toast":    "Settings saved to ~/.ctty/config.json",
 
 		// Forms
 		"form.btn_save":   "Save",
@@ -202,7 +211,7 @@ var messages = map[string]map[string]string{
 		"search.prompt":      "搜索 (按 / 聚焦): ",
 		"search.placeholder": "搜索主机或标签...",
 		"search.help":        " 输入进行过滤 • 回车: 确认 • Tab: 切换 • ESC: 退出",
-		"main.help":          " ↑/↓: 移动 • 回车: 连接 • p: 探测全部 • i: 详情 • t: 串口 • o: SFTP • h: 帮助 • q: 退出",
+		"main.help":          " ↑/↓: 移动 • 回车: 连接 • p: 探测 • i: 详情 • t: 串口 • o: SFTP • S: 设置 • h: 帮助 • q: 退出",
 		"main.show_hidden":   "  [当前显示隐藏主机 — 按 H 隐藏]",
 
 		// Sort Modes
@@ -275,6 +284,7 @@ var messages = map[string]map[string]string{
 		"help.cycle_sort":       "循环切换排序模式",
 		"help.sort_name":        "按主机名称排序",
 		"help.sort_recent":      "按最近连接时间排序",
+		"help.settings":         "打开系统设置与偏好配置",
 		"help.cat_serial":       "串口功能 (串口视图)",
 		"help.serial_connect":   "连接到所选串口",
 		"help.serial_info":      "查看串口设备详情",
@@ -295,6 +305,14 @@ var messages = map[string]map[string]string{
 		"help.quit":             "退出应用程序",
 		"help.exit_view":        "关闭当前弹窗/视图",
 		"help.close_prompt":     "按 ESC、h、q 或回车关闭",
+
+		// Settings
+		"settings.title":          "⚙️ 系统设置与偏好配置",
+		"settings.lang_label":     "界面语言 (Language)",
+		"settings.update_label":   "自动检查更新",
+		"settings.esc_quit_label": "ESC 键退出行为",
+		"settings.help":           "↑/↓/Tab: 切换选项 • ←/→/空格: 更改设置 • 回车/Ctrl+S: 保存 • Esc: 取消",
+		"settings.saved_toast":    "设置已保存至 ~/.ctty/config.json",
 
 		// Forms
 		"form.btn_save":   "保存",

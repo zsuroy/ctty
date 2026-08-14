@@ -8,8 +8,9 @@ import (
 
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/connectivity"
-	"github.com/zsuroy/ctty/internal/version"
+	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
+	"github.com/zsuroy/ctty/internal/version"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -145,6 +146,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sftpForm.width = m.width
 			m.sftpForm.height = m.height
 			m.sftpForm.styles = m.styles
+		}
+		if m.settingsForm != nil {
+			m.settingsForm.width = m.width
+			m.settingsForm.height = m.height
+			m.settingsForm.styles = m.styles
 		}
 		return m, nil
 
@@ -424,6 +430,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.Focus()
 		return m, nil
 
+	case settingsCloseMsg:
+		m.settingsForm = nil
+		m.viewMode = ViewList
+		m.table.Focus()
+		if msg.Saved && msg.AppConfig != nil {
+			m.appConfig = msg.AppConfig
+			m.searchInput.Placeholder = i18n.T("search.placeholder")
+			m.updateTableRows()
+			m.setStatus(i18n.T("settings.saved_toast"))
+		}
+		return m, nil
+
 
 	case tea.KeyMsg:
 		// Handle view-specific key presses
@@ -491,6 +509,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if sm, ok := updatedModel.(*sftpFormModel); ok {
 					m.sftpForm = sm
 				}
+				return m, cmd
+			}
+		case ViewSettings:
+			if m.settingsForm != nil {
+				var newForm *settingsFormModel
+				newForm, cmd = m.settingsForm.Update(msg)
+				m.settingsForm = newForm
 				return m, cmd
 			}
 		case ViewList:
@@ -842,6 +867,12 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.filteredHosts = m.sortHosts(m.hosts)
 			}
 			m.updateTableRows()
+			return m, nil
+		}
+	case "S":
+		if !m.searchMode && !m.deleteMode {
+			m.settingsForm = NewSettingsForm(m.styles, m.width, m.height, m.appConfig)
+			m.viewMode = ViewSettings
 			return m, nil
 		}
 	}

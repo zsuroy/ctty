@@ -40,9 +40,9 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 - **🏷️ Tag Support** - Organize your hosts with custom tags with automatic color-coding (e.g., `#prod` in red, `#dev` in green, `#db` in purple) and custom color configuration; use the special `hidden` tag to exclude hosts from the list while keeping them connectable
 - **🔍 Smart Search** - Find hosts quickly with built-in filtering and search
 - **📝 Real-time Status** - Live SSH connectivity indicators with asynchronous ping checks and color-coded status
-- **🔔 Smart Updates** - Automatic version checking with update notifications
 - **🔌 Serial Connections** - Manage and connect to serial devices (console, switch, router) with configurable baud rate, data bits, parity, and stop bits; auto-detected ports appear in the list instantly
 - **📁 SFTP Support** - Transfer files to and from remote hosts without leaving the terminal
+- **🌐 Bilingual i18n & Settings UI** - Full English and Simplified Chinese support with automatic OS detection (macOS, Windows, Linux, Termux) and interactive in-TUI Settings menu (`S` key) to configure language, updates, and keybindings
 
 ### 🛠️ **Technical Features**
 - **🔒 Secure** - Works directly with your existing `~/.ssh/config` file
@@ -127,8 +127,14 @@ ctty
 - `e` - Edit selected host
 - `d` - Delete selected host
 - `m` - Move host to another config file (requires SSH Include directives)
+- `i` - Show host configuration info
+- `p` - Ping all hosts to check connectivity
+- `f` - Setup port forwarding
 - `t` - Open serial device manager
+- `o` - Open SFTP file browser for selected host
+- `S` - Open Settings & Preferences (Language, Updates, ESC behavior)
 - `H` - Toggle hidden hosts visibility
+- `h` - Open help screen
 - `q` - Quit
 - `/` - Search/filter hosts
 
@@ -139,12 +145,11 @@ ctty
 - ⚫ **Unknown** - Connectivity status not yet determined
 
 **Sorting & Filtering:**
-- `s` - Switch between sorting modes (name ↔ last login)
+- `s` - Cycle through all sort modes (**Name** ➔ **Hostname** ➔ **Tags** ➔ **Last Login**)
 - `n` - Sort by **name** (alphabetical)
 - `r` - Sort by **recent** (last login time)
-- `Tab` - Cycle between filtering modes
-- Filter by **name** (default) - Search through host names
-- Filter by **last login** - Sort and filter by most recently used connections
+- `Tab` - Switch focus between search input and table
+- Type to search - Real-time filtering across name, hostname, and `#tags`
 
 The interactive forms will guide you through configuration:
 - **Hostname/IP** - Server address
@@ -241,6 +246,11 @@ While selected an SSH host, press `o` to open the SFTP file browser. The SFTP in
 - If SFTP fails to start, you'll see a friendly error message: `❌ SFTP Error: failed to start SFTP session.`
 - Press `Esc` to return to the SSH session
 - Your SSH connection remains active for other operations
+
+You can also launch the SFTP file browser directly from the command line:
+```bash
+ctty sftp prod-server    # Open SFTP browser directly for a host
+```
 
 
 ### Port Forwarding
@@ -375,8 +385,20 @@ ctty move my-server
 # Move host with custom SSH config file (requires Include directives)
 ctty move my-server -c /path/to/custom/ssh_config
 
-# Search for hosts (interactive filter)
+# Search for hosts (interactive filter or keyword/tag query)
 ctty search
+ctty search prod
+ctty search "#web"
+
+# Open SFTP file browser directly for a host
+ctty sftp prod-server
+
+# Open Serial device manager directly
+ctty serial
+
+# Override interface language (auto, zh, en)
+ctty --lang zh
+ctty search prod --lang en
 
 # Print machine-readable info (JSON) for scripting
 ctty info prod-server
@@ -798,27 +820,36 @@ This will be automatically converted to:
 
 ### Application Configuration
 
-ctty supports a configuration file to customize its behavior, including key bindings and update checking.
+ctty supports a configuration file to customize its behavior, including language, key bindings, update checking, and custom tag colors. You can also configure these interactively in the TUI by pressing `S`.
 
 **Configuration File Location:**
-- **Linux/macOS**: `~/.config/ctty/config.json`
+- **Linux/macOS**: `~/.ctty/config.json` (or `~/.config/ctty/config.json`)
 - **Windows**: `%APPDATA%\ctty\config.json`
 
 **Example Configuration:**
 ```json
 {
-  "check_for_updates": false,
+  "language": "zh_CN",
+  "check_for_updates": true,
   "key_bindings": {
     "quit_keys": ["q", "ctrl+c"],
-    "disable_esc_quit": true
+    "disable_esc_quit": false
+  },
+  "tag_colors": {
+    "prod": "#FF0055",
+    "staging": "#FFAA00",
+    "k8s": "#326CE5",
+    "mine": "#00DDFF"
   }
 }
 ```
 
 **Available Options:**
+- **language**: Interface language: `"auto"` (follow OS locale), `"zh_CN"` (Simplified Chinese), or `"en"` (English). Default: `"auto"`.
 - **check_for_updates**: Boolean to enable or disable the automatic update check at startup. Default: `true`. Set to `false` on air-gapped or offline machines to avoid connection delays.
-- **quit_keys**: Array of keys that will quit the application. Default: `["q", "ctrl+c"]`
-- **disable_esc_quit**: Boolean flag to disable ESC key from quitting the application. Default: `false`
+- **key_bindings.quit_keys**: Array of keys that will quit the application. Default: `["q", "ctrl+c"]`
+- **key_bindings.disable_esc_quit**: Boolean flag to disable ESC key from quitting the application. Default: `false`. Useful for Vim users.
+- **tag_colors**: Map of custom hex color codes for specific tags (e.g. `{"prod": "#FF0055"}`). Overrides built-in semantic colors and hash palette.
 
 **For Vim Users:**
 If you frequently press ESC accidentally causing the application to quit, set `disable_esc_quit` to `true`. This will disable ESC as a quit key while preserving all other functionality.
@@ -856,24 +887,37 @@ go build -o ctty .
 ctty/
 ├── main.go             # Application entry point
 ├── cmd/                # CLI commands (Cobra)
-│   ├── root.go         # Root command and interactive mode
+│   ├── root.go         # Root command, CLI flags, and interactive mode
 │   ├── add.go          # Add host command
 │   ├── edit.go         # Edit host command
 │   ├── move.go         # Move host command
-│   └── search.go       # Search command
+│   ├── search.go       # Search command
+│   ├── serial.go       # Serial device manager command
+│   ├── sftp.go         # SFTP file browser command
+│   ├── info.go         # Machine-readable JSON host info
+│   └── completion.go   # Shell tab completion script generator
 ├── internal/
-│   ├── config/         # SSH configuration management
-│   │   └── ssh.go      # Config parsing and manipulation
+│   ├── config/         # SSH & App configuration management
+│   │   ├── ssh.go      # SSH config parsing, manipulation, and include support
+│   │   └── appconfig.go# App settings (~/.ctty/config.json)
 │   ├── connectivity/   # SSH connectivity checking
 │   │   └── ping.go     # Asynchronous SSH ping functionality
 │   ├── history/        # Connection history tracking
-│   │   ├── history.go  # History management and last login tracking
+│   │   └── history.go  # History management and last login tracking
+│   ├── i18n/           # Internationalization & locale auto-detection
+│   │   ├── i18n.go     # Core translation lookup & state
+│   │   ├── locales.go  # Translation dictionaries (English & Chinese)
+│   │   ├── detect_darwin.go  # macOS AppleLocale/AppleLanguages detector
+│   │   ├── detect_windows.go # Windows Win32 API GetUserDefaultLocaleName
+│   │   └── detect_other.go   # Linux POSIX locale & Android getprop
 │   ├── serialconfig/   # Serial device configuration and connection
 │   │   ├── serial.go   # Device config storage (~/.config/ctty/serial.json)
 │   │   ├── ports.go    # Port enumeration and helpers
 │   │   ├── connect.go  # Serial connection bridge (ExecCommand)
 │   │   ├── raw_unix.go # POSIX raw terminal mode
 │   │   └── raw_windows.go # Windows stub
+│   ├── sftpconfig/     # SFTP client engine & file transfer
+│   │   └── client.go   # SFTP session, upload, download, and listing
 │   ├── version/        # Version checking and updates
 │   │   ├── version.go  # GitHub release checking and version comparison
 │   │   └── version_test.go # Version parsing and comparison tests
@@ -882,15 +926,21 @@ ctty/
 │   │   ├── model.go    # Core TUI model and state
 │   │   ├── update.go   # Message handling and state updates
 │   │   ├── view.go     # UI rendering and layout
-│   │   ├── table.go    # Host list table component with status indicators
+│   │   ├── table.go    # Host list table component with status indicators & tag colors
+│   │   ├── tag_color.go# Semantic & hash-based tag color mapping
 │   │   ├── add_form.go # Add host form interface
 │   │   ├── edit_form.go# Edit host form interface
 │   │   ├── move_form.go# Move host form interface
+│   │   ├── info_form.go# Host details modal
+│   │   ├── help_form.go# Keyboard shortcut help modal
+│   │   ├── settings_form.go # Settings & preferences modal
 │   │   ├── port_forward_form.go # Port forwarding setup with history
 │   │   ├── styles.go   # Lip Gloss styling definitions
 │   │   ├── sort.go     # Sorting and filtering logic
-│   │   ├── serial_form.go     # Serial device list and connect UI
-│   │   └── serial_add_form.go# Add serial device form
+│   │   ├── serial_form.go         # Serial device list UI
+│   │   ├── serial_add_form.go     # Add serial device form
+│   │   ├── serial_connect_form.go # Edit serial parameters form
+│   │   └── sftp_view.go           # SFTP remote & local browser UI
 │   └── validation/     # Input validation
 │       └── ssh.go      # SSH config validation
 ├── images/             # Documentation assets

@@ -38,9 +38,9 @@ ctty 是一个快速、原生的终端工具，用于管理你的所有连接 �
 - **🏷️ Tag 颜色标记支持** - 使用自定义标签整理主机，支持不同 Tag 自动彩色高亮区分（如 `#prod` 红色、`#dev` 绿色、`#db` 紫色等，其余标签自动哈希分配色彩），并支持在配置文件中自定义标签颜色；特殊标签 `hidden` 从列表中隐藏但保持可连接
 - **🔍 智能搜索** - 内置过滤和搜索快速找到主机
 - **📝 实时状态** - 异步 ping 检查和颜色编码的 SSH 连接状态指示
-- **🔔 智能更新** - 自动版本检查和更新通知
 - **🔌 串口连接** - 管理和连接串口设备（控制台、交换机、路由器），可配置波特率、数据位、校验、停止位；自动检测端口即时出现在列表中
 - **📁 SFTP 支持** - 不离开终端即可在远程主机间传输文件
+- **🌐 多语言国际化与偏好设置** - 全界面支持中英双语，全平台自动检测系统语言（macOS / Windows / Linux / Termux），并内置交互式设置面板（按 `S` 键）实时切换与保存配置
 
 ### 🛠️ **技术特性**
 - **🔒 安全** - 直接使用现有的 `~/.ssh/config` 文件
@@ -121,14 +121,19 @@ ctty
 **导航：**
 - `↑/↓` 或 `j/k` - 浏览主机
 - `Enter` - 连接到选中的主机
-- `a` - 添加主机
-- `e` - 编辑选中的主机
+- `a` - 添加主机配置
+- `e` - 编辑选中的主机配置
 - `d` - 删除选中的主机
 - `m` - 移动主机到其他配置文件（需要 SSH Include 指令）
-- `f` - 端口转发设置
+- `i` - 查看主机详细配置信息
+- `p` - 探测所有主机的网络连通性
+- `f` - 配置端口转发
 - `t` - 打开串口设备管理器
-- `H` - 切换隐藏主机可见性
-- `q` - 退出
+- `o` - 打开选中主机的 SFTP 文件浏览器
+- `S` - 打开系统设置与偏好配置（语言、自动更新、ESC 行为）
+- `H` - 切换隐藏主机的显示/隐藏状态
+- `h` - 打开帮助菜单
+- `q` - 退出应用程序
 - `/` - 搜索/过滤主机
 
 **实时状态指示：**
@@ -138,12 +143,11 @@ ctty
 - ⚫ **未知** - 连通性状态尚未确定
 
 **排序与过滤：**
-- `s` - 切换排序模式（名称 ↔ 最后登录）
-- `n` - 按名称排序（字母顺序）
-- `r` - 按最近连接排序（最后登录时间）
-- `Tab` - 在过滤模式间切换
-- 按名称过滤（默认）- 搜索主机名
-- 按最后登录过滤 - 按最近使用的连接排序和过滤
+- `s` - 循环切换 4 种排序模式（**主机名称** ➔ **主机地址** ➔ **标签** ➔ **上次登录**）
+- `n` - 按**主机名称**排序（字母顺序）
+- `r` - 按**最近连接**排序（上次登录时间）
+- `Tab` - 在搜索输入框与主机列表表格之间切换焦点
+- 实时搜索 - 支持根据主机名、IP 地址及 `#标签` 进行即时过滤
 
 交互式表单将引导你完成配置：
 - **主机名/IP** - 服务器地址
@@ -240,6 +244,11 @@ ctty serial    # 跳过 SSH 主机列表，直接进入串口设备管理
 - 如果 SFTP 无法启动，会显示友好的错误信息：`❌ SFTP 错误：无法启动 SFTP 会话。`
 - 按 `Esc` 返回 SSH 会话
 - SSH 连接保持活动状态，可进行其他操作
+
+你也可以直接从命令行启动指定主机的 SFTP 文件浏览器：
+```bash
+ctty sftp prod-server    # 直接打开指定主机的 SFTP 文件浏览器
+```
 
 ### 端口转发
 
@@ -373,8 +382,20 @@ ctty move my-server
 # 使用自定义 SSH 配置文件移动主机（需要 Include 指令）
 ctty move my-server -c /path/to/custom/ssh_config
 
-# 搜索主机（交互式过滤）
+# 搜索主机（交互式过滤或关键字/标签查询）
 ctty search
+ctty search prod
+ctty search "#web"
+
+# 直接打开指定主机的 SFTP 文件浏览器
+ctty sftp prod-server
+
+# 直接打开串口设备管理器
+ctty serial
+
+# 指定界面语言（auto, zh, en）
+ctty --lang zh
+ctty search prod --lang en
 
 # 输出机器可读的信息（JSON）用于脚本
 ctty info prod-server
@@ -796,27 +817,36 @@ SSH Options: -o Compression=yes -o ServerAliveInterval=60 -o StrictHostKeyChecki
 
 ### 应用配置
 
-ctty 支持配置文件来自定义行为，包括快捷键和更新检查。
+ctty 支持配置文件来自定义行为，包括界面语言、快捷键、自动更新检查以及自定义标签颜色。你也可以直接在 TUI 界面中按 `S` 键打开设置面板进行可视化配置。
 
 **配置文件位置：**
-- **Linux/macOS**: `~/.config/ctty/config.json`
+- **Linux/macOS**: `~/.ctty/config.json`（或 `~/.config/ctty/config.json`）
 - **Windows**: `%APPDATA%\ctty\config.json`
 
 **示例配置：**
 ```json
 {
-  "check_for_updates": false,
+  "language": "zh_CN",
+  "check_for_updates": true,
   "key_bindings": {
     "quit_keys": ["q", "ctrl+c"],
-    "disable_esc_quit": true
+    "disable_esc_quit": false
+  },
+  "tag_colors": {
+    "prod": "#FF0055",
+    "staging": "#FFAA00",
+    "k8s": "#326CE5",
+    "mine": "#00DDFF"
   }
 }
 ```
 
 **可用选项：**
+- **language**: 界面语言，支持 `"auto"`（跟随操作系统语言）、`"zh_CN"`（简体中文）或 `"en"`（English）。默认：`"auto"`。
 - **check_for_updates**: 布尔值，启用或禁用启动时的自动更新检查。默认：`true`。在离线机器上设为 `false` 可避免连接延迟。
-- **quit_keys**: 退出应用的按键数组。默认：`["q", "ctrl+c"]`
-- **disable_esc_quit**: 布尔值，禁用 ESC 键退出应用。默认：`false`
+- **key_bindings.quit_keys**: 退出应用的按键数组。默认：`["q", "ctrl+c"]`
+- **key_bindings.disable_esc_quit**: 布尔值，禁用 ESC 键退出应用。默认：`false`。适合 Vim 用户避免误按 ESC 退出。
+- **tag_colors**: 标签自定义颜色 Hex 映射字典（如 `{"prod": "#FF0055"}`），优先级高于内置语义色及哈希分配色。
 
 **Vim 用户：**
 如果你经常误按 ESC 导致应用退出，将 `disable_esc_quit` 设为 `true`。这会禁用 ESC 作为退出键，同时保留其他所有功能。
@@ -854,26 +884,37 @@ go build -o ctty .
 ctty/
 ├── main.go             # 应用入口
 ├── cmd/                # CLI 命令 (Cobra)
-│   ├── root.go         # 根命令和交互模式
+│   ├── root.go         # 根命令、CLI 标志与交互模式
 │   ├── add.go          # 添加主机命令
 │   ├── edit.go         # 编辑主机命令
 │   ├── move.go         # 移动主机命令
-│   ├── serial.go       # 串口管理子命令
-│   └── search.go       # 搜索命令
+│   ├── search.go       # 搜索命令
+│   ├── serial.go       # 串口管理命令
+│   ├── sftp.go         # SFTP 文件传输命令
+│   ├── info.go         # 机器可读 JSON 主机信息
+│   └── completion.go   # Shell 补全脚本生成
 ├── internal/
-│   ├── config/         # SSH 配置管理
-│   │   └── ssh.go      # 配置解析和操作
+│   ├── config/         # SSH 与应用配置管理
+│   │   ├── ssh.go      # SSH 配置解析、修改与 Include 展开
+│   │   └── appconfig.go# 应用设置 (~/.ctty/config.json)
 │   ├── connectivity/   # SSH 连通性检查
 │   │   └── ping.go     # 异步 SSH ping 功能
 │   ├── history/        # 连接历史跟踪
-│   │   ├── history.go  # 历史管理和最后登录跟踪
-│   │   └── port_forward_test.go # 端口转发历史测试
+│   │   └── history.go  # 历史管理和最后登录跟踪
+│   ├── i18n/           # 多语言国际化与系统语言探针
+│   │   ├── i18n.go     # 核心翻译引擎与状态
+│   │   ├── locales.go  # 中英文双语语言字典
+│   │   ├── detect_darwin.go  # macOS AppleLocale 系统语言检测
+│   │   ├── detect_windows.go # Windows Win32 API 语言检测
+│   │   └── detect_other.go   # Linux 环境变量与 Android getprop
 │   ├── serialconfig/   # 串口设备配置和连接
 │   │   ├── serial.go   # 设备配置存储 (~/.config/ctty/serial.json)
 │   │   ├── ports.go    # 端口枚举和辅助函数
 │   │   ├── connect.go  # 串口连接桥接 (ExecCommand)
 │   │   ├── raw_unix.go # POSIX raw 终端模式
 │   │   └── raw_windows.go # Windows stub
+│   ├── sftpconfig/     # SFTP 客户端引擎与文件传输
+│   │   └── client.go   # SFTP 会话、上传、下载与目录遍历
 │   ├── version/        # 版本检查和更新
 │   │   ├── version.go  # GitHub 发布检查和版本比较
 │   │   └── version_test.go # 版本解析和比较测试
@@ -882,16 +923,21 @@ ctty/
 │   │   ├── model.go    # 核心 TUI 模型和状态
 │   │   ├── update.go   # 消息处理和状态更新
 │   │   ├── view.go     # UI 渲染和布局
-│   │   ├── table.go    # 主机列表表格组件和状态指示
+│   │   ├── table.go    # 主机列表表格组件、状态指示与 Tag 色彩渲染
+│   │   ├── tag_color.go# 语义化与哈希色彩算法
 │   │   ├── add_form.go # 添加主机表单界面
 │   │   ├── edit_form.go# 编辑主机表单界面
 │   │   ├── move_form.go# 移动主机表单界面
+│   │   ├── info_form.go# 主机详情弹窗
+│   │   ├── help_form.go# 键盘快捷键帮助弹窗
+│   │   ├── settings_form.go # 系统设置与偏好配置弹窗
 │   │   ├── port_forward_form.go # 端口转发设置和历史
 │   │   ├── styles.go   # Lip Gloss 样式定义
 │   │   ├── sort.go     # 排序和过滤逻辑
-│   │   ├── serial_form.go     # 串口设备列表和连接 UI
-│   │   ├── serial_add_form.go# 添加串口设备表单
-│   │   └── serial_connect_form.go # 连接前参数编辑表单
+│   │   ├── serial_form.go         # 串口设备列表 UI
+│   │   ├── serial_add_form.go     # 添加串口设备表单
+│   │   ├── serial_connect_form.go # 连接前参数编辑表单
+│   │   └── sftp_view.go           # SFTP 远程与本地双模文件浏览器
 │   └── validation/     # 输入验证
 │       └── ssh.go      # SSH 配置验证
 ├── images/             # 文档资源
