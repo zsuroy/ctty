@@ -15,12 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Seamless OpenSSH `SSH_ASKPASS` protocol bridge: connects automatically without installing `sshpass` or third-party binaries, fully compatible with macOS, Linux, Windows, and Termux
   - Integrated with SFTP client: hosts with saved passwords automatically connect to SFTP with 0 password prompts
   - Host details modal (`i` key) indicates whether a password is saved (`•••••••• (Saved)`)
+- **Port Forwarding Localization & Enhancements (`f` key)** — Complete bilingual localization for port forwarding setup forms (Local, Remote, Dynamic SOCKS proxy), including input placeholders, descriptions, and localized validation errors
 - **Seamless Zero-Host TUI Support** — Removed blocking CLI prompts when `~/.ssh/config` has no hosts; users can directly enter the TUI to use serial management, change settings, or press `a` to add hosts with friendly empty-state guidance
 - **Universal Tab Navigation** — `Tab` / `Shift+Tab` key now smoothly switches between Remote and Local file browsers in SFTP mode, toggles between search input and list in Serial mode, and cycles focus across all tables
 - **Multi-Line Main Help Bar** — Split bottom help footer into two clean, well-spaced lines displaying all core operations and tools (`a`, `e`, `d`, `s`, `p`, `f`, `i`, `o`, `t`, `S`, `H`, `h`, `q`)
 
 ### Fixed
 
+- **Port Forwarding Input Validation** — Added robust validation for local and remote ports in port forwarding forms with localized error messaging
 - **CJK Settings Form Alignment** — Fixed visual misalignment in Settings modal under Chinese mode by replacing byte-padding with `ansi.StringWidth` column calculation
 - **Search Mode Escape Key** — Pressing `Esc` while searching now properly cancels search and refocuses the table instead of immediately quitting the app
 

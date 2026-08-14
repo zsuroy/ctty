@@ -1,14 +1,16 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
-	"github.com/zsuroy/ctty/internal/history"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/zsuroy/ctty/internal/history"
+	"github.com/zsuroy/ctty/internal/i18n"
 )
 
 // Input field indices for port forward form
@@ -196,44 +198,42 @@ func (m *portForwardModel) updateInputVisibility() {
 
 	switch m.forwardType {
 	case LocalForward:
-		m.inputs[pfLocalPortInput].Placeholder = "Local port (e.g., 8080)"
-		m.inputs[pfRemoteHostInput].Placeholder = "Remote host (e.g., localhost)"
-		m.inputs[pfRemotePortInput].Placeholder = "Remote port (e.g., 80)"
-		m.inputs[pfBindAddressInput].Placeholder = "Bind address (optional, default: 127.0.0.1)"
+		m.inputs[pfLocalPortInput].Placeholder = i18n.T("pf.local_port_placeholder")
+		m.inputs[pfRemoteHostInput].Placeholder = i18n.T("pf.remote_host_placeholder")
+		m.inputs[pfRemotePortInput].Placeholder = i18n.T("pf.remote_port_placeholder")
+		m.inputs[pfBindAddressInput].Placeholder = i18n.T("pf.bind_address_placeholder_local")
 	case RemoteForward:
-		m.inputs[pfLocalPortInput].Placeholder = "Remote port (e.g., 8080)"
-		m.inputs[pfRemoteHostInput].Placeholder = "Local host (e.g., localhost)"
-		m.inputs[pfRemotePortInput].Placeholder = "Local port (e.g., 80)"
-		m.inputs[pfBindAddressInput].Placeholder = "Bind address (optional)"
+		m.inputs[pfLocalPortInput].Placeholder = i18n.T("pf.remote_port_placeholder")
+		m.inputs[pfRemoteHostInput].Placeholder = i18n.T("pf.local_host_placeholder")
+		m.inputs[pfRemotePortInput].Placeholder = i18n.T("pf.local_port_placeholder")
+		m.inputs[pfBindAddressInput].Placeholder = i18n.T("pf.bind_address_placeholder")
 	case DynamicForward:
-		m.inputs[pfLocalPortInput].Placeholder = "SOCKS port (e.g., 1080)"
+		m.inputs[pfLocalPortInput].Placeholder = i18n.T("pf.socks_port_placeholder")
 		m.inputs[pfRemoteHostInput].Placeholder = ""
 		m.inputs[pfRemotePortInput].Placeholder = ""
-		m.inputs[pfBindAddressInput].Placeholder = "Bind address (optional, default: 127.0.0.1)"
+		m.inputs[pfBindAddressInput].Placeholder = i18n.T("pf.bind_address_placeholder_dynamic")
 	}
 }
 
 func (m *portForwardModel) View() string {
 	var sections []string
+	var fields []string
 
 	// Title
-	title := m.styles.Header.Render("🔗 Port Forwarding Setup")
+	title := m.styles.Header.Render(i18n.T("pf.title"))
 	sections = append(sections, title)
 
 	// Host info
-	hostInfo := fmt.Sprintf("Host: %s", m.hostName)
+	hostInfo := fmt.Sprintf(i18n.T("pf.host_info"), m.hostName)
 	sections = append(sections, m.styles.HelpText.Render(hostInfo))
 
 	// Error message
 	if m.err != "" {
-		sections = append(sections, m.styles.Error.Render("Error: "+m.err))
+		sections = append(sections, m.styles.Error.Render(i18n.T("pf.error_prefix")+m.err))
 	}
 
-	// Form fields
-	var fields []string
-
 	// Forward type
-	typeLabel := "Forward Type:"
+	typeLabel := i18n.T("pf.forward_type_label")
 	if m.focused == pfTypeInput {
 		typeLabel = m.styles.FocusedLabel.Render(typeLabel)
 	} else {
@@ -241,16 +241,16 @@ func (m *portForwardModel) View() string {
 	}
 	fields = append(fields, typeLabel)
 	fields = append(fields, m.inputs[pfTypeInput].View())
-	fields = append(fields, m.styles.HelpText.Render("Use ←/→ to change type"))
+	fields = append(fields, m.styles.HelpText.Render(i18n.T("pf.use_arrows")))
 
 	switch m.forwardType {
 	case LocalForward:
 		fields = append(fields, "")
-		fields = append(fields, m.styles.HelpText.Render("Local forwarding: ssh -L [bind_address:]local_port:remote_host:remote_port"))
+		fields = append(fields, m.styles.HelpText.Render(i18n.T("pf.local_desc")))
 		fields = append(fields, "")
 
 		// Local port
-		localPortLabel := "Local Port:"
+		localPortLabel := i18n.T("pf.local_port_label")
 		if m.focused == pfLocalPortInput {
 			localPortLabel = m.styles.FocusedLabel.Render(localPortLabel)
 		} else {
@@ -260,7 +260,7 @@ func (m *portForwardModel) View() string {
 		fields = append(fields, m.inputs[pfLocalPortInput].View())
 
 		// Remote host
-		remoteHostLabel := "Remote Host:"
+		remoteHostLabel := i18n.T("pf.remote_host_label")
 		if m.focused == pfRemoteHostInput {
 			remoteHostLabel = m.styles.FocusedLabel.Render(remoteHostLabel)
 		} else {
@@ -270,7 +270,7 @@ func (m *portForwardModel) View() string {
 		fields = append(fields, m.inputs[pfRemoteHostInput].View())
 
 		// Remote port
-		remotePortLabel := "Remote Port:"
+		remotePortLabel := i18n.T("pf.remote_port_label")
 		if m.focused == pfRemotePortInput {
 			remotePortLabel = m.styles.FocusedLabel.Render(remotePortLabel)
 		} else {
@@ -281,11 +281,11 @@ func (m *portForwardModel) View() string {
 
 	case RemoteForward:
 		fields = append(fields, "")
-		fields = append(fields, m.styles.HelpText.Render("Remote forwarding: ssh -R [bind_address:]remote_port:local_host:local_port"))
+		fields = append(fields, m.styles.HelpText.Render(i18n.T("pf.remote_desc")))
 		fields = append(fields, "")
 
 		// Remote port
-		remotePortLabel := "Remote Port:"
+		remotePortLabel := i18n.T("pf.remote_port_label")
 		if m.focused == pfLocalPortInput {
 			remotePortLabel = m.styles.FocusedLabel.Render(remotePortLabel)
 		} else {
@@ -295,7 +295,7 @@ func (m *portForwardModel) View() string {
 		fields = append(fields, m.inputs[pfLocalPortInput].View())
 
 		// Local host
-		localHostLabel := "Local Host:"
+		localHostLabel := i18n.T("pf.local_host_label")
 		if m.focused == pfRemoteHostInput {
 			localHostLabel = m.styles.FocusedLabel.Render(localHostLabel)
 		} else {
@@ -305,7 +305,7 @@ func (m *portForwardModel) View() string {
 		fields = append(fields, m.inputs[pfRemoteHostInput].View())
 
 		// Local port
-		localPortLabel := "Local Port:"
+		localPortLabel := i18n.T("pf.local_port_label")
 		if m.focused == pfRemotePortInput {
 			localPortLabel = m.styles.FocusedLabel.Render(localPortLabel)
 		} else {
@@ -316,11 +316,11 @@ func (m *portForwardModel) View() string {
 
 	case DynamicForward:
 		fields = append(fields, "")
-		fields = append(fields, m.styles.HelpText.Render("Dynamic forwarding (SOCKS proxy): ssh -D [bind_address:]port"))
+		fields = append(fields, m.styles.HelpText.Render(i18n.T("pf.dynamic_desc")))
 		fields = append(fields, "")
 
 		// SOCKS port
-		socksPortLabel := "SOCKS Port:"
+		socksPortLabel := i18n.T("pf.socks_port_label")
 		if m.focused == pfLocalPortInput {
 			socksPortLabel = m.styles.FocusedLabel.Render(socksPortLabel)
 		} else {
@@ -332,7 +332,7 @@ func (m *portForwardModel) View() string {
 
 	// Bind address (for all types)
 	fields = append(fields, "")
-	bindLabel := "Bind Address (optional):"
+	bindLabel := i18n.T("pf.bind_address_label")
 	if m.focused == pfBindAddressInput {
 		bindLabel = m.styles.FocusedLabel.Render(bindLabel)
 	} else {
@@ -346,7 +346,7 @@ func (m *portForwardModel) View() string {
 	sections = append(sections, formContent)
 
 	// Help text
-	helpText := " Tab/↓: next field • Shift+Tab/↑: previous field • Enter: connect • Esc: cancel"
+	helpText := i18n.T("pf.help_text")
 	sections = append(sections, m.styles.HelpText.Render(helpText))
 
 	// Join all sections
@@ -367,22 +367,18 @@ func (m *portForwardModel) submitForm() tea.Cmd {
 		// Validate inputs
 		localPort := strings.TrimSpace(m.inputs[pfLocalPortInput].Value())
 		if localPort == "" {
-			return portForwardSubmitMsg{err: fmt.Errorf("port is required"), sshArgs: nil}
+			return portForwardSubmitMsg{err: errors.New(i18n.T("pf.err_port_required")), sshArgs: nil}
 		}
-
-		// Validate port number
 		if _, err := strconv.Atoi(localPort); err != nil {
-			return portForwardSubmitMsg{err: fmt.Errorf("invalid port number"), sshArgs: nil}
+			return portForwardSubmitMsg{err: errors.New(i18n.T("pf.err_invalid_port")), sshArgs: nil}
 		}
 
-		// Get form values for saving to history
 		remoteHost := strings.TrimSpace(m.inputs[pfRemoteHostInput].Value())
 		remotePort := strings.TrimSpace(m.inputs[pfRemotePortInput].Value())
 		bindAddress := strings.TrimSpace(m.inputs[pfBindAddressInput].Value())
 
 		// Build SSH command with port forwarding
 		var sshArgs []string
-
 		// Add config file if specified
 		if m.configFile != "" {
 			sshArgs = append(sshArgs, "-F", m.configFile)
@@ -397,12 +393,12 @@ func (m *portForwardModel) submitForm() tea.Cmd {
 				remoteHost = "localhost"
 			}
 			if remotePort == "" {
-				return portForwardSubmitMsg{err: fmt.Errorf("remote port is required for local forwarding"), sshArgs: nil}
+				return portForwardSubmitMsg{err: errors.New(i18n.T("pf.err_remote_port_req")), sshArgs: nil}
 			}
 
 			// Validate remote port
 			if _, err := strconv.Atoi(remotePort); err != nil {
-				return portForwardSubmitMsg{err: fmt.Errorf("invalid remote port number"), sshArgs: nil}
+				return portForwardSubmitMsg{err: errors.New(i18n.T("pf.err_invalid_remote_port")), sshArgs: nil}
 			}
 
 			// Build -L argument
@@ -420,12 +416,12 @@ func (m *portForwardModel) submitForm() tea.Cmd {
 				remoteHost = "localhost"
 			}
 			if remotePort == "" {
-				return portForwardSubmitMsg{err: fmt.Errorf("local port is required for remote forwarding"), sshArgs: nil}
+				return portForwardSubmitMsg{err: errors.New(i18n.T("pf.err_local_port_req")), sshArgs: nil}
 			}
 
 			// Validate local port
 			if _, err := strconv.Atoi(remotePort); err != nil {
-				return portForwardSubmitMsg{err: fmt.Errorf("invalid local port number"), sshArgs: nil}
+				return portForwardSubmitMsg{err: errors.New(i18n.T("pf.err_invalid_local_port")), sshArgs: nil}
 			}
 
 			// Build -R argument (note: localPort is actually the remote port in this context)
