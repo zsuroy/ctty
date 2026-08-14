@@ -243,3 +243,50 @@ func TestSaveAndLoadAppConfigIntegration(t *testing.T) {
 		t.Error("IsUpdateCheckEnabled should return false when CheckForUpdates is false")
 	}
 }
+
+func TestAppConfigTagColors(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "ctty_tag_colors_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	configPath := filepath.Join(tempDir, "config.json")
+	customConfig := AppConfig{
+		TagColors: map[string]string{
+			"production": "#EF4444",
+			"database":   "#8B5CF6",
+		},
+	}
+
+	data, err := json.MarshalIndent(customConfig, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal config: %v", err)
+	}
+
+	err = os.WriteFile(configPath, data, 0644)
+	if err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	readData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	var loadedConfig AppConfig
+	err = json.Unmarshal(readData, &loadedConfig)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal config: %v", err)
+	}
+
+	if len(loadedConfig.TagColors) != 2 {
+		t.Fatalf("Expected 2 tag colors, got %d", len(loadedConfig.TagColors))
+	}
+	if loadedConfig.TagColors["production"] != "#EF4444" {
+		t.Errorf("Expected production tag color #EF4444, got %s", loadedConfig.TagColors["production"])
+	}
+	if loadedConfig.TagColors["database"] != "#8B5CF6" {
+		t.Errorf("Expected database tag color #8B5CF6, got %s", loadedConfig.TagColors["database"])
+	}
+}

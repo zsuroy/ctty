@@ -113,10 +113,10 @@ func (m Model) renderListView() string {
 	// Add the table with the appropriate style based on focus
 	if m.searchMode {
 		// The table is not focused, use the unfocused style
-		components = append(components, m.styles.TableUnfocused.Render(m.table.View()))
+		components = append(components, m.styles.TableUnfocused.Render(m.renderTableView()))
 	} else {
 		// The table is focused, use the focused style with the primary color
-		components = append(components, m.styles.TableFocused.Render(m.table.View()))
+		components = append(components, m.styles.TableFocused.Render(m.renderTableView()))
 	}
 
 	// Add the help text

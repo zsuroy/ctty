@@ -37,7 +37,7 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 - **⚡ Quick Connect** - Connect to any host instantly through the TUI or the CLI with `ctty <host>`
 - **🔄 Port Forwarding** - Easy setup for Local, Remote, and Dynamic (SOCKS) forwarding with history persistence
 - **📝 Easy Management** - Add, edit, move, and manage SSH configurations seamlessly
-- **🏷️ Tag Support** - Organize your hosts with custom tags for better categorization; use the special `hidden` tag to exclude hosts from the list while keeping them connectable
+- **🏷️ Tag Support** - Organize your hosts with custom tags with automatic color-coding (e.g., `#prod` in red, `#dev` in green, `#db` in purple) and custom color configuration; use the special `hidden` tag to exclude hosts from the list while keeping them connectable
 - **🔍 Smart Search** - Find hosts quickly with built-in filtering and search
 - **📝 Real-time Status** - Live SSH connectivity indicators with asynchronous ping checks and color-coded status
 - **🔔 Smart Updates** - Automatic version checking with update notifications

@@ -35,72 +35,54 @@ func sortHostsByName(hosts []config.SSHHost) []config.SSHHost {
 	return sorted
 }
 
-// filterHosts filters hosts according to the search query (name or tags)
+// filterHosts filters hosts according to the search query (name, hostname, user, or tags)
 func (m Model) filterHosts(query string) []config.SSHHost {
-	subqueries := strings.Split(query, " ")
-	subqueriesLength := len(subqueries)
-	subfilteredHosts := make([][]config.SSHHost, subqueriesLength)
-	for i, subquery := range subqueries {
-		subfilteredHosts[i] = m.filterHostsByWord(subquery)
+	words := strings.Fields(strings.TrimSpace(query))
+	if len(words) == 0 {
+		return m.sortHosts(m.hosts)
 	}
 
-	// return the intersection of search results
-	result := make([]config.SSHHost, 0)
-	tempMap := map[string]int{}
-	for _, hosts := range subfilteredHosts {
-		for _, host := range hosts {
-			if _, ok := tempMap[host.Name]; !ok {
-				tempMap[host.Name] = 1
-			} else {
-				tempMap[host.Name] = tempMap[host.Name] + 1
+	var current []config.SSHHost = m.hosts
+	for _, word := range words {
+		var matched []config.SSHHost
+		wordLower := strings.ToLower(word)
+		cleanWord := strings.TrimPrefix(wordLower, "#")
+
+		for _, host := range current {
+			isMatch := false
+
+			// Match Name
+			if strings.Contains(strings.ToLower(host.Name), wordLower) || strings.Contains(strings.ToLower(host.Name), cleanWord) {
+				isMatch = true
 			}
-
-			if tempMap[host.Name] == subqueriesLength {
-				result = append(result, host)
+			// Match Hostname
+			if !isMatch && (strings.Contains(strings.ToLower(host.Hostname), wordLower) || strings.Contains(strings.ToLower(host.Hostname), cleanWord)) {
+				isMatch = true
 			}
-		}
-	}
-
-	return result
-}
-
-// filterHostsByWord filters hosts according to a single word
-func (m Model) filterHostsByWord(word string) []config.SSHHost {
-	var filtered []config.SSHHost
-
-	if word == "" {
-		filtered = m.hosts
-	} else {
-		word = strings.ToLower(word)
-
-		for _, host := range m.hosts {
-			// Check the hostname
-			if strings.Contains(strings.ToLower(host.Name), word) {
-				filtered = append(filtered, host)
-				continue
+			// Match User
+			if !isMatch && (strings.Contains(strings.ToLower(host.User), wordLower) || strings.Contains(strings.ToLower(host.User), cleanWord)) {
+				isMatch = true
 			}
-
-			// Check the hostname
-			if strings.Contains(strings.ToLower(host.Hostname), word) {
-				filtered = append(filtered, host)
-				continue
-			}
-
-			// Check the user
-			if strings.Contains(strings.ToLower(host.User), word) {
-				filtered = append(filtered, host)
-				continue
-			}
-
-			// Check the tags
-			for _, tag := range host.Tags {
-				if strings.Contains(strings.ToLower(tag), word) {
-					filtered = append(filtered, host)
-					break
+			// Match Tags
+			if !isMatch {
+				for _, tag := range host.Tags {
+					tagLower := strings.ToLower(tag)
+					if strings.Contains(tagLower, cleanWord) || strings.Contains("#"+tagLower, wordLower) {
+						isMatch = true
+						break
+					}
 				}
 			}
+
+			if isMatch {
+				matched = append(matched, host)
+			}
+		}
+		current = matched
+		if len(current) == 0 {
+			break
 		}
 	}
 
-	return m.sortHosts(filtered)
+	return m.sortHosts(current)
 }

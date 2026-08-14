@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/zsuroy/ctty/internal/config"
@@ -30,6 +29,11 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 	if noUpdateCheck {
 		f := false
 		appConfig.CheckForUpdates = &f
+	}
+
+	// Register custom tag colors from configuration if available
+	if appConfig != nil && len(appConfig.TagColors) > 0 {
+		SetCustomTagColors(appConfig.TagColors)
 	}
 
 	// Initialize the history manager
@@ -98,16 +102,8 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 		// Get ping status indicator
 		statusIndicator := m.getPingStatusIndicator(host.Name)
 
-		// Format tags for display
-		var tagsStr string
-		if len(host.Tags) > 0 {
-			// Add the # prefix to each tag and join them with spaces
-			var formattedTags []string
-			for _, tag := range host.Tags {
-				formattedTags = append(formattedTags, "#"+tag)
-			}
-			tagsStr = strings.Join(formattedTags, " ")
-		}
+		// Format plain tags for table model
+		tagsStr := FormatPlainTags(host.Tags)
 
 		// Format last login information
 		var lastLoginStr string

@@ -192,7 +192,7 @@ func formatTags(tags []string) string {
 	if len(tags) == 0 {
 		return "Not set"
 	}
-	return strings.Join(tags, ", ")
+	return FormatColoredTags(tags)
 }
 
 // Standalone wrapper for info form (for testing or standalone use)

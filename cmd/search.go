@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/zsuroy/ctty/internal/config"
+	"github.com/zsuroy/ctty/internal/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -35,6 +36,11 @@ Examples:
 }
 
 func runSearch(cmd *cobra.Command, args []string) {
+	// Register custom tag colors from configuration if available
+	if appConfig, err := config.LoadAppConfig(); err == nil && len(appConfig.TagColors) > 0 {
+		ui.SetCustomTagColors(appConfig.TagColors)
+	}
+
 	// Parse SSH configurations
 	var hosts []config.SSHHost
 	var err error
@@ -92,39 +98,52 @@ func runSearch(cmd *cobra.Command, args []string) {
 func filterHosts(hosts []config.SSHHost, query string, tagsOnly, namesOnly bool) []config.SSHHost {
 	var filtered []config.SSHHost
 
+	query = strings.TrimSpace(query)
 	if query == "" {
 		return hosts
 	}
 
-	query = strings.ToLower(query)
+	words := strings.Fields(query)
 
 	for _, host := range hosts {
-		matched := false
+		allMatch := true
 
-		// Search in names if not tags-only
-		if !tagsOnly {
-			// Check the host name
-			if strings.Contains(strings.ToLower(host.Name), query) {
-				matched = true
-			}
+		for _, word := range words {
+			wordLower := strings.ToLower(word)
+			cleanWord := strings.TrimPrefix(wordLower, "#")
+			matched := false
 
-			// Check the hostname if not names-only
-			if !namesOnly && !matched && strings.Contains(strings.ToLower(host.Hostname), query) {
-				matched = true
-			}
-		}
-
-		// Search in tags if not names-only
-		if !namesOnly && !matched {
-			for _, tag := range host.Tags {
-				if strings.Contains(strings.ToLower(tag), query) {
+			// Search in names if not tags-only
+			if !tagsOnly {
+				// Check the host name
+				if strings.Contains(strings.ToLower(host.Name), wordLower) || strings.Contains(strings.ToLower(host.Name), cleanWord) {
 					matched = true
-					break
+				}
+
+				// Check the hostname if not names-only
+				if !namesOnly && !matched && (strings.Contains(strings.ToLower(host.Hostname), wordLower) || strings.Contains(strings.ToLower(host.Hostname), cleanWord)) {
+					matched = true
 				}
 			}
+
+			// Search in tags if not names-only
+			if !namesOnly && !matched {
+				for _, tag := range host.Tags {
+					tagLower := strings.ToLower(tag)
+					if strings.Contains(tagLower, cleanWord) || strings.Contains("#"+tagLower, wordLower) {
+						matched = true
+						break
+					}
+				}
+			}
+
+			if !matched {
+				allMatch = false
+				break
+			}
 		}
 
-		if matched {
+		if allMatch {
 			filtered = append(filtered, host)
 		}
 	}
@@ -154,9 +173,9 @@ func outputTable(hosts []config.SSHHost) {
 		if len(host.User) > userWidth {
 			userWidth = len(host.User)
 		}
-		tagsStr := strings.Join(host.Tags, ", ")
-		if len(tagsStr) > tagsWidth {
-			tagsWidth = len(tagsStr)
+		tagsLen := ui.CalculatePlainTagsWidth(host.Tags)
+		if tagsLen > tagsWidth {
+			tagsWidth = tagsLen
 		}
 	}
 
@@ -180,11 +199,13 @@ func outputTable(hosts []config.SSHHost) {
 		if user == "" {
 			user = "-"
 		}
-		tags := strings.Join(host.Tags, ", ")
-		if tags == "" {
+		var tags string
+		if len(host.Tags) == 0 {
 			tags = "-"
+		} else {
+			tags = ui.FormatColoredTags(host.Tags)
 		}
-		fmt.Printf("%-*s %-*s %-*s %-*s\n", nameWidth, host.Name, hostWidth, host.Hostname, userWidth, user, tagsWidth, tags)
+		fmt.Printf("%-*s %-*s %-*s %s\n", nameWidth, host.Name, hostWidth, host.Hostname, userWidth, user, tags)
 	}
 
 	fmt.Printf("\nFound %d host(s)\n", len(hosts))

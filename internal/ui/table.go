@@ -3,10 +3,11 @@ package ui
 import (
 	"strings"
 
+	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/history"
-
-	"github.com/charmbracelet/bubbles/table"
 )
 
 // calculateDynamicColumnWidths calculates optimal column widths based on terminal width
@@ -35,16 +36,9 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 		}
 
 		// Calculate tags string length
-		var tagsStr string
-		if len(host.Tags) > 0 {
-			var formattedTags []string
-			for _, tag := range host.Tags {
-				formattedTags = append(formattedTags, "#"+tag)
-			}
-			tagsStr = strings.Join(formattedTags, " ")
-		}
-		if len(tagsStr) > maxTagsLength {
-			maxTagsLength = len(tagsStr)
+		tagsLen := CalculatePlainTagsWidth(host.Tags)
+		if tagsLen > maxTagsLength {
+			maxTagsLength = tagsLen
 		}
 
 		// Calculate last login length
@@ -133,16 +127,8 @@ func (m *Model) updateTableRows() {
 		// Get ping status indicator
 		statusIndicator := m.getPingStatusIndicator(host.Name)
 
-		// Format tags for display
-		var tagsStr string
-		if len(host.Tags) > 0 {
-			// Add the # prefix to each tag and join them with spaces
-			var formattedTags []string
-			for _, tag := range host.Tags {
-				formattedTags = append(formattedTags, "#"+tag)
-			}
-			tagsStr = strings.Join(formattedTags, " ")
-		}
+		// Format plain tags for table model
+		tagsStr := FormatPlainTags(host.Tags)
 
 		// Format last login information
 		var lastLoginStr string
@@ -155,8 +141,6 @@ func (m *Model) updateTableRows() {
 		rows = append(rows, table.Row{
 			statusIndicator + " " + host.Name,
 			host.Hostname,
-			// host.User,      // Commented to save space
-			// host.Port,      // Commented to save space
 			tagsStr,
 			lastLoginStr,
 		})
@@ -254,6 +238,145 @@ func (m *Model) updateTableColumns() {
 	m.table.SetColumns(columns)
 }
 
+// renderCell formats a cell value with ANSI-aware truncation and space padding
+func renderCell(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	truncated := ansi.Truncate(value, width, "…")
+	sw := ansi.StringWidth(truncated)
+	if sw < width {
+		truncated += strings.Repeat(" ", width-sw)
+	}
+	return truncated
+}
+
+// renderTableView renders the main host table with ANSI colored tags and proper viewport scrolling
+func (m *Model) renderTableView() string {
+	cols := m.table.Columns()
+	if len(cols) == 0 {
+		return ""
+	}
+
+	headerStyle := lipgloss.NewStyle().
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color(SecondaryColor)).
+		BorderBottom(true).
+		Bold(false)
+
+	// 1. Render Headers
+	var headerCells []string
+	for _, col := range cols {
+		if col.Width <= 0 {
+			continue
+		}
+		rendered := headerStyle.Render(renderCell(col.Title, col.Width))
+		headerCells = append(headerCells, rendered)
+	}
+	headerRow := lipgloss.JoinHorizontal(lipgloss.Top, headerCells...)
+
+	// 2. Determine visible rows
+	hostsToShow := m.filteredHosts
+	if hostsToShow == nil {
+		hostsToShow = m.hosts
+	}
+
+	hostCount := len(hostsToShow)
+	cursor := m.table.Cursor()
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= hostCount && hostCount > 0 {
+		cursor = hostCount - 1
+	}
+
+	// Calculate maximum visible data rows from terminal height
+	reservedHeight := 14
+	availableHeight := m.height - reservedHeight
+	if availableHeight < 4 {
+		availableHeight = 4
+	}
+	maxDataRows := availableHeight - 1 // 1 line for header
+
+	visibleRows := hostCount
+	if visibleRows > maxDataRows {
+		visibleRows = maxDataRows
+	}
+	if visibleRows < 1 && hostCount > 0 {
+		visibleRows = 1
+	}
+
+	start := 0
+	if hostCount > visibleRows {
+		if cursor < start {
+			start = cursor
+		}
+		if cursor >= start+visibleRows {
+			start = cursor - visibleRows + 1
+		}
+		if start > hostCount-visibleRows {
+			start = hostCount - visibleRows
+		}
+		if start < 0 {
+			start = 0
+		}
+	}
+
+	end := start + visibleRows
+	if end > hostCount {
+		end = hostCount
+	}
+
+	// 3. Render Data Rows
+	var renderedRows []string
+	for r := start; r < end; r++ {
+		host := hostsToShow[r]
+		statusIndicator := m.getPingStatusIndicator(host.Name)
+
+		var lastLoginStr string
+		if m.historyManager != nil {
+			if lastConnect, exists := m.historyManager.GetLastConnectionTime(host.Name); exists {
+				lastLoginStr = formatTimeAgo(lastConnect)
+			}
+		}
+
+		rowValues := []string{
+			statusIndicator + " " + host.Name,
+			host.Hostname,
+			FormatColoredTags(host.Tags),
+			lastLoginStr,
+		}
+
+		var cells []string
+		for i, col := range cols {
+			if col.Width <= 0 {
+				continue
+			}
+			val := ""
+			if i < len(rowValues) {
+				val = rowValues[i]
+			}
+			cells = append(cells, renderCell(val, col.Width))
+		}
+
+		rowContent := lipgloss.JoinHorizontal(lipgloss.Top, cells...)
+		if r == cursor {
+			rowContent = m.styles.Selected.Render(rowContent)
+		}
+		renderedRows = append(renderedRows, rowContent)
+	}
+
+	if hostCount == 0 {
+		emptyRow := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(SecondaryColor)).
+			Italic(true).
+			Render("  No matching hosts found")
+		renderedRows = append(renderedRows, emptyRow)
+	}
+
+	return headerRow + "\n" + strings.Join(renderedRows, "\n")
+}
+
 // max returns the maximum of two integers
 func max(a, b int) int {
 	if a > b {
@@ -292,19 +415,9 @@ func calculateTagsColumnWidth(hosts []config.SSHHost) int {
 	maxLength := 8 // Minimum width to accommodate the "Tags" header
 
 	for _, host := range hosts {
-		// Format tags exactly as they appear in the table
-		var tagsStr string
-		if len(host.Tags) > 0 {
-			// Add the # prefix to each tag and join them with spaces
-			var formattedTags []string
-			for _, tag := range host.Tags {
-				formattedTags = append(formattedTags, "#"+tag)
-			}
-			tagsStr = strings.Join(formattedTags, " ")
-		}
-
-		if len(tagsStr) > maxLength {
-			maxLength = len(tagsStr)
+		tagsLen := CalculatePlainTagsWidth(host.Tags)
+		if tagsLen > maxLength {
+			maxLength = tagsLen
 		}
 	}
 

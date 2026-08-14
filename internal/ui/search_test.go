@@ -1,12 +1,13 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
-	"github.com/zsuroy/ctty/internal/config"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/zsuroy/ctty/internal/config"
 )
 
 // createTestModel creates a model with test data for testing
@@ -301,5 +302,61 @@ func TestSearchByUser(t *testing.T) {
 
 	if len(m.filteredHosts) > 0 && m.filteredHosts[0].Name != "server1" {
 		t.Errorf("Expected 'server1' to match user search, got '%s'", m.filteredHosts[0].Name)
+	}
+}
+
+func TestSearchByTagAndRender(t *testing.T) {
+	hosts := []config.SSHHost{
+		{Name: "Oracle-SG-ARM2", Hostname: "129.150.62.161", User: "ubuntu", Tags: []string{"Mine"}},
+		{Name: "pi.suroy.cn", Hostname: "pi.suroy.cn", User: "pi", Tags: []string{"Home"}},
+		{Name: "Oracle-SG-ARM", Hostname: "134.185.88.45", User: "ubuntu", Tags: []string{"Mine"}},
+	}
+
+	m := Model{
+		hosts:         hosts,
+		allHosts:      hosts,
+		filteredHosts: hosts,
+		searchInput:   textinput.New(),
+		table:         table.New(),
+		searchMode:    false,
+		ready:         true,
+		width:         80,
+		height:        24,
+		styles:        NewStyles(80),
+	}
+	m.updateTableColumns()
+	m.updateTableRows()
+
+	// Enter search mode
+	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")}
+	newModel, _ := m.Update(keyMsg)
+	m = newModel.(Model)
+
+	// Search for "Oracle" (6 letters)
+	for _, char := range "Oracle" {
+		keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{char}}
+		newModel, _ := m.Update(keyMsg)
+		m = newModel.(Model)
+	}
+
+	if len(m.filteredHosts) != 2 {
+		t.Fatalf("Expected 2 filtered hosts for 'Oracle', got %d", len(m.filteredHosts))
+	}
+
+	rendered := m.renderTableView()
+	if !strings.Contains(rendered, "Oracle-SG-ARM") || !strings.Contains(rendered, "Oracle-SG-ARM2") {
+		t.Errorf("Expected rendered view to contain both Oracle hosts, got:\n%s", rendered)
+	}
+
+	// Search by tag "#Mine"
+	m.searchInput.Reset()
+	for _, char := range "#Mine" {
+		keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{char}}
+		newModel, _ := m.Update(keyMsg)
+		m = newModel.(Model)
+	}
+
+	if len(m.filteredHosts) != 2 {
+		t.Fatalf("Expected 2 filtered hosts for '#Mine', got %d", len(m.filteredHosts))
 	}
 }
