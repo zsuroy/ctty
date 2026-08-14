@@ -141,6 +141,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.serialForm.height = m.height
 			m.serialForm.styles = m.styles
 		}
+		if m.sftpForm != nil {
+			m.sftpForm.width = m.width
+			m.sftpForm.height = m.height
+			m.sftpForm.styles = m.styles
+		}
 		return m, nil
 
 	case pingResultMsg:
@@ -413,6 +418,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.Focus()
 		return m, nil
 
+	case sftpDoneMsg:
+		m.sftpForm = nil
+		m.viewMode = ViewList
+		m.table.Focus()
+		return m, nil
+
+
 	case tea.KeyMsg:
 		// Handle view-specific key presses
 		switch m.viewMode {
@@ -473,10 +485,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, cmd
 			}
+		case ViewSFTP:
+			if m.sftpForm != nil {
+				updatedModel, cmd := m.sftpForm.Update(msg)
+				if sm, ok := updatedModel.(*sftpFormModel); ok {
+					m.sftpForm = sm
+				}
+				return m, cmd
+			}
 		case ViewList:
 			// Handle list view keys
 			return m.handleListViewKeys(msg)
 		}
+	}
+
+	// Forward SFTP-specific messages to the sftp form (these are not tea.KeyMsg)
+	if m.sftpForm != nil && m.viewMode == ViewSFTP {
+		updatedModel, sftpCmd := m.sftpForm.Update(msg)
+		if sm, ok := updatedModel.(*sftpFormModel); ok {
+			m.sftpForm = sm
+		}
+		return m, sftpCmd
 	}
 
 	return m, cmd
@@ -744,6 +773,17 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.serialForm = NewSerialForm(m.styles, m.width, m.height)
 			m.viewMode = ViewSerial
 			return m, nil
+		}
+	case "o":
+		if !m.searchMode && !m.deleteMode {
+			// Open SFTP file browser for the selected host
+			selected := m.table.SelectedRow()
+			if len(selected) > 0 {
+				hostName := extractHostNameFromTableRow(selected[0])
+				m.sftpForm = NewSFTPForm(m.styles, m.width, m.height, hostName, m.configFile)
+				m.viewMode = ViewSFTP
+				return m, m.sftpForm.Init()
+			}
 		}
 	case "h":
 		if !m.searchMode && !m.deleteMode {

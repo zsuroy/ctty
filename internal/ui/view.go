@@ -43,6 +43,10 @@ func (m Model) View() string {
 		if m.serialForm != nil {
 			return m.serialForm.View()
 		}
+	case ViewSFTP:
+		if m.sftpForm != nil {
+			return m.sftpForm.View()
+		}
 	case ViewFileSelector:
 		if m.fileSelectorForm != nil {
 			return m.fileSelectorForm.View()
@@ -118,7 +122,7 @@ func (m Model) renderListView() string {
 	// Add the help text
 	var helpText string
 	if !m.searchMode {
-		helpText = " ↑/↓: navigate • Enter: connect • p: ping all • i: info • t: serial • h: help • q: quit"
+		helpText = " ↑/↓: navigate • Enter: connect • p: ping all • i: info • t: serial • o: sftp • h: help • q: quit"
 	} else {
 		helpText = " Type to filter • Enter: validate • Tab: switch • ESC: quit"
 	}

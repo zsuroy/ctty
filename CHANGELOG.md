@@ -5,11 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-14
 
 ### Added
 
-- SFTP file transfer support (in development)
+- **SFTP file transfer support** — full-featured SFTP browser with:
+  - Remote and local file browsing
+  - Upload/download with progress and cancel
+  - **Search functionality (`/` key) for both remote and local files**
+  - Two-line help for better readability
+  - Clear [LOCAL] and [REMOTE] labels (no confusing emoji)
+  - Error handling with friendly messages
+  - **Upload progress display (same as download)**
+  - **Cancel message shows filename instead of generic "Download cancelled"**
+  - **Search input with real-time filtering**
+  - **Consistent search behavior across SSH, Serial, and SFTP**
 
 ## [0.1.0] - 2026-08-13
 

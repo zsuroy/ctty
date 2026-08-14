@@ -189,6 +189,54 @@ ctty serial    # Skip the SSH host list, go straight to serial devices
 ```
 
 
+### SFTP File Transfer
+
+While selected an SSH host, press `o` to open the SFTP file browser. The SFTP interface provides a full-featured file transfer experience directly in your terminal:
+
+**SFTP Browser Features:**
+- Remote and local file browsing
+- Upload/download with progress and cancel
+- Search functionality (/ key) for both remote and local files
+- Two-line help for better readability
+- Clear [LOCAL] and [REMOTE] labels (no confusing emoji)
+- Error handling with friendly messages
+
+**SFTP Navigation:**
+- `↑/↓` or `j/k` - Navigate files
+- `→/l` or `Enter` - Enter directory / download file (remote) / upload file (local)
+- `←/h` or `Backspace` - Go to parent directory
+- `u` - Switch to local file browser for upload
+- `d` - Delete selected file (remote only)
+- `n` - Create new directory (remote only)
+- `r` - Refresh file list
+- `/` - Search/filter files
+- `Esc` - Cancel current operation / return to SSH session
+
+**Uploading Files:**
+1. Press `u` to switch to local file browser
+2. Navigate to the file you want to upload
+3. Press `Enter` to upload to the current remote directory
+4. Monitor progress in the status bar
+5. Press `Esc` to cancel upload (returns to remote file list)
+
+**Downloading Files:**
+1. Navigate to the file you want to download
+2. Press `Enter` to download to your local download directory (`~/Downloads/ctty`)
+3. Monitor progress in the status bar
+4. Press `Esc` to cancel download (returns to remote file list)
+
+**Searching Files:**
+- Press `/` to enter search mode
+- Type to filter files by name (real-time filtering)
+- Press `Enter` or `Tab` to confirm selection
+- Press `Esc` to cancel search and restore full file list
+
+**Error Handling:**
+- If SFTP fails to start, you'll see a friendly error message: `❌ SFTP Error: failed to start SFTP session.`
+- Press `Esc` to return to the SSH session
+- Your SSH connection remains active for other operations
+
+
 ### Port Forwarding
 
 ctty provides an intuitive interface for setting up SSH port forwarding. Press `f` while selecting a host to open the port forwarding setup:

@@ -43,6 +43,7 @@ const (
 	ViewHelp
 	ViewFileSelector
 	ViewSerial
+	ViewSFTP
 )
 
 // PortForwardType defines the type of port forwarding
@@ -100,6 +101,7 @@ type Model struct {
 	helpForm         *helpModel
 	fileSelectorForm *fileSelectorModel
 	serialForm       *serialFormModel
+	sftpForm         *sftpFormModel
 
 	// Terminal size and styles
 	width  int
