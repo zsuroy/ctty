@@ -2,9 +2,11 @@ package ui
 
 import (
 	"fmt"
-	"github.com/zsuroy/ctty/internal/connectivity"
 	"strings"
 	"time"
+
+	"github.com/zsuroy/ctty/internal/connectivity"
+	"github.com/zsuroy/ctty/internal/i18n"
 )
 
 // formatTimeAgo formats a time into a readable "X time ago" string
@@ -16,45 +18,45 @@ func formatTimeAgo(t time.Time) string {
 	case duration < time.Minute:
 		seconds := int(duration.Seconds())
 		if seconds <= 1 {
-			return "1 second ago"
+			return i18n.T("time.second_ago", 1)
 		}
-		return fmt.Sprintf("%d seconds ago", seconds)
+		return i18n.T("time.seconds_ago", seconds)
 	case duration < time.Hour:
 		minutes := int(duration.Minutes())
 		if minutes == 1 {
-			return "1 minute ago"
+			return i18n.T("time.minute_ago", 1)
 		}
-		return fmt.Sprintf("%d minutes ago", minutes)
+		return i18n.T("time.minutes_ago", minutes)
 	case duration < 24*time.Hour:
 		hours := int(duration.Hours())
 		if hours == 1 {
-			return "1 hour ago"
+			return i18n.T("time.hour_ago", 1)
 		}
-		return fmt.Sprintf("%d hours ago", hours)
+		return i18n.T("time.hours_ago", hours)
 	case duration < 7*24*time.Hour:
 		days := int(duration.Hours() / 24)
 		if days == 1 {
-			return "1 day ago"
+			return i18n.T("time.day_ago", 1)
 		}
-		return fmt.Sprintf("%d days ago", days)
+		return i18n.T("time.days_ago", days)
 	case duration < 30*24*time.Hour:
 		weeks := int(duration.Hours() / (24 * 7))
 		if weeks == 1 {
-			return "1 week ago"
+			return i18n.T("time.week_ago", 1)
 		}
-		return fmt.Sprintf("%d weeks ago", weeks)
+		return i18n.T("time.weeks_ago", weeks)
 	case duration < 365*24*time.Hour:
 		months := int(duration.Hours() / (24 * 30))
 		if months == 1 {
-			return "1 month ago"
+			return i18n.T("time.month_ago", 1)
 		}
-		return fmt.Sprintf("%d months ago", months)
+		return i18n.T("time.months_ago", months)
 	default:
 		years := int(duration.Hours() / (24 * 365))
 		if years == 1 {
-			return "1 year ago"
+			return i18n.T("time.year_ago", 1)
 		}
-		return fmt.Sprintf("%d years ago", years)
+		return i18n.T("time.years_ago", years)
 	}
 }
 

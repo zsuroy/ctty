@@ -4,6 +4,7 @@ import (
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/connectivity"
 	"github.com/zsuroy/ctty/internal/history"
+	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/version"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -25,15 +26,15 @@ const (
 func (s SortMode) String() string {
 	switch s {
 	case SortByName:
-		return "Name (A-Z)"
+		return i18n.T("sort.name")
 	case SortByHostname:
-		return "Hostname (A-Z)"
+		return i18n.T("sort.hostname")
 	case SortByTags:
-		return "Tags (A-Z)"
+		return i18n.T("sort.tags")
 	case SortByLastUsed:
-		return "Last Login"
+		return i18n.T("sort.last_login")
 	default:
-		return "Name (A-Z)"
+		return i18n.T("sort.name")
 	}
 }
 

@@ -21,6 +21,7 @@ type AppConfig struct {
 	CheckForUpdates *bool             `json:"check_for_updates,omitempty"`
 	KeyBindings     KeyBindings       `json:"key_bindings"`
 	TagColors       map[string]string `json:"tag_colors,omitempty"`
+	Language        string            `json:"language,omitempty"`
 }
 
 // IsUpdateCheckEnabled returns true if the update check is enabled (default: true)

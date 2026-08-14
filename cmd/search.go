@@ -5,10 +5,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/zsuroy/ctty/internal/config"
-	"github.com/zsuroy/ctty/internal/ui"
-
+	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
+	"github.com/zsuroy/ctty/internal/config"
+	"github.com/zsuroy/ctty/internal/i18n"
+	"github.com/zsuroy/ctty/internal/ui"
 )
 
 var (
@@ -57,7 +58,7 @@ func runSearch(cmd *cobra.Command, args []string) {
 	}
 
 	if len(hosts) == 0 {
-		fmt.Println("No SSH hosts found in your configuration file.")
+		fmt.Println(i18n.T("cli.no_hosts_in_config"))
 		os.Exit(1)
 	}
 
@@ -76,9 +77,9 @@ func runSearch(cmd *cobra.Command, args []string) {
 	// Display results
 	if len(filteredHosts) == 0 {
 		if query == "" {
-			fmt.Println("No hosts found.")
+			fmt.Println(i18n.T("cli.no_hosts_found"))
 		} else {
-			fmt.Printf("No hosts found matching '%s'.\n", query)
+			fmt.Println(i18n.T("cli.no_hosts_matching", query))
 		}
 		return
 	}
@@ -157,21 +158,26 @@ func outputTable(hosts []config.SSHHost) {
 		return
 	}
 
+	colName := i18n.T("table.col.name")
+	colHost := i18n.T("table.col.hostname")
+	colUser := i18n.T("table.col.user")
+	colTags := i18n.T("table.col.tags")
+
 	// Calculate column widths
-	nameWidth := 4 // "Name"
-	hostWidth := 8 // "Hostname"
-	userWidth := 4 // "User"
-	tagsWidth := 4 // "Tags"
+	nameWidth := ansi.StringWidth(colName)
+	hostWidth := ansi.StringWidth(colHost)
+	userWidth := ansi.StringWidth(colUser)
+	tagsWidth := ansi.StringWidth(colTags)
 
 	for _, host := range hosts {
-		if len(host.Name) > nameWidth {
-			nameWidth = len(host.Name)
+		if ansi.StringWidth(host.Name) > nameWidth {
+			nameWidth = ansi.StringWidth(host.Name)
 		}
-		if len(host.Hostname) > hostWidth {
-			hostWidth = len(host.Hostname)
+		if ansi.StringWidth(host.Hostname) > hostWidth {
+			hostWidth = ansi.StringWidth(host.Hostname)
 		}
-		if len(host.User) > userWidth {
-			userWidth = len(host.User)
+		if ansi.StringWidth(host.User) > userWidth {
+			userWidth = ansi.StringWidth(host.User)
 		}
 		tagsLen := ui.CalculatePlainTagsWidth(host.Tags)
 		if tagsLen > tagsWidth {
@@ -186,7 +192,7 @@ func outputTable(hosts []config.SSHHost) {
 	tagsWidth += 2
 
 	// Print header
-	fmt.Printf("%-*s %-*s %-*s %-*s\n", nameWidth, "Name", hostWidth, "Hostname", userWidth, "User", tagsWidth, "Tags")
+	fmt.Printf("%-*s %-*s %-*s %-*s\n", nameWidth, colName, hostWidth, colHost, userWidth, colUser, tagsWidth, colTags)
 	fmt.Printf("%s %s %s %s\n",
 		strings.Repeat("-", nameWidth),
 		strings.Repeat("-", hostWidth),
@@ -208,7 +214,7 @@ func outputTable(hosts []config.SSHHost) {
 		fmt.Printf("%-*s %-*s %-*s %s\n", nameWidth, host.Name, hostWidth, host.Hostname, userWidth, user, tags)
 	}
 
-	fmt.Printf("\nFound %d host(s)\n", len(hosts))
+	fmt.Printf("\n%s\n", i18n.T("cli.found_hosts", len(hosts)))
 }
 
 // outputSimple displays results in simple format (one per line)

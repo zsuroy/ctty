@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -204,16 +205,16 @@ func (m *serialAddFormModel) submit() {
 func (m *serialAddFormModel) View() string {
 	var b strings.Builder
 
-	b.WriteString(m.styles.FormTitle.Render("  Add Serial Device"))
+	b.WriteString(m.styles.FormTitle.Render(i18n.T("serial.add_title")))
 	b.WriteString("\n\n")
 
 	labels := []string{
-		"Name:      ",
-		"Device:    ",
-		"Baud Rate: ",
-		"Data Bits: ",
-		"Parity:    ",
-		"Stop Bits: ",
+		i18n.T("serial.field_name"),
+		i18n.T("serial.field_device"),
+		i18n.T("serial.field_baud"),
+		i18n.T("serial.field_data"),
+		i18n.T("serial.field_parity"),
+		i18n.T("serial.field_stop"),
 	}
 
 	for i, label := range labels {
@@ -227,8 +228,7 @@ func (m *serialAddFormModel) View() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(m.styles.FormHelp.Render(
-		"  Tab/↑↓: next field • ←/→ on Device: pick port • Enter: submit • Esc: cancel"))
+	b.WriteString(m.styles.FormHelp.Render(i18n.T("serial.help_add")))
 
 	return m.styles.FormContainer.Render(b.String())
 }

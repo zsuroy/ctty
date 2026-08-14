@@ -1,16 +1,16 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/zsuroy/ctty/internal/i18n"
 )
 
 // View renders the complete user interface
 func (m Model) View() string {
 	if !m.ready {
-		return "Loading..."
+		return i18n.T("table.loading")
 	}
 
 	// Handle different view modes
@@ -68,7 +68,7 @@ func (m Model) renderListView() string {
 
 	// Add update notification if available (between title and search)
 	if m.updateInfo != nil && m.updateInfo.Available {
-		updateText := fmt.Sprintf("🚀 Update available: %s → %s",
+		updateText := i18n.T("update.available",
 			m.updateInfo.CurrentVer,
 			m.updateInfo.LatestVer)
 
@@ -99,11 +99,11 @@ func (m Model) renderListView() string {
 		hiddenBannerStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("11")).
 			Bold(true)
-		components = append(components, hiddenBannerStyle.Render("  [showing hidden hosts — press H to hide]"))
+		components = append(components, hiddenBannerStyle.Render(i18n.T("main.show_hidden")))
 	}
 
 	// Add the search bar with the appropriate style based on focus
-	searchPrompt := "Search (/ to focus): "
+	searchPrompt := i18n.T("search.prompt")
 	if m.searchMode {
 		components = append(components, m.styles.SearchFocused.Render(searchPrompt+m.searchInput.View()))
 	} else {
@@ -122,9 +122,9 @@ func (m Model) renderListView() string {
 	// Add the help text
 	var helpText string
 	if !m.searchMode {
-		helpText = " ↑/↓: navigate • Enter: connect • p: ping all • i: info • t: serial • o: sftp • h: help • q: quit"
+		helpText = i18n.T("main.help")
 	} else {
-		helpText = " Type to filter • Enter: validate • Tab: switch • ESC: quit"
+		helpText = i18n.T("search.help")
 	}
 	components = append(components, m.styles.HelpText.Render(helpText))
 
@@ -159,14 +159,14 @@ func (m Model) renderListView() string {
 // renderDeleteConfirmation renders a clean delete confirmation dialog
 func (m Model) renderDeleteConfirmation() string {
 	// Remove emojis (uncertain width depending on terminal) to stabilize the frame
-	title := "DELETE SSH HOST"
+	title := i18n.T("delete.title")
 	hostName := ""
 	if m.deleteHost != nil {
 		hostName = m.deleteHost.Name
 	}
-	question := fmt.Sprintf("Are you sure you want to delete host '%s'?", hostName)
-	action := "This action cannot be undone."
-	help := "Enter: confirm • Esc: cancel"
+	question := i18n.T("delete.confirm", hostName)
+	action := i18n.T("delete.warning")
+	help := i18n.T("delete.help")
 
 	// Individual styles (do not affect width via internal centering)
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
@@ -217,13 +217,13 @@ func (m Model) renderUpdateNotification() string {
 	}
 
 	// Create the notification message
-	message := fmt.Sprintf("🚀 Update available: %s → %s",
+	message := i18n.T("update.available",
 		m.updateInfo.CurrentVer,
 		m.updateInfo.LatestVer)
 
 	// Add release URL if available
 	if m.updateInfo.ReleaseURL != "" {
-		message += fmt.Sprintf(" • View release: %s", m.updateInfo.ReleaseURL)
+		message += i18n.T("update.view_release", m.updateInfo.ReleaseURL)
 	}
 
 	// Style the notification with a bright color to make it stand out

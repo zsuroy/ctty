@@ -10,6 +10,7 @@ import (
 
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/history"
+	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/ui"
 
 	"github.com/spf13/cobra"
@@ -29,6 +30,9 @@ var searchMode bool
 
 // noUpdateCheck disables the async update check in the TUI
 var noUpdateCheck bool
+
+// langFlag overrides the interface language
+var langFlag string
 
 // RootCmd is the base command when called without any subcommands
 var RootCmd = &cobra.Command{
@@ -50,11 +54,26 @@ Examples:
   ctty prod-server               # Connect to host interactively
   ctty prod-server uptime        # Execute 'uptime' on remote host
   ctty prod-server ls -la /var   # Execute command with arguments
-  ctty -t prod-server sudo reboot # Force TTY for interactive commands`,
+  ctty -t prod-server sudo reboot # Force TTY for interactive commands
+  ctty search prod               # Search hosts by keyword or tag
+  ctty sftp prod-server          # Open SFTP file browser for host
+  ctty serial                    # Open serial device manager`,
 	Version:       AppVersion,
 	Args:          cobra.ArbitraryArgs,
 	SilenceUsage:  true,
 	SilenceErrors: true, // We'll handle errors ourselves
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if langFlag != "" {
+			i18n.Init(langFlag)
+		} else {
+			appConfig, err := config.LoadAppConfig()
+			if err == nil && appConfig.Language != "" {
+				i18n.Init(appConfig.Language)
+			} else {
+				i18n.Init("auto")
+			}
+		}
+	},
 	// ValidArgsFunction provides shell completion for host names
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		// Only complete the first positional argument (host name)
@@ -246,6 +265,7 @@ func init() {
 	RootCmd.Flags().BoolVarP(&forceTTY, "tty", "t", false, "Force pseudo-TTY allocation (useful for interactive remote commands)")
 	RootCmd.PersistentFlags().BoolVarP(&searchMode, "search", "s", false, "Focus on search input at startup")
 	RootCmd.PersistentFlags().BoolVar(&noUpdateCheck, "no-update-check", false, "Disable automatic update check")
+	RootCmd.PersistentFlags().StringVar(&langFlag, "lang", "", "Language for interface (auto, en, zh)")
 
 	RootCmd.SetVersionTemplate("{{.Name}} version {{.Version}}\n")
 }

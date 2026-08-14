@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -64,7 +65,7 @@ func NewSerialForm(styles Styles, width, height int) *serialFormModel {
 	}
 
 	m.searchInput = textinput.New()
-	m.searchInput.Placeholder = "Search devices..."
+	m.searchInput.Placeholder = i18n.T("serial.search_placeholder")
 	m.searchInput.CharLimit = 50
 	m.searchInput.Width = 25
 
@@ -111,12 +112,12 @@ func (m *serialFormModel) loadDevices() {
 
 func (m *serialFormModel) buildTable() {
 	columns := []table.Column{
-		{Title: "Name", Width: 22},
-		{Title: "Device", Width: 30},
-		{Title: "Baud", Width: 8},
-		{Title: "Data", Width: 6},
-		{Title: "Parity", Width: 8},
-		{Title: "Stop", Width: 6},
+		{Title: i18n.T("serial.col_name"), Width: 22},
+		{Title: i18n.T("serial.col_device"), Width: 30},
+		{Title: i18n.T("serial.col_baud"), Width: 8},
+		{Title: i18n.T("serial.col_data"), Width: 6},
+		{Title: i18n.T("serial.col_parity"), Width: 8},
+		{Title: i18n.T("serial.col_stop"), Width: 6},
 	}
 
 	rows := []table.Row{}
@@ -131,7 +132,7 @@ func (m *serialFormModel) buildTable() {
 		})
 	}
 	if len(rows) == 0 {
-		rows = append(rows, table.Row{"(no serial ports detected)", "", "", "", "", ""})
+		rows = append(rows, table.Row{i18n.T("serial.no_ports"), "", "", "", "", ""})
 	}
 
 	s := table.DefaultStyles()
@@ -342,23 +343,23 @@ func (m *serialFormModel) renderInfo() string {
 	}
 	dev := m.filteredDevices[m.infoIndex]
 
-	saved := "yes"
+	saved := i18n.T("serial.saved_yes")
 	if strings.HasPrefix(dev.Name, "(auto)") {
-		saved = "no (auto-detected)"
+		saved = i18n.T("serial.saved_no")
 	}
 
 	lines := []string{
-		m.styles.Header.Render("  Serial Device Info"),
+		m.styles.Header.Render(i18n.T("serial.info_title")),
 		"",
-		fmt.Sprintf("  Name:       %s", dev.Name),
-		fmt.Sprintf("  Device:     %s", dev.Device),
-		fmt.Sprintf("  Baud Rate:  %d", dev.BaudRate),
-		fmt.Sprintf("  Data Bits:  %d", dev.DataBits),
-		fmt.Sprintf("  Parity:     %s", dev.Parity),
-		fmt.Sprintf("  Stop Bits:  %d", dev.StopBits),
-		fmt.Sprintf("  Saved:      %s", saved),
+		fmt.Sprintf("  %-12s%s", i18n.T("serial.field_name"), dev.Name),
+		fmt.Sprintf("  %-12s%s", i18n.T("serial.field_device"), dev.Device),
+		fmt.Sprintf("  %-12s%d", i18n.T("serial.field_baud"), dev.BaudRate),
+		fmt.Sprintf("  %-12s%d", i18n.T("serial.field_data"), dev.DataBits),
+		fmt.Sprintf("  %-12s%s", i18n.T("serial.field_parity"), dev.Parity),
+		fmt.Sprintf("  %-12s%d", i18n.T("serial.field_stop"), dev.StopBits),
+		i18n.T("serial.field_saved", saved),
 		"",
-		m.styles.HelpText.Render("  e/Enter: edit params • Esc/i: back to list"),
+		m.styles.HelpText.Render(i18n.T("serial.help_info")),
 	}
 
 	return m.styles.FormContainer.Render(strings.Join(lines, "\n"))
@@ -409,7 +410,7 @@ func (m *serialFormModel) handleConnectSettingsKeys(msg tea.KeyMsg) (tea.Model, 
 
 func (m *serialFormModel) View() string {
 	if !m.ready {
-		return "Loading..."
+		return i18n.T("table.loading")
 	}
 
 	switch m.mode {
@@ -434,11 +435,11 @@ func (m *serialFormModel) renderList() string {
 	var b strings.Builder
 
 	// Header
-	b.WriteString(m.styles.Header.Render("  Serial Connections"))
+	b.WriteString(m.styles.Header.Render(i18n.T("serial.title")))
 	b.WriteString("\n\n")
 
 	// Search bar
-	searchPrompt := "Search (/ to focus): "
+	searchPrompt := i18n.T("search.prompt")
 	if m.searchMode {
 		b.WriteString(m.styles.SearchFocused.Render(searchPrompt + m.searchInput.View()))
 	} else {
@@ -453,9 +454,9 @@ func (m *serialFormModel) renderList() string {
 	// Help
 	var helpText string
 	if m.searchMode {
-		helpText = "  Type to filter • Enter: confirm • Tab: switch • ESC: back"
+		helpText = i18n.T("serial.help_search")
 	} else {
-		helpText = "  ↑/↓: navigate • Enter: connect • i: info • a: add • d: delete • /: search • Esc: back"
+		helpText = i18n.T("serial.help_list")
 	}
 	b.WriteString(m.styles.HelpText.Render(helpText))
 	return m.styles.FormContainer.Render(b.String())
@@ -466,7 +467,7 @@ func (m *serialFormModel) renderDeleteConfirm() string {
 		return ""
 	}
 	dev := m.filteredDevices[m.deleteIndex]
-	msg := fmt.Sprintf("Delete serial device '%s' (%s)? [y/n]", dev.Name, dev.Device)
+	msg := i18n.T("serial.delete_confirm", dev.Name, dev.Device)
 	return m.styles.Error.Render(msg)
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/history"
+	"github.com/zsuroy/ctty/internal/i18n"
 )
 
 // calculateDynamicColumnWidths calculates optimal column widths based on terminal width
@@ -19,10 +20,10 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 	}
 
 	// Calculate content lengths
-	maxNameLength := 8       // Minimum for "Name" header + status indicator
-	maxHostnameLength := 8   // Minimum for "Hostname" header
-	maxTagsLength := 8       // Minimum for "Tags" header
-	maxLastLoginLength := 12 // Minimum for "Last Login" header
+	maxNameLength := ansi.StringWidth(i18n.T("table.col.name")) + 4
+	maxHostnameLength := ansi.StringWidth(i18n.T("table.col.hostname")) + 4
+	maxTagsLength := ansi.StringWidth(i18n.T("table.col.tags")) + 4
+	maxLastLoginLength := ansi.StringWidth(i18n.T("table.col.last_login")) + 4
 
 	for _, host := range hosts {
 		// Name column includes status indicator (2 chars) + space (1 char) + name
@@ -215,10 +216,10 @@ func (m *Model) updateTableColumns() {
 	nameWidth, hostnameWidth, tagsWidth, lastLoginWidth := m.calculateDynamicColumnWidths(hostsToShow)
 
 	// Create new columns with updated widths and sort indicators
-	nameTitle := "Name"
-	hostnameTitle := "Hostname"
-	tagsTitle := "Tags"
-	lastLoginTitle := "Last Login"
+	nameTitle := i18n.T("table.col.name")
+	hostnameTitle := i18n.T("table.col.hostname")
+	tagsTitle := i18n.T("table.col.tags")
+	lastLoginTitle := i18n.T("table.col.last_login")
 
 	// Add sort indicators based on current sort mode
 	switch m.sortMode {
@@ -374,7 +375,7 @@ func (m *Model) renderTableView() string {
 		emptyRow := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(SecondaryColor)).
 			Italic(true).
-			Render("  No matching hosts found")
+			Render(i18n.T("table.no_matching"))
 		renderedRows = append(renderedRows, emptyRow)
 	}
 

@@ -2,32 +2,32 @@ package ui
 
 import (
 	"fmt"
-	"github.com/zsuroy/ctty/internal/config"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/zsuroy/ctty/internal/config"
+	"github.com/zsuroy/ctty/internal/i18n"
 )
 
 type infoFormModel struct {
-	host       *config.SSHHost
+	hostName   string
+	host       config.SSHHost
 	styles     Styles
 	width      int
 	height     int
 	configFile string
-	hostName   string
 }
 
-// Messages for communication with parent model
+// Messages for info form actions
+type infoFormCancelMsg struct{}
 type infoFormEditMsg struct {
 	hostName string
 }
 
-type infoFormCancelMsg struct{}
-
-// NewInfoForm creates a new info form model for displaying host details in read-only mode
+// NewInfoForm creates a new host information form
 func NewInfoForm(hostName string, styles Styles, width, height int, configFile string) (*infoFormModel, error) {
-	// Get the existing host configuration
+	// Find the host in config
 	var host *config.SSHHost
 	var err error
 
@@ -38,16 +38,20 @@ func NewInfoForm(hostName string, styles Styles, width, height int, configFile s
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error finding host: %w", err)
+	}
+
+	if host == nil {
+		return nil, fmt.Errorf("host %s not found", hostName)
 	}
 
 	return &infoFormModel{
-		host:       host,
 		hostName:   hostName,
-		configFile: configFile,
+		host:       *host,
 		styles:     styles,
 		width:      width,
 		height:     height,
+		configFile: configFile,
 	}, nil
 }
 
@@ -60,7 +64,6 @@ func (m *infoFormModel) Update(msg tea.Msg) (*infoFormModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.styles = NewStyles(m.width)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -81,7 +84,7 @@ func (m *infoFormModel) View() string {
 	var b strings.Builder
 
 	// Title
-	title := fmt.Sprintf("SSH Host Information: %s", m.host.Name)
+	title := i18n.T("info.title", m.host.Name)
 	b.WriteString(m.styles.FormTitle.Render(title))
 	b.WriteString("\n\n")
 
@@ -90,16 +93,16 @@ func (m *infoFormModel) View() string {
 		label string
 		value string
 	}{
-		{"Host Name", m.host.Name},
-		{"Config File", formatConfigFile(m.host.SourceFile)},
-		{"Hostname/IP", m.host.Hostname},
-		{"User", formatOptionalValue(m.host.User)},
-		{"Port", formatOptionalValue(m.host.Port)},
-		{"Identity File", formatOptionalValue(m.host.Identity)},
-		{"ProxyJump", formatOptionalValue(m.host.ProxyJump)},
-		{"ProxyCommand", formatOptionalValue(m.host.ProxyCommand)},
-		{"SSH Options", formatSSHOptions(m.host.Options)},
-		{"Tags", formatTags(m.host.Tags)},
+		{i18n.T("info.host_name"), m.host.Name},
+		{i18n.T("info.config_file"), formatConfigFile(m.host.SourceFile)},
+		{i18n.T("info.hostname_ip"), m.host.Hostname},
+		{i18n.T("info.user"), formatOptionalValue(m.host.User)},
+		{i18n.T("info.port"), formatOptionalValue(m.host.Port)},
+		{i18n.T("info.identity_file"), formatOptionalValue(m.host.Identity)},
+		{i18n.T("info.proxy_jump"), formatOptionalValue(m.host.ProxyJump)},
+		{i18n.T("info.proxy_command"), formatOptionalValue(m.host.ProxyCommand)},
+		{i18n.T("info.ssh_options"), formatSSHOptions(m.host.Options)},
+		{i18n.T("info.tags"), formatTags(m.host.Tags)},
 	}
 
 	// Render each section
@@ -116,7 +119,7 @@ func (m *infoFormModel) View() string {
 			Foreground(lipgloss.Color("255")) // White
 
 		// If value is empty or default, use a muted style
-		if section.value == "Not set" || section.value == "22" && section.label == "Port" {
+		if section.value == i18n.T("info.not_set") || (section.value == "22" && section.label == i18n.T("info.port")) {
 			valueStyle = valueStyle.Foreground(lipgloss.Color("243")) // Gray
 		}
 
@@ -137,7 +140,7 @@ func (m *infoFormModel) View() string {
 		Foreground(lipgloss.Color("243")).
 		Italic(true)
 
-	b.WriteString(helpStyle.Render("Actions:"))
+	b.WriteString(helpStyle.Render(i18n.T("info.actions")))
 	b.WriteString("\n")
 
 	actionStyle := lipgloss.NewStyle().
@@ -146,12 +149,12 @@ func (m *infoFormModel) View() string {
 
 	b.WriteString("  ")
 	b.WriteString(actionStyle.Render("e/Enter"))
-	b.WriteString(helpStyle.Render(" - Switch to edit mode"))
+	b.WriteString(helpStyle.Render(i18n.T("info.action_edit")))
 	b.WriteString("\n")
 
 	b.WriteString("  ")
 	b.WriteString(actionStyle.Render("q/Esc"))
-	b.WriteString(helpStyle.Render(" - Return to host list"))
+	b.WriteString(helpStyle.Render(i18n.T("info.action_return")))
 
 	// Wrap in a border for better visual separation
 	content := b.String()
@@ -176,21 +179,21 @@ func (m *infoFormModel) View() string {
 
 func formatOptionalValue(value string) string {
 	if value == "" {
-		return "Not set"
+		return i18n.T("info.not_set")
 	}
 	return value
 }
 
 func formatSSHOptions(options string) string {
 	if options == "" {
-		return "Not set"
+		return i18n.T("info.not_set")
 	}
 	return options
 }
 
 func formatTags(tags []string) string {
 	if len(tags) == 0 {
-		return "Not set"
+		return i18n.T("info.not_set")
 	}
 	return FormatColoredTags(tags)
 }

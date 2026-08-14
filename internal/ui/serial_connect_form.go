@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -192,19 +193,19 @@ func (m *serialConnectFormModel) submit() {
 func (m *serialConnectFormModel) View() string {
 	var b strings.Builder
 
-	b.WriteString(m.styles.FormTitle.Render("  Edit Serial Parameters"))
+	b.WriteString(m.styles.FormTitle.Render(i18n.T("serial.edit_title")))
 	b.WriteString("\n\n")
 
-	b.WriteString(m.styles.Label.Render(fmt.Sprintf("  Device:  %s", m.device.Device)))
+	b.WriteString(m.styles.Label.Render(fmt.Sprintf("  %s %s", i18n.T("serial.col_device")+":", m.device.Device)))
 	b.WriteString("\n")
-	b.WriteString(m.styles.Label.Render(fmt.Sprintf("  Name:    %s", m.device.Name)))
+	b.WriteString(m.styles.Label.Render(fmt.Sprintf("  %s %s", i18n.T("serial.col_name")+":  ", m.device.Name)))
 	b.WriteString("\n\n")
 
 	labels := []string{
-		"Baud Rate: ",
-		"Data Bits: ",
-		"Parity:    ",
-		"Stop Bits: ",
+		i18n.T("serial.field_baud"),
+		i18n.T("serial.field_data"),
+		i18n.T("serial.field_parity"),
+		i18n.T("serial.field_stop"),
 	}
 
 	for i, label := range labels {
@@ -219,9 +220,9 @@ func (m *serialConnectFormModel) View() string {
 			// Show preset hint next to baud rate
 			hint := ""
 			if m.baudIndex >= 0 {
-				hint = fmt.Sprintf("  (%d/%d presets)", m.baudIndex+1, len(baudRates))
+				hint = i18n.T("serial.presets_hint", m.baudIndex+1, len(baudRates))
 			} else {
-				hint = "  (custom)"
+				hint = i18n.T("serial.custom_hint")
 			}
 			b.WriteString(m.inputs[0].View())
 			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(hint))
@@ -232,8 +233,7 @@ func (m *serialConnectFormModel) View() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(m.styles.FormHelp.Render(
-		"  Baud: type directly or left/right to cycle presets • Tab/up/down: next field • Enter: connect • Esc: cancel"))
+	b.WriteString(m.styles.FormHelp.Render(i18n.T("serial.help_edit")))
 
 	return m.styles.FormContainer.Render(b.String())
 }

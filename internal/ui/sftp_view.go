@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/sftpconfig"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -136,10 +137,10 @@ func NewSFTPForm(styles Styles, width, height int, hostName, configFile string) 
 	// Initialize table
 	m.table = table.New(
 		table.WithColumns([]table.Column{
-			{Title: "Name", Width: 40},
-			{Title: "Size", Width: 10},
-			{Title: "Modified", Width: 16},
-			{Title: "Type", Width: 6},
+			{Title: i18n.T("sftp.col_name"), Width: 40},
+			{Title: i18n.T("sftp.col_size"), Width: 10},
+			{Title: i18n.T("sftp.col_modified"), Width: 16},
+			{Title: i18n.T("sftp.col_type"), Width: 6},
 		}),
 		table.WithHeight(20),
 		table.WithFocused(true),
@@ -147,7 +148,7 @@ func NewSFTPForm(styles Styles, width, height int, hostName, configFile string) 
 
 	// Initialize search input
 	m.searchInput = textinput.New()
-	m.searchInput.Placeholder = "Filter files..."
+	m.searchInput.Placeholder = i18n.T("sftp.search_placeholder")
 	m.searchInput.CharLimit = 50
 	m.searchInput.Width = 25
 	m.filteredEntries = m.entries
@@ -511,7 +512,7 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// New directory
 		m.mode = sftpMkdirInput
 		m.inputBuffer = ""
-		m.inputPrompt = "New directory name:"
+		m.inputPrompt = i18n.T("sftp.mkdir_prompt")
 		return m, nil
 
 	case "r":
@@ -828,8 +829,8 @@ func (m *sftpFormModel) handleUploadSearchKeys(msg tea.KeyMsg) (tea.Model, tea.C
 func (m *sftpFormModel) View() string {
 	if m.loading && m.client == nil {
 		return m.styles.FormContainer.Render(
-			m.styles.FormTitle.Render(" SFTP - Connecting... ") + "\n\n" +
-				fmt.Sprintf("  Connecting to %s...", m.hostName),
+			m.styles.FormTitle.Render(" "+i18n.T("sftp.title_remote", m.hostName)+" ") + "\n\n" +
+				"  " + i18n.T("sftp.connecting", m.hostName),
 		)
 	}
 
@@ -852,20 +853,20 @@ func (m *sftpFormModel) View() string {
 
 	// Title bar
 	if m.mode == sftpUploadSelect {
-		components = append(components, m.styles.FormTitle.Render(" SFTP Upload "))
+		components = append(components, m.styles.FormTitle.Render(" "+i18n.T("sftp.title_local")+" "))
 		localStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 		remoteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
 		components = append(components, localStyle.Render(" [LOCAL]  "+m.localCwd))
 		components = append(components, remoteStyle.Render(" [REMOTE] "+m.cwd))
 	} else {
-		components = append(components, m.styles.FormTitle.Render(fmt.Sprintf(" SFTP - %s ", m.hostName)))
+		components = append(components, m.styles.FormTitle.Render(" "+i18n.T("sftp.title_remote", m.hostName)+" "))
 		pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(SecondaryColor))
 		components = append(components, pathStyle.Render(" "+m.cwd))
 	}
 
 	// Search bar (only in browse mode, not upload mode)
 	if m.mode == sftpBrowse || m.mode == sftpUploadSelect {
-		searchPrompt := "Search (/ to focus): "
+		searchPrompt := i18n.T("search.prompt")
 		if m.searchMode {
 			components = append(components, m.styles.SearchFocused.Render(searchPrompt+m.searchInput.View()))
 		} else {
@@ -897,14 +898,14 @@ func (m *sftpFormModel) View() string {
 	// Help text — two lines for better readability
 	var helpLine1, helpLine2 string
 	if m.searchMode {
-		helpLine1 = " Type to filter • Enter: confirm • Tab: switch"
-		helpLine2 = " Esc: back"
+		helpLine1 = i18n.T("sftp.help_search_1")
+		helpLine2 = i18n.T("sftp.help_search_2")
 	} else if m.mode == sftpUploadSelect {
-		helpLine1 = " ↑↓: navigate • →/Enter: open dir / upload file"
-		helpLine2 = " ←/h: parent dir • Esc: back to remote"
+		helpLine1 = i18n.T("sftp.help_upload_1")
+		helpLine2 = i18n.T("sftp.help_upload_2")
 	} else {
-		helpLine1 = " ↑↓: navigate • →/l: open dir • ←/h: parent • Enter: download"
-		helpLine2 = " u: upload • d: delete • n: new dir • /: search • r: refresh • Esc: back"
+		helpLine1 = i18n.T("sftp.help_browse_1")
+		helpLine2 = i18n.T("sftp.help_browse_2")
 	}
 	components = append(components, m.styles.HelpText.Render(helpLine1))
 	components = append(components, m.styles.HelpText.Render(helpLine2))
@@ -924,7 +925,7 @@ func (m *sftpFormModel) renderErrorView() string {
 		Padding(1, 2)
 
 	// Friendly error message, hide technical details
-	content := "❌ SFTP Error: failed to start SFTP session.\n\nPress Esc to return."
+	content := i18n.T("sftp.err_session")
 	return m.styles.FormContainer.Render(errStyle.Render(content))
 }
 
@@ -937,7 +938,7 @@ func (m *sftpFormModel) renderDownloadConfirm() string {
 	if m.selectedEntry == nil {
 		return ""
 	}
-	msg := fmt.Sprintf("  Download '%s' to %s? [Y/n]", m.selectedEntry.Name, m.localDownloadPath(m.selectedEntry.Name))
+	msg := i18n.T("sftp.download_confirm", m.selectedEntry.Name, m.localDownloadPath(m.selectedEntry.Name))
 	style := lipgloss.NewStyle().Foreground(lipgloss.Color("229"))
 	return style.Render(msg)
 }
@@ -946,7 +947,7 @@ func (m *sftpFormModel) renderDeleteConfirm() string {
 	if m.selectedEntry == nil {
 		return ""
 	}
-	msg := fmt.Sprintf("  Delete '%s'? [Y/n]", m.selectedEntry.Name)
+	msg := i18n.T("sftp.delete_confirm", m.selectedEntry.Name)
 	style := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	return style.Render(msg)
 }
@@ -993,9 +994,9 @@ func (m *sftpFormModel) updateTableRows() {
 		}
 		size := formatSize(entry.Size)
 		modTime := entry.ModTime.Format("Jan 02 15:04")
-		entryType := "file"
+		entryType := i18n.T("sftp.type_file")
 		if entry.IsDir {
-			entryType = "dir"
+			entryType = i18n.T("sftp.type_dir")
 		}
 		rows = append(rows, table.Row{name, size, modTime, entryType})
 	}
@@ -1012,10 +1013,10 @@ func (m *sftpFormModel) updateTableRows() {
 		nameWidth = 20
 	}
 	m.table.SetColumns([]table.Column{
-		{Title: "Name", Width: nameWidth},
-		{Title: "Size", Width: 10},
-		{Title: "Modified", Width: 16},
-		{Title: "Type", Width: 6},
+		{Title: i18n.T("sftp.col_name"), Width: nameWidth},
+		{Title: i18n.T("sftp.col_size"), Width: 10},
+		{Title: i18n.T("sftp.col_modified"), Width: 16},
+		{Title: i18n.T("sftp.col_type"), Width: 6},
 	})
 }
 
@@ -1042,10 +1043,10 @@ func (m *sftpFormModel) updateLocalTableRows() {
 			continue
 		}
 		name := filepath.Base(f)
-		entryType := "file"
+		entryType := i18n.T("sftp.type_file")
 		if info.IsDir() {
 			name = "📁 " + name
-			entryType = "dir"
+			entryType = i18n.T("sftp.type_dir")
 		} else {
 			name = "📄 " + name
 		}
@@ -1065,10 +1066,10 @@ func (m *sftpFormModel) updateLocalTableRows() {
 		nameWidth = 20
 	}
 	m.table.SetColumns([]table.Column{
-		{Title: "Local File", Width: nameWidth},
-		{Title: "Size", Width: 10},
-		{Title: "Modified", Width: 16},
-		{Title: "Type", Width: 6},
+		{Title: i18n.T("sftp.col_local_file"), Width: nameWidth},
+		{Title: i18n.T("sftp.col_size"), Width: 10},
+		{Title: i18n.T("sftp.col_modified"), Width: 16},
+		{Title: i18n.T("sftp.col_type"), Width: 6},
 	})
 }
 

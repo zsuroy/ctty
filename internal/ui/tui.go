@@ -7,6 +7,7 @@ import (
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/connectivity"
 	"github.com/zsuroy/ctty/internal/history"
+	"github.com/zsuroy/ctty/internal/i18n"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -23,6 +24,11 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 		fmt.Printf("Warning: Could not load application config: %v, using defaults\n", err)
 		defaultConfig := config.GetDefaultAppConfig()
 		appConfig = &defaultConfig
+	}
+
+	// Initialize i18n from config if not yet set
+	if appConfig != nil && appConfig.Language != "" {
+		i18n.Init(appConfig.Language)
 	}
 
 	// CLI flag overrides config file setting
@@ -76,7 +82,7 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 
 	// Create the search input
 	ti := textinput.New()
-	ti.Placeholder = "Search hosts or tags..."
+	ti.Placeholder = i18n.T("search.placeholder")
 	ti.CharLimit = 50
 	ti.Width = 25
 	if searchMode {
@@ -88,12 +94,12 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 
 	// Create table columns
 	columns := []table.Column{
-		{Title: "Name", Width: nameWidth},
-		{Title: "Hostname", Width: hostnameWidth},
-		// {Title: "User", Width: 12},                  // Commented to save space
-		// {Title: "Port", Width: 6},                   // Commented to save space
-		{Title: "Tags", Width: tagsWidth},
-		{Title: "Last Login", Width: lastLoginWidth},
+		{Title: i18n.T("table.col.name") + " ↓", Width: nameWidth},
+		{Title: i18n.T("table.col.hostname"), Width: hostnameWidth},
+		// {Title: i18n.T("table.col.user"), Width: 12},                  // Commented to save space
+		// {Title: i18n.T("table.col.port"), Width: 6},                   // Commented to save space
+		{Title: i18n.T("table.col.tags"), Width: tagsWidth},
+		{Title: i18n.T("table.col.last_login"), Width: lastLoginWidth},
 	}
 
 	// Convert hosts to table rows
@@ -181,6 +187,20 @@ func RunSerialMode(currentVersion string, noUpdateCheck bool) error {
 	_, err := p.Run()
 	if err != nil {
 		return fmt.Errorf("error running TUI: %w", err)
+	}
+	return nil
+}
+
+// RunSFTPMode starts the TUI directly in the SFTP file browser for a host.
+func RunSFTPMode(hostName, configFile, currentVersion string, noUpdateCheck bool) error {
+	m := NewModel(nil, configFile, false, currentVersion, noUpdateCheck)
+	m.sftpForm = NewSFTPForm(m.styles, m.width, m.height, hostName, configFile)
+	m.viewMode = ViewSFTP
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	_, err := p.Run()
+	if err != nil {
+		return fmt.Errorf("error running SFTP: %w", err)
 	}
 	return nil
 }
