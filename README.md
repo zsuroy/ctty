@@ -1003,10 +1003,11 @@ This project is a fork of [sshm](https://github.com/Gu1llaum-3/sshm) by [@Gu1lla
 
 - [Charm](https://charm.sh/) for the amazing TUI libraries
 - [Cobra](https://cobra.dev/) for the excellent CLI framework
-- [@zsuroy](https://github.com/zsuroy) for creating ctty, the foundation of ctty
+- [@Gu1llaum-3](https://github.com/Gu1llaum-3/sshm) for creating sshm, the ssh foundation of ctty
 - [@yimeng](https://github.com/yimeng) for contributing SSH Include directive support
 - [@ldreux](https://github.com/ldreux) for contributing multi-word search functionality
 - [@qingfengzxr](https://github.com/qingfengzxr) for contributing custom key bindings support
+- [Linux.do](https://linux.do) for opensource support
 - The Go community for building such fantastic tools
 
 ---

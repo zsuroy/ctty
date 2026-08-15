@@ -1004,10 +1004,11 @@ ctty/
 
 - [Charm](https://charm.sh/) 提供优秀的 TUI 库
 - [Cobra](https://cobra.dev/) 提供出色的 CLI 框架
-- [@Gu1llaum-3](https://github.com/Gu1llaum-3) 创建了 SSHM，ctty 的基础
+- [@Gu1llaum-3](https://github.com/Gu1llaum-3) 创建了 sshm，ctty 的 ssh 管理基础
 - [@yimeng](https://github.com/yimeng) 贡献 SSH Include 指令支持
 - [@ldreux](https://github.com/ldreux) 贡献多词搜索功能
 - [@qingfengzxr](https://github.com/qingfengzxr) 贡献自定义快捷键支持
+- [Linux.do](https://linux.do) 开源社区支持
 - Go 社区构建了这些出色的工具
 
 ---
