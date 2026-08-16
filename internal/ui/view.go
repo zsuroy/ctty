@@ -1,9 +1,8 @@
 package ui
 
 import (
-	"strings"
-
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zsuroy/ctty/internal/i18n"
 )
 
@@ -39,6 +38,10 @@ func (m Model) View() string {
 		if m.helpForm != nil {
 			return m.helpForm.View()
 		}
+	case ViewFileSelector:
+		if m.fileSelectorForm != nil {
+			return m.fileSelectorForm.View()
+		}
 	case ViewSerial:
 		if m.serialForm != nil {
 			return m.serialForm.View()
@@ -47,19 +50,24 @@ func (m Model) View() string {
 		if m.sftpForm != nil {
 			return m.sftpForm.View()
 		}
-	case ViewFileSelector:
-		if m.fileSelectorForm != nil {
-			return m.fileSelectorForm.View()
-		}
 	case ViewSettings:
 		if m.settingsForm != nil {
 			return m.settingsForm.View()
 		}
-	case ViewList:
-		return m.renderListView()
 	}
 
 	return m.renderListView()
+}
+
+// searchMaxWidth returns the maximum display width the search bar content
+// (prompt + textinput.View) should occupy, accounting for the App container
+// padding (2) and search bar border+padding (4).
+func searchMaxWidth(terminalWidth int) int {
+	w := terminalWidth - 6 // app padding(2) + search border(2) + search padding(2)
+	if w < 5 {
+		w = 5
+	}
+	return w
 }
 
 // renderListView renders the main list interface
@@ -120,12 +128,17 @@ func (m Model) renderListView() string {
 		components = append(components, hiddenBannerStyle.Render(i18n.T("main.show_hidden")))
 	}
 
-	// Add the search bar with the appropriate style based on focus
+	// Add the search bar with the appropriate style based on focus.
+	// MaxWidth forces truncation so CJK placeholder text can't push the border
+	// off-screen on narrow terminals (e.g. Termux on phones).
 	searchPrompt := i18n.T("search.prompt")
+	searchContent := searchPrompt + m.searchInput.View()
+	searchMaxW := searchMaxWidth(m.width)
+	searchContent = ansi.Truncate(searchContent, searchMaxW, "")
 	if m.searchMode {
-		components = append(components, m.styles.SearchFocused.Render(searchPrompt+m.searchInput.View()))
+		components = append(components, m.styles.SearchFocused.Render(searchContent))
 	} else {
-		components = append(components, m.styles.SearchUnfocused.Render(searchPrompt+m.searchInput.View()))
+		components = append(components, m.styles.SearchUnfocused.Render(searchContent))
 	}
 
 	// Add the table with the appropriate style based on focus
@@ -137,14 +150,18 @@ func (m Model) renderListView() string {
 		components = append(components, m.styles.TableFocused.Render(m.renderTableView()))
 	}
 
-	// Add the help text
+	// Add the help text, truncated to terminal width
 	var helpText string
 	if !m.searchMode {
 		helpText = i18n.T("main.help")
 	} else {
 		helpText = i18n.T("search.help")
 	}
-	components = append(components, m.styles.HelpText.Render(helpText))
+	helpMaxW := m.width - 2 // App padding
+	if helpMaxW < 5 {
+		helpMaxW = 5
+	}
+	components = append(components, m.styles.HelpText.MaxWidth(helpMaxW).Render(helpText))
 
 	// Join all components vertically with appropriate spacing
 	mainView := m.styles.App.Render(
@@ -176,56 +193,19 @@ func (m Model) renderListView() string {
 
 // renderDeleteConfirmation renders a clean delete confirmation dialog
 func (m Model) renderDeleteConfirmation() string {
-	// Remove emojis (uncertain width depending on terminal) to stabilize the frame
-	title := i18n.T("delete.title")
-	hostName := ""
-	if m.deleteHost != nil {
-		hostName = m.deleteHost.Name
-	}
-	question := i18n.T("delete.confirm", hostName)
-	action := i18n.T("delete.warning")
-	help := i18n.T("delete.help")
-
-	// Individual styles (do not affect width via internal centering)
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
-	questionStyle := lipgloss.NewStyle()
-	actionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-
-	lines := []string{
-		titleStyle.Render(title),
-		"",
-		questionStyle.Render(question),
-		"",
-		actionStyle.Render(action),
-		"",
-		helpStyle.Render(help),
+	if m.deleteHost == nil {
+		return ""
 	}
 
-	// Compute the real maximum width (ANSI-safe via lipgloss.Width)
-	maxw := 0
-	for _, ln := range lines {
-		w := lipgloss.Width(ln)
-		if w > maxw {
-			maxw = w
-		}
-	}
-	// Minimal width for aesthetics
-	if maxw < 40 {
-		maxw = 40
-	}
+	host := m.deleteHost
+	msg := i18n.T("delete.confirm", host.Name)
 
-	// Build the raw text block (without centering) then apply the container style
-	raw := strings.Join(lines, "\n")
+	confirmation := m.styles.Error.Render(msg)
 
-	// Container style: wider horizontal padding, stable border
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("196")).
-		PaddingTop(1).PaddingBottom(1).PaddingLeft(2).PaddingRight(2).
-		Width(maxw + 4) // +4 = internal margin (2 spaces of left/right padding)
-
-	return box.Render(raw)
+	// Wrap in a centered style
+	return lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Render(confirmation)
 }
 
 // renderUpdateNotification renders the update notification banner
@@ -234,23 +214,42 @@ func (m Model) renderUpdateNotification() string {
 		return ""
 	}
 
-	// Create the notification message
-	message := i18n.T("update.available",
+	text := i18n.T("update.available",
 		m.updateInfo.CurrentVer,
 		m.updateInfo.LatestVer)
 
-	// Add release URL if available
-	if m.updateInfo.ReleaseURL != "" {
-		message += i18n.T("update.view_release", m.updateInfo.ReleaseURL)
-	}
-
-	// Style the notification with a bright color to make it stand out
-	notificationStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#00FF00")). // Bright green
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("10")).
 		Bold(true).
-		Padding(0, 1).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#00AA00")) // Darker green border
+		Align(lipgloss.Center).
+		Render(text)
+}
 
-	return notificationStyle.Render(message)
+// renderSearchBar is a shared helper for rendering the search bar with proper
+// width constraints. Used by SSH list, serial, and SFTP views.
+func renderSearchBar(styles Styles, searchMode bool, prompt string, searchView string, terminalWidth int) string {
+	content := prompt + searchView
+	maxW := searchMaxWidth(terminalWidth)
+	// Truncate to fit: ansi.Truncate handles ANSI escape codes and CJK display widths.
+	// Without this, CJK placeholder text in textinput.View() can exceed the expected
+	// Width+1 display cols, pushing the search border off-screen on narrow terminals.
+	content = ansi.Truncate(content, maxW, "")
+	if searchMode {
+		return styles.SearchFocused.Render(content)
+	}
+	return styles.SearchUnfocused.Render(content)
+}
+
+// renderHelpText is a shared helper for rendering help text truncated to terminal width.
+func renderHelpText(styles Styles, text string, terminalWidth int) string {
+	maxW := terminalWidth - 2 // App padding
+	if maxW < 5 {
+		maxW = 5
+	}
+	return styles.HelpText.MaxWidth(maxW).Render(text)
+}
+
+// lineDisplayWidth returns the display width of a string, used for debugging.
+func lineDisplayWidth(s string) int {
+	return ansi.StringWidth(s)
 }

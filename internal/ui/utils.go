@@ -5,9 +5,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zsuroy/ctty/internal/connectivity"
 	"github.com/zsuroy/ctty/internal/i18n"
 )
+
+// searchInputWidth calculates a responsive search input width based on the
+// terminal width and the search prompt text.
+//
+// The search bar content is: prompt + textinput.View().
+// textinput.View() always renders Width+1 display columns (the +1 is the cursor char).
+// The search bar is wrapped in RoundedBorder (2 cols) + Padding(0,1) (2 cols),
+// plus the App container's Padding(0,1) (2 cols).
+// Total overhead: border(2) + search padding(2) + app padding(2) + cursor(1) = 7
+func searchInputWidth(terminalWidth int, prompt string) int {
+	promptWidth := ansi.StringWidth(prompt)
+	overhead := 7
+	w := terminalWidth - promptWidth - overhead
+	if w < 5 {
+		w = 5
+	}
+	return w
+}
 
 // formatTimeAgo formats a time into a readable "X time ago" string
 func formatTimeAgo(t time.Time) string {
@@ -95,7 +114,7 @@ func (m *Model) getPingStatusIndicator(hostName string) string {
 // extractHostNameFromTableRow extracts the host name from the first column,
 // removing the ping status indicator
 func extractHostNameFromTableRow(firstColumn string) string {
-	// The first column format is: "🟢 hostname" or "⚫ hostname" etc.
+	// The first first column format is: "🟢 hostname" or "⚫ hostname" etc.
 	// We need to remove the emoji and space to get just the hostname
 	parts := strings.Fields(firstColumn)
 	if len(parts) >= 2 {

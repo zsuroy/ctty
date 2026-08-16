@@ -84,7 +84,7 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 	ti := textinput.New()
 	ti.Placeholder = i18n.T("search.placeholder")
 	ti.CharLimit = 50
-	ti.Width = 25
+	ti.Width = searchInputWidth(80, i18n.T("search.prompt"))
 	if searchMode {
 		ti.Focus()
 	}

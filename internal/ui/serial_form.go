@@ -67,7 +67,7 @@ func NewSerialForm(styles Styles, width, height int) *serialFormModel {
 	m.searchInput = textinput.New()
 	m.searchInput.Placeholder = i18n.T("serial.search_placeholder")
 	m.searchInput.CharLimit = 50
-	m.searchInput.Width = 25
+	m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
 
 	m.loadDevices()
 	m.filteredDevices = m.devices
@@ -263,7 +263,8 @@ func (m *serialFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.styles = NewStyles(m.width)
-		m.buildTable()
+	m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
+	m.buildTable()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -512,11 +513,7 @@ func (m *serialFormModel) renderList() string {
 
 	// Search bar
 	searchPrompt := i18n.T("search.prompt")
-	if m.searchMode {
-		components = append(components, m.styles.SearchFocused.Render(searchPrompt+m.searchInput.View()))
-	} else {
-		components = append(components, m.styles.SearchUnfocused.Render(searchPrompt+m.searchInput.View()))
-	}
+	components = append(components, renderSearchBar(m.styles, m.searchMode, searchPrompt, m.searchInput.View(), m.width))
 
 	// Table
 	components = append(components, m.styles.TableFocused.Render(m.table.View()))
@@ -528,7 +525,7 @@ func (m *serialFormModel) renderList() string {
 	} else {
 		helpText = i18n.T("serial.help_list")
 	}
-	components = append(components, m.styles.HelpText.Render(helpText))
+	components = append(components, renderHelpText(m.styles, helpText, m.width))
 
 	return m.styles.App.Render(
 		lipgloss.JoinVertical(

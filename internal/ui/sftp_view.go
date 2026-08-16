@@ -148,7 +148,7 @@ func NewSFTPForm(styles Styles, width, height int, hostName, configFile string) 
 	m.searchInput = textinput.New()
 	m.searchInput.Placeholder = i18n.T("sftp.search_placeholder")
 	m.searchInput.CharLimit = 50
-	m.searchInput.Width = 25
+	m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
 	m.filteredEntries = m.entries
 
 	return m
@@ -360,7 +360,7 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.styles = NewStyles(m.width)
+	m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
 		tableHeight := m.calculateTableHeight()
 		m.table.SetHeight(tableHeight)
 		if m.mode == sftpUploadSelect {
@@ -869,11 +869,7 @@ func (m *sftpFormModel) View() string {
 	// Search bar (only in browse mode, not upload mode)
 	if m.mode == sftpBrowse || m.mode == sftpUploadSelect {
 		searchPrompt := i18n.T("search.prompt")
-		if m.searchMode {
-			components = append(components, m.styles.SearchFocused.Render(searchPrompt+m.searchInput.View()))
-		} else {
-			components = append(components, m.styles.SearchUnfocused.Render(searchPrompt+m.searchInput.View()))
-		}
+		components = append(components, renderSearchBar(m.styles, m.searchMode, searchPrompt, m.searchInput.View(), m.width))
 	}
 
 	// Table
@@ -907,7 +903,7 @@ func (m *sftpFormModel) View() string {
 		} else {
 			helpLine = i18n.T("sftp.help_browse_1")
 		}
-		components = append(components, m.styles.HelpText.Render(helpLine))
+		components = append(components, renderHelpText(m.styles, helpLine, m.width))
 	} else {
 		var helpLine1, helpLine2 string
 		if m.searchMode {
@@ -920,8 +916,8 @@ func (m *sftpFormModel) View() string {
 			helpLine1 = i18n.T("sftp.help_browse_1")
 			helpLine2 = i18n.T("sftp.help_browse_2")
 		}
-		components = append(components, m.styles.HelpText.Render(helpLine1))
-		components = append(components, m.styles.HelpText.Render(helpLine2))
+		components = append(components, renderHelpText(m.styles, helpLine1, m.width))
+		components = append(components, renderHelpText(m.styles, helpLine2, m.width))
 	}
 
 	return m.styles.App.Render(

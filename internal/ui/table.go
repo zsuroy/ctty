@@ -96,22 +96,23 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 
 	// Try 4 columns first
 	if availableWidth >= minNameWidth4+minHostnameWidth4+minTagsWidth4+minLastLoginWidth4 {
-		return distributeWidths(
+		r := distributeWidths(
 			availableWidth,
 			[]int{maxNameLength, maxHostnameLength, maxTagsLength, maxLastLoginLength},
 			[]int{minNameWidth4, minHostnameWidth4, minTagsWidth4, minLastLoginWidth4},
 		)
+		return r[0], r[1], r[2], r[3]
 	}
 
 	// Try 3 columns: Name + Hostname + Last Login (hide Tags)
 	if availableWidth >= minNameWidth3+minHostnameWidth3+minLastLoginWidth3 {
-		nameW, hostnameW, _, lastLoginW := distributeWidths(
+		r := distributeWidths(
 			availableWidth,
 			[]int{maxNameLength, maxHostnameLength, maxLastLoginLength},
 			[]int{minNameWidth3, minHostnameWidth3, minLastLoginWidth3},
 		)
 		// Tags column hidden (width 0)
-		return nameW, hostnameW, 0, lastLoginW
+		return r[0], r[1], 0, r[2]
 	}
 
 	// Fallback: 2 columns only (Name + Hostname), hide Tags and Last Login
@@ -122,12 +123,12 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 	return nameW, hostnameW, 0, 0
 }
 
-// distributeWidths distributes available width across up to 4 columns proportionally,
-// respecting minimum widths. Returns 4 values (unused slots get 0).
-func distributeWidths(availableWidth int, maxWidths, minWidths []int) (int, int, int, int) {
+// distributeWidths distributes available width across columns proportionally,
+// respecting minimum widths. Returns a slice matching the input length.
+func distributeWidths(availableWidth int, maxWidths, minWidths []int) []int {
 	n := len(minWidths)
 	if n == 0 {
-		return 0, 0, 0, 0
+		return nil
 	}
 
 	totalMin := 0
@@ -136,12 +137,10 @@ func distributeWidths(availableWidth int, maxWidths, minWidths []int) (int, int,
 	}
 	remainingWidth := availableWidth - totalMin
 
-	result := make([]int, 4)
+	result := make([]int, n)
 	if remainingWidth <= 0 {
-		for i := range min(n, 4) {
-			result[i] = minWidths[i]
-		}
-		return result[0], result[1], result[2], result[3]
+		copy(result, minWidths)
+		return result
 	}
 
 	// Calculate how much each column wants beyond minimum
@@ -157,7 +156,7 @@ func distributeWidths(availableWidth int, maxWidths, minWidths []int) (int, int,
 	}
 
 	allocated := 0
-	for i := range min(n, 4) {
+	for i := range n {
 		result[i] = minWidths[i]
 		if totalWant > 0 {
 			extra := (wants[i] * remainingWidth) / totalWant
@@ -165,12 +164,10 @@ func distributeWidths(availableWidth int, maxWidths, minWidths []int) (int, int,
 			allocated += extra
 		}
 	}
-	// Assign leftover to last active column
-	if n > 0 && n <= 4 {
-		result[n-1] += remainingWidth - allocated
-	}
+	// Assign leftover to last column
+	result[n-1] += remainingWidth - allocated
 
-	return result[0], result[1], result[2], result[3]
+	return result
 }
 
 // distributeWidths2 distributes available width across 2 columns proportionally.
@@ -477,6 +474,16 @@ func (m *Model) renderTableView() string {
 		if len(m.hosts) == 0 && m.searchInput.Value() == "" {
 			emptyMsg = i18n.T("table.empty_hosts")
 		}
+		// Truncate to table content width to prevent overflow on narrow terminals
+		tableContentWidth := 0
+		for _, col := range cols {
+			if col.Width > 0 {
+				tableContentWidth += col.Width
+			}
+		}
+		if tableContentWidth > 0 {
+			emptyMsg = ansi.Truncate(emptyMsg, tableContentWidth, "...")
+		}
 		emptyRow := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(SecondaryColor)).
 			Italic(true).
@@ -484,7 +491,24 @@ func (m *Model) renderTableView() string {
 		renderedRows = append(renderedRows, emptyRow)
 	}
 
-	return headerRow + "\n" + strings.Join(renderedRows, "\n")
+	// Calculate total table content width and truncate all lines to prevent
+	// JoinVertical from padding the entire view to the widest line.
+	tableContentWidth := 0
+	for _, col := range cols {
+		if col.Width > 0 {
+			tableContentWidth += col.Width
+		}
+	}
+
+	result := headerRow + "\n" + strings.Join(renderedRows, "\n")
+	if tableContentWidth > 0 {
+		var truncatedLines []string
+		for _, line := range strings.Split(result, "\n") {
+			truncatedLines = append(truncatedLines, ansi.Truncate(line, tableContentWidth, ""))
+		}
+		result = strings.Join(truncatedLines, "\n")
+	}
+	return result
 }
 
 // max returns the maximum of two integers
