@@ -184,6 +184,20 @@ func (m *Model) updateTableHeight() {
 		maxTableHeight = minTableHeight
 	}
 
+	// Ensure we have at least 1 row for the header
+	// When there are no hosts, we still need to show the header and an empty message row
+	if hostCount == 0 {
+		// Show at least 2 rows: 1 header + 1 empty message row
+		maxDataRows := 1
+		if maxTableHeight-1 >= 1 {
+			maxDataRows = 1
+		}
+		tableHeight := 1 + maxDataRows
+		// Update table height
+		m.table.SetHeight(tableHeight)
+		return
+	}
+
 	tableHeight := 1 // header
 	dataRowsNeeded := hostCount
 	maxDataRows := maxTableHeight - 1 // subtract 1 for header

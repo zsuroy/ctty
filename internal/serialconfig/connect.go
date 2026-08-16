@@ -15,8 +15,8 @@ import (
 // normal mode) before we take over stdin/stdout for the serial bridge,
 // and restores the TUI when we return.
 type serialExecCommand struct {
-	dev   SerialDevice
-	stdin io.Reader
+	dev    SerialDevice
+	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
 }

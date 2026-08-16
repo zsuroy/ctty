@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-08-16
+
+### Fixed
+
+- **Empty Host List Navigation Panic** — Fixed panic when pressing arrow keys (↑/↓/←/→) on empty SSH host list by preventing table navigation updates when no hosts are available and ensuring proper table height for empty states
+
 ## [0.4.0] - 2026-08-15
 
 ### Added
@@ -31,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Port Forwarding Input Validation** — Added robust validation for local and remote ports in port forwarding forms with localized error messaging
 - **CJK Settings Form Alignment** — Fixed visual misalignment in Settings modal under Chinese mode by replacing byte-padding with `ansi.StringWidth` column calculation
 - **Search Mode Escape Key** — Pressing `Esc` while searching now properly cancels search and refocuses the table instead of immediately quitting the app
+- **Empty Host List Navigation Panic** — Fixed panic when pressing arrow keys (↑/↓/←/→) on empty SSH host list by preventing table navigation updates when no hosts are available and ensuring proper table height for empty states
 
 ## [0.3.0] - 2026-08-14
 

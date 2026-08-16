@@ -1841,4 +1841,3 @@ Host server2
 		t.Errorf("Expected server2 to have dev tag, got %+v", hosts[1].Tags)
 	}
 }
-

@@ -12,7 +12,7 @@ import (
 type SerialDevice struct {
 	Name        string `json:"name"`         // User-friendly alias, e.g. "Switch-Console"
 	Device      string `json:"device"`       // Device path, e.g. /dev/cu.usbserial-1420
-	BaudRate    int    `json:"baud_rate"`   // e.g. 9600, 115200
+	BaudRate    int    `json:"baud_rate"`    // e.g. 9600, 115200
 	DataBits    int    `json:"data_bits"`    // 5, 6, 7, 8 (default 8)
 	Parity      string `json:"parity"`       // "none", "even", "odd" (default "none")
 	StopBits    int    `json:"stop_bits"`    // 1 or 2 (default 1)

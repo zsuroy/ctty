@@ -21,7 +21,7 @@ type sftpFileWrapper struct {
 func (f *sftpFileWrapper) Read(p []byte) (int, error)  { return f.file.Read(p) }
 func (f *sftpFileWrapper) Write(p []byte) (int, error) { return f.file.Write(p) }
 func (f *sftpFileWrapper) Close() error                { return f.file.Close() }
-func (f *sftpFileWrapper) Stat() (os.FileInfo, error) { return f.file.Stat() }
+func (f *sftpFileWrapper) Stat() (os.FileInfo, error)  { return f.file.Stat() }
 
 // sftpNewClient creates a new SFTP client over an SSH connection.
 // First tries the standard SFTP subsystem; if that fails, falls back
@@ -140,6 +140,6 @@ type sftpDirEntry struct {
 }
 
 func (e *sftpDirEntry) Name() string               { return e.info.Name() }
-func (e *sftpDirEntry) IsDir() bool                 { return e.info.IsDir() }
-func (e *sftpDirEntry) Type() os.FileMode           { return e.info.Mode().Type() }
+func (e *sftpDirEntry) IsDir() bool                { return e.info.IsDir() }
+func (e *sftpDirEntry) Type() os.FileMode          { return e.info.Mode().Type() }
 func (e *sftpDirEntry) Info() (os.FileInfo, error) { return e.info, nil }

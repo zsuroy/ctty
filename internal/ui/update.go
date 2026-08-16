@@ -38,6 +38,9 @@ func (m Model) startPingAllCmd() tea.Cmd {
 			for _, host := range m.hosts {
 				cmds = append(cmds, pingSingleHostCmd(m.pingManager, host))
 			}
+			if len(cmds) == 0 {
+				return nil
+			}
 			return tea.Batch(cmds...)
 		}(),
 	)
@@ -899,7 +902,19 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	} else {
-		m.table, cmd = m.table.Update(msg)
+		// Only update table if there are hosts to display
+		// This prevents panic when navigating with arrow keys on empty host list
+		hostsToShow := m.filteredHosts
+		if hostsToShow == nil {
+			hostsToShow = m.hosts
+		}
+		if len(hostsToShow) > 0 {
+			m.table, cmd = m.table.Update(msg)
+		} else {
+			// When host list is empty, ignore navigation keys to prevent panic
+			// but still allow other key bindings to work
+			cmd = nil
+		}
 	}
 
 	return m, cmd

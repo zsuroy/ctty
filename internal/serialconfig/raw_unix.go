@@ -18,9 +18,9 @@ const (
 
 // On macOS, the ioctl numbers are different; we use the TIOC variants.
 const (
-	IOC_NRMAS  = 'T'
-	TIOCGETA    = 0x40487413 // macOS: get termios
-	TIOCSETA    = 0x80487414 // macOS: set termios
+	IOC_NRMAS = 'T'
+	TIOCGETA  = 0x40487413 // macOS: get termios
+	TIOCSETA  = 0x80487414 // macOS: set termios
 )
 
 type termios struct {
