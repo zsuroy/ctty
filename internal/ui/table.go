@@ -11,8 +11,10 @@ import (
 	"github.com/zsuroy/ctty/internal/i18n"
 )
 
-// calculateDynamicColumnWidths calculates optimal column widths based on terminal width
-// and content length, ensuring all content fits when possible
+// calculateDynamicColumnWidths calculates optimal column widths based on terminal
+// width and content length, ensuring all content fits when possible.
+// On narrow terminals (e.g. Termux on phones), it progressively hides optional
+// columns (Tags, Last Login) and shrinks minimum widths to fit the screen.
 func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, int, int) {
 	if m.width <= 0 {
 		// Fallback to static widths if terminal width is not available
@@ -59,11 +61,12 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 	maxTagsLength += 2
 	maxLastLoginLength += 2
 
-	// Calculate available width (minus borders, padding, and separators)
-	// TableFocused border (2) + internal separators (3) + App horizontal padding (2) + margin (2) = 9
-	availableWidth := m.width - 9
-	if availableWidth < 30 {
-		availableWidth = 30
+	// Calculate available width (minus borders and padding).
+	// Table border (2) + App horizontal padding (2) = 4.
+	// renderTableView uses JoinHorizontal without internal separators, so no separator cost.
+	availableWidth := m.width - 4
+	if availableWidth < 12 {
+		availableWidth = 12
 	}
 
 	totalNeededWidth := maxNameLength + maxHostnameLength + maxTagsLength + maxLastLoginLength
@@ -73,50 +76,135 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 		return maxNameLength, maxHostnameLength, maxTagsLength, maxLastLoginLength
 	}
 
-	// Need to adjust widths - prioritize columns by importance
-	// Priority: Name > Hostname > Last Login > Tags
+	// Progressive column hiding on narrow terminals (e.g. Termux on phones).
+	// Try 4 columns → 3 columns (hide Tags) → 2 columns (hide Tags + Last Login).
 
-	// Calculate minimum widths
-	minNameWidth := 15 // Enough for status + short name
-	minHostnameWidth := 15
-	minLastLoginWidth := 12
-	minTagsWidth := 10
+	// Minimum widths when all 4 columns are shown
+	minNameWidth4 := 15
+	minHostnameWidth4 := 15
+	minLastLoginWidth4 := 12
+	minTagsWidth4 := 10
 
-	remainingWidth := availableWidth
+	// Minimum widths for 3-column mode (no Tags)
+	minNameWidth3 := 16
+	minHostnameWidth3 := 16
+	minLastLoginWidth3 := 12
 
-	// Allocate minimum widths first
-	nameWidth := minNameWidth
-	hostnameWidth := minHostnameWidth
-	lastLoginWidth := minLastLoginWidth
-	tagsWidth := minTagsWidth
+	// Minimum widths for 2-column mode (only Name + Hostname)
+	minNameWidth2 := 8
+	minHostnameWidth2 := 8
 
-	remainingWidth -= (nameWidth + hostnameWidth + lastLoginWidth + tagsWidth)
-
-	// Distribute remaining space proportionally
-	if remainingWidth > 0 {
-		// Calculate how much each column wants beyond minimum
-		nameWant := maxNameLength - minNameWidth
-		hostnameWant := maxHostnameLength - minHostnameWidth
-		lastLoginWant := maxLastLoginLength - minLastLoginWidth
-		tagsWant := maxTagsLength - minTagsWidth
-
-		totalWant := nameWant + hostnameWant + lastLoginWant + tagsWant
-
-		if totalWant > 0 {
-			// Distribute proportionally
-			nameExtra := (nameWant * remainingWidth) / totalWant
-			hostnameExtra := (hostnameWant * remainingWidth) / totalWant
-			lastLoginExtra := (lastLoginWant * remainingWidth) / totalWant
-			tagsExtra := remainingWidth - nameExtra - hostnameExtra - lastLoginExtra
-
-			nameWidth += nameExtra
-			hostnameWidth += hostnameExtra
-			lastLoginWidth += lastLoginExtra
-			tagsWidth += tagsExtra
-		}
+	// Try 4 columns first
+	if availableWidth >= minNameWidth4+minHostnameWidth4+minTagsWidth4+minLastLoginWidth4 {
+		return distributeWidths(
+			availableWidth,
+			[]int{maxNameLength, maxHostnameLength, maxTagsLength, maxLastLoginLength},
+			[]int{minNameWidth4, minHostnameWidth4, minTagsWidth4, minLastLoginWidth4},
+		)
 	}
 
-	return nameWidth, hostnameWidth, tagsWidth, lastLoginWidth
+	// Try 3 columns: Name + Hostname + Last Login (hide Tags)
+	if availableWidth >= minNameWidth3+minHostnameWidth3+minLastLoginWidth3 {
+		nameW, hostnameW, _, lastLoginW := distributeWidths(
+			availableWidth,
+			[]int{maxNameLength, maxHostnameLength, maxLastLoginLength},
+			[]int{minNameWidth3, minHostnameWidth3, minLastLoginWidth3},
+		)
+		// Tags column hidden (width 0)
+		return nameW, hostnameW, 0, lastLoginW
+	}
+
+	// Fallback: 2 columns only (Name + Hostname), hide Tags and Last Login
+	nameW, hostnameW := distributeWidths2(
+		availableWidth, maxNameLength, maxHostnameLength,
+		minNameWidth2, minHostnameWidth2,
+	)
+	return nameW, hostnameW, 0, 0
+}
+
+// distributeWidths distributes available width across up to 4 columns proportionally,
+// respecting minimum widths. Returns 4 values (unused slots get 0).
+func distributeWidths(availableWidth int, maxWidths, minWidths []int) (int, int, int, int) {
+	n := len(minWidths)
+	if n == 0 {
+		return 0, 0, 0, 0
+	}
+
+	totalMin := 0
+	for _, mw := range minWidths {
+		totalMin += mw
+	}
+	remainingWidth := availableWidth - totalMin
+
+	result := make([]int, 4)
+	if remainingWidth <= 0 {
+		for i := range min(n, 4) {
+			result[i] = minWidths[i]
+		}
+		return result[0], result[1], result[2], result[3]
+	}
+
+	// Calculate how much each column wants beyond minimum
+	wants := make([]int, n)
+	totalWant := 0
+	for i := range n {
+		w := maxWidths[i] - minWidths[i]
+		if w < 0 {
+			w = 0
+		}
+		wants[i] = w
+		totalWant += w
+	}
+
+	allocated := 0
+	for i := range min(n, 4) {
+		result[i] = minWidths[i]
+		if totalWant > 0 {
+			extra := (wants[i] * remainingWidth) / totalWant
+			result[i] += extra
+			allocated += extra
+		}
+	}
+	// Assign leftover to last active column
+	if n > 0 && n <= 4 {
+		result[n-1] += remainingWidth - allocated
+	}
+
+	return result[0], result[1], result[2], result[3]
+}
+
+// distributeWidths2 distributes available width across 2 columns proportionally.
+func distributeWidths2(availableWidth, maxName, maxHostname, minName, minHostname int) (int, int) {
+	totalMin := minName + minHostname
+	remainingWidth := availableWidth - totalMin
+
+	if remainingWidth <= 0 {
+		// Not enough even for minimums; split evenly
+		half := availableWidth / 2
+		if half < 4 {
+			half = 4
+		}
+		return half, availableWidth - half
+	}
+
+	nameWant := maxName - minName
+	hostnameWant := maxHostname - minHostname
+	if nameWant < 0 {
+		nameWant = 0
+	}
+	if hostnameWant < 0 {
+		hostnameWant = 0
+	}
+
+	totalWant := nameWant + hostnameWant
+	if totalWant <= 0 {
+		return minName, minHostname
+	}
+
+	nameExtra := (nameWant * remainingWidth) / totalWant
+	hostnameExtra := remainingWidth - nameExtra
+
+	return minName + nameExtra, minHostname + hostnameExtra
 }
 
 // updateTableRows updates the table with filtered hosts
