@@ -116,10 +116,17 @@ func (m *serialFormModel) getColumns() []table.Column {
 		w = 80
 	}
 
+	// Bubbles table renders each cell with Padding(0,1) = 2 extra cols per cell.
+	// TableFocused style adds border(2). App style adds padding(2).
+	// So: rendered = colWidths + numCols*2 + 4
+	// To match search bar (rendered = tw - 2 + 2 = tw):
+	//   colWidths + numCols*2 + 4 = tw
+	//   colWidths = tw - 4 - numCols*2
 	if w < 60 {
-		rem := w - 20
-		if rem < 16 {
-			rem = 16
+		// 3 columns: name, device, baud(8)
+		rem := w - 4 - 3*2 - 8
+		if rem < 8 {
+			rem = 8
 		}
 		nameW := rem / 2
 		devW := rem - nameW
@@ -129,9 +136,10 @@ func (m *serialFormModel) getColumns() []table.Column {
 			{Title: i18n.T("serial.col_baud"), Width: 8},
 		}
 	} else if w < 90 {
-		rem := w - 34
-		if rem < 20 {
-			rem = 20
+		// 5 columns: name, device, baud(8), data(5), stop(5)
+		rem := w - 4 - 5*2 - 8 - 5 - 5
+		if rem < 10 {
+			rem = 10
 		}
 		nameW := rem / 2
 		devW := rem - nameW
@@ -144,9 +152,10 @@ func (m *serialFormModel) getColumns() []table.Column {
 		}
 	}
 
-	rem := w - 46
-	if rem < 24 {
-		rem = 24
+	// 6 columns: name, device, baud(8), data(6), parity(8), stop(6)
+	rem := w - 4 - 6*2 - 8 - 6 - 8 - 6
+	if rem < 12 {
+		rem = 12
 	}
 	nameW := rem / 2
 	devW := rem - nameW
@@ -263,8 +272,8 @@ func (m *serialFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.styles = NewStyles(m.width)
-	m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
-	m.buildTable()
+		m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
+		m.buildTable()
 		return m, nil
 
 	case tea.KeyMsg:

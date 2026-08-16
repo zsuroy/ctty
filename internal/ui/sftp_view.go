@@ -360,7 +360,7 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-	m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
+		m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
 		tableHeight := m.calculateTableHeight()
 		m.table.SetHeight(tableHeight)
 		if m.mode == sftpUploadSelect {
@@ -996,21 +996,25 @@ func (m *sftpFormModel) getColumns(isLocal bool) []table.Column {
 		titleKey = "sftp.col_local_file"
 	}
 
+	// Bubbles table renders each cell with Padding(0,1) = 2 extra cols per cell.
+	// TableFocused style adds border(2). App style adds padding(2).
+	// So: rendered = colWidths + numCols*2 + 4 = tw
+	//   colWidths = tw - 4 - numCols*2
 	if w < 55 {
-		nameW := w - 22
-		if nameW < 8 {
-			nameW = 8
-		}
 		sizeW := 8
 		if w < 30 {
 			sizeW = 6
+		}
+		nameW := w - 4 - 2*2 - sizeW
+		if nameW < 8 {
+			nameW = 8
 		}
 		return []table.Column{
 			{Title: i18n.T(titleKey), Width: nameW},
 			{Title: i18n.T("sftp.col_size"), Width: sizeW},
 		}
 	} else if w < 75 {
-		nameW := w - 30
+		nameW := w - 4 - 3*2 - 10 - 6
 		if nameW < 12 {
 			nameW = 12
 		}
@@ -1021,7 +1025,7 @@ func (m *sftpFormModel) getColumns(isLocal bool) []table.Column {
 		}
 	}
 
-	nameW := w - 46
+	nameW := w - 4 - 4*2 - 10 - 16 - 6
 	if nameW < 20 {
 		nameW = 20
 	}

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-08-16
+
+### Fixed
+
+- **Narrow Terminal Overflow (SSH / Serial / SFTP)** — Search bars, host tables, and help text no longer overflow the screen width on narrow terminals (e.g. Termux on phones, tmux splits):
+  - SSH host list: progressive column hiding on narrow terminals (4 cols → 3 cols hiding Tags → 2 cols hiding Tags + Last Login); fixed `distributeWidths` return-value mapping bug that caused Last Login column to silently get width 0 in 3-column mode
+  - Search bars (all views): `textinput.View()` always renders `Width+1` display cols (cursor char); `searchInputWidth` now accounts for this; content truncated via `ansi.Truncate` to prevent CJK placeholder text from pushing borders off-screen
+  - Serial table: fixed `getColumns` to account for bubbles table's per-cell `Padding(0,1)` (2 extra cols per cell) so table width matches search bar
+  - SFTP table: same per-cell padding fix in `getColumns`
+  - Help text: `MaxWidth` truncation to prevent long help strings from inflating `JoinVertical` width and padding all lines
+  - Empty hosts message: truncated to table content width to prevent it from inflating the table beyond terminal width
+
 ## [0.4.1] - 2026-08-16
 
 ### Fixed

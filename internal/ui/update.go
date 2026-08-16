@@ -103,8 +103,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update table height and columns based on new window size
 		m.updateTableHeight()
-	m.updateTableColumns()
-	m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
+		m.updateTableColumns()
+		m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
 
 		// Update sub-forms if they exist
 		if m.addForm != nil {
