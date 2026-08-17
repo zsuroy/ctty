@@ -217,12 +217,17 @@ func (m *serialFormModel) buildTable() {
 	if availHeight < 2 {
 		availHeight = 2
 	}
+	// Limit table height to actual content: header(1) + data rows
+	tableHeight := 1 + len(rows)
+	if tableHeight > availHeight {
+		tableHeight = availHeight
+	}
 
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithRows(rows),
 		table.WithFocused(true),
-		table.WithHeight(availHeight),
+		table.WithHeight(tableHeight),
 		table.WithStyles(s),
 	)
 	m.table = t
