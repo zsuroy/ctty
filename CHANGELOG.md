@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.3] - 2026-08-16
+
+### Fixed
+
+- **Serial Table Height on Empty Device List** — Fixed table filling the entire terminal window with blank rows when no serial devices are detected (e.g. Termux on Android without serial hardware); table height is now capped to actual content (header + data rows)
+- **SSH Host Table Not Expanding** — Fixed SSH host list table staying at content width when the terminal window is widened; table now fills the full available width by distributing extra space proportionally across all visible columns
+
 ## [0.4.2] - 2026-08-16
 
 ### Fixed
@@ -16,12 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - SFTP table: same per-cell padding fix in `getColumns`
   - Help text: `MaxWidth` truncation to prevent long help strings from inflating `JoinVertical` width and padding all lines
   - Empty hosts message: truncated to table content width to prevent it from inflating the table beyond terminal width
-
-## [0.4.3] - 2026-08-16
-
-### Fixed
-
-- **Serial Table Height on Empty Device List** — Fixed table filling the entire terminal window with blank rows when no serial devices are detected (e.g. Termux on Android without serial hardware); table height is now capped to actual content (header + data rows)
 
 ## [0.4.1] - 2026-08-16
 

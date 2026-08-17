@@ -72,8 +72,14 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 	totalNeededWidth := maxNameLength + maxHostnameLength + maxTagsLength + maxLastLoginLength
 
 	if totalNeededWidth <= availableWidth {
-		// Everything fits perfectly
-		return maxNameLength, maxHostnameLength, maxTagsLength, maxLastLoginLength
+		// Everything fits — distribute extra space proportionally so the
+		// table fills the full terminal width instead of staying at content width.
+		r := distributeWidths(
+			availableWidth,
+			[]int{maxNameLength, maxHostnameLength, maxTagsLength, maxLastLoginLength},
+			[]int{maxNameLength, maxHostnameLength, maxTagsLength, maxLastLoginLength},
+		)
+		return r[0], r[1], r[2], r[3]
 	}
 
 	// Progressive column hiding on narrow terminals (e.g. Termux on phones).
