@@ -2,7 +2,9 @@ package ui
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
@@ -673,6 +675,9 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					sshCmd = exec.Command("ssh", hostName)
 				}
 
+				// Set up SSH_ASKPASS for zero-touch auto-login with saved passwords
+				sshCmd.Env = buildSSHEnv(hostName)
+
 				return m, tea.ExecProcess(sshCmd, func(err error) tea.Msg {
 					return tea.Quit()
 				})
@@ -919,4 +924,23 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, cmd
+}
+
+// buildSSHEnv constructs the environment for the SSH command, injecting
+// SSH_ASKPASS variables when a saved password exists for the host.
+// This mirrors the CLI logic in cmd/root.go connectToHost.
+func buildSSHEnv(hostName string) []string {
+	env := os.Environ()
+	if pass, ok := credential.GetPassword(hostName); ok && pass != "" {
+		selfPath, err := os.Executable()
+		if err == nil {
+			env = append(env,
+				"SSH_ASKPASS="+selfPath,
+				"SSH_ASKPASS_REQUIRE=force",
+				"CTTY_ASKPASS_TOKEN="+base64.StdEncoding.EncodeToString([]byte(pass)),
+				"DISPLAY=ctty:0",
+			)
+		}
+	}
+	return env
 }

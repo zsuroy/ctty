@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **Serial Table Height on Empty Device List** — Fixed table filling the entire terminal window with blank rows when no serial devices are detected (e.g. Termux on Android without serial hardware); table height is now capped to actual content (header + data rows)
 - **SSH Host Table Not Expanding** — Fixed SSH host list table staying at content width when the terminal window is widened; table now fills the full available width by distributing extra space proportionally across all visible columns
+- **SSH Auto-Login from TUI** — Fixed saved SSH passwords not being used when connecting via the TUI (pressing Enter on a host); the TUI now injects `SSH_ASKPASS` environment variables into the SSH process, matching the CLI `ctty <host>` behavior that already worked correctly
 
 ## [0.4.2] - 2026-08-16
 
