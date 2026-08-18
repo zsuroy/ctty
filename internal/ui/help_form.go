@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zsuroy/ctty/internal/i18n"
 )
 
@@ -100,7 +101,7 @@ func (m *helpModel) View() string {
 		m.styles.FocusedLabel.Render(i18n.T("help.cat_snippet")),
 		"",
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("n   "), m.styles.HelpText.Render(i18n.T("help.snippet_add"))),
-		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("D   "), m.styles.HelpText.Render(i18n.T("help.snippet_delete"))),
+		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("d   "), m.styles.HelpText.Render(i18n.T("help.snippet_delete"))),
 		"",
 		m.styles.FocusedLabel.Render(i18n.T("help.cat_system")),
 		"",
@@ -166,19 +167,32 @@ func (m *helpModel) View() string {
 	if endIdx > len(contentLines) {
 		endIdx = len(contentLines)
 	}
-	visibleContent := strings.Join(contentLines[m.scrollOffset:endIdx], "\n")
+	// Truncate each line to fit terminal: App(2) + FormContainer border(2) + padding(4) = 8
+	contentMaxW := m.width - 8
+	if contentMaxW < 10 {
+		contentMaxW = 10
+	}
+	var truncatedLines []string
+	for _, line := range contentLines[m.scrollOffset:endIdx] {
+		truncatedLines = append(truncatedLines, ansi.Truncate(line, contentMaxW, ""))
+	}
+	visibleContent := strings.Join(truncatedLines, "\n")
 
 	promptText := i18n.T("help.close_prompt")
 	if len(contentLines) > viewportHeight {
 		promptText = "↑/↓/PgUp/PgDn: scroll • " + promptText
 	}
 
+	// Truncate title and prompt to contentMaxW to prevent JoinVertical inflation
+	titleTrunc := ansi.Truncate(title, contentMaxW, "")
+	promptTrunc := ansi.Truncate(m.styles.HelpText.Render(promptText), contentMaxW, "")
+
 	content := lipgloss.JoinVertical(lipgloss.Center,
-		title,
+		titleTrunc,
 		"",
 		visibleContent,
 		"",
-		m.styles.HelpText.Render(promptText),
+		promptTrunc,
 	)
 
 	return lipgloss.Place(

@@ -222,7 +222,7 @@ func (m *snippetFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		m.addFocus = 0
 		return m, textinput.Blink
 
-	case "D":
+	case "d":
 		// Delete selected user snippet (can't delete builtins)
 		m.err = ""
 		if m.cursor >= m.userIdx && m.cursor < len(m.snippets) {
