@@ -153,6 +153,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.settingsForm != nil {
 			m.settingsForm.Update(msg)
 		}
+		if m.snippetForm != nil {
+			m.snippetForm.Update(msg)
+		}
 		return m, nil
 
 	case pingResultMsg:
@@ -443,6 +446,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case snippetCloseMsg:
+		m.snippetForm = nil
+		m.viewMode = ViewList
+		m.table.Focus()
+		return m, nil
+
+	case snippetSubmitMsg:
+		m.snippetForm = nil
+		m.viewMode = ViewList
+		m.table.Focus()
+		// Execute the command via ssh and suspend TUI
+		var sshCmd *exec.Cmd
+		if m.configFile != "" {
+			sshCmd = exec.Command("ssh", "-F", m.configFile, msg.hostName, msg.command)
+		} else {
+			sshCmd = exec.Command("ssh", msg.hostName, msg.command)
+		}
+		sshCmd.Env = buildSSHEnv(msg.hostName)
+		return m, tea.ExecProcess(sshCmd, func(err error) tea.Msg {
+			return tea.Quit()
+		})
+
 	case tea.KeyMsg:
 		// Handle view-specific key presses
 		switch m.viewMode {
@@ -516,6 +541,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var newForm *settingsFormModel
 				newForm, cmd = m.settingsForm.Update(msg)
 				m.settingsForm = newForm
+				return m, cmd
+			}
+		case ViewSnippet:
+			if m.snippetForm != nil {
+				updatedModel, cmd := m.snippetForm.Update(msg)
+				if sm, ok := updatedModel.(*snippetFormModel); ok {
+					m.snippetForm = sm
+				}
 				return m, cmd
 			}
 		case ViewList:
@@ -886,6 +919,17 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsForm = NewSettingsForm(m.styles, m.width, m.height, m.appConfig)
 			m.viewMode = ViewSettings
 			return m, nil
+		}
+	case "x":
+		if !m.searchMode && !m.deleteMode {
+			// Execute a remote command on the selected host
+			selected := m.table.SelectedRow()
+			if len(selected) > 0 {
+				hostName := extractHostNameFromTableRow(selected[0])
+				m.snippetForm = NewSnippetForm(m.styles, m.width, m.height, hostName, m.configFile)
+				m.viewMode = ViewSnippet
+				return m, textinput.Blink
+			}
 		}
 	}
 

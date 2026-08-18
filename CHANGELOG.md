@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-08-18
+
+### Added
+
+- **Remote Command Execution (`x` key)** — Execute commands on remote hosts directly from the TUI without opening an interactive SSH session:
+  - Press `x` on a selected host to open the command input form
+  - Built-in common command snippets (`docker ps`, `df -h`, `free -m`, `uptime`, `top`, `last`, `ps`, `du`)
+  - Custom snippets manageable directly from the TUI (`n` to add, `D` to delete), persisted to `~/.config/ctty/snippets.json` with `0600` permissions
+  - User snippets marked with ★ in the list; built-ins cannot be deleted
+  - `Tab` to fill input with selected snippet, `↑/↓` to browse, `Enter` to run
+  - SSH auto-login (saved passwords) supported via `SSH_ASKPASS` injection
+
 ## [0.4.3] - 2026-08-16
 
 ### Fixed

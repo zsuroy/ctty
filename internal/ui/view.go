@@ -54,6 +54,10 @@ func (m Model) View() string {
 		if m.settingsForm != nil {
 			return m.settingsForm.View()
 		}
+	case ViewSnippet:
+		if m.snippetForm != nil {
+			return m.snippetForm.View()
+		}
 	}
 
 	return m.renderListView()

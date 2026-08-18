@@ -55,6 +55,7 @@ const (
 	ViewSerial
 	ViewSFTP
 	ViewSettings
+	ViewSnippet
 )
 
 // PortForwardType defines the type of port forwarding
@@ -114,6 +115,7 @@ type Model struct {
 	serialForm       *serialFormModel
 	sftpForm         *sftpFormModel
 	settingsForm     *settingsFormModel
+	snippetForm      *snippetFormModel
 
 	// Terminal size and styles
 	width      int
