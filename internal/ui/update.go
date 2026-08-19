@@ -370,7 +370,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			// Success: execute SSH command with port forwarding
 			if len(msg.sshArgs) > 0 {
-				sshCmd := exec.Command("ssh", msg.sshArgs...)
+				// Insert StrictHostKeyChecking at the beginning of sshArgs
+				sshArgs := make([]string, 0, len(msg.sshArgs)+2)
+				sshArgs = append(sshArgs, "-o", "StrictHostKeyChecking=accept-new")
+				sshArgs = append(sshArgs, msg.sshArgs...)
+				sshCmd := exec.Command("ssh", sshArgs...)
 
 				// Record the connection in history
 				if m.historyManager != nil && m.portForwardForm != nil {
@@ -459,9 +463,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Execute the command via ssh and suspend TUI
 		var sshCmd *exec.Cmd
 		if m.configFile != "" {
-			sshCmd = exec.Command("ssh", "-F", m.configFile, msg.hostName, msg.command)
+			sshCmd = exec.Command("ssh", "-F", m.configFile, "-o", "StrictHostKeyChecking=accept-new", msg.hostName, msg.command)
 		} else {
-			sshCmd = exec.Command("ssh", msg.hostName, msg.command)
+			sshCmd = exec.Command("ssh", "-o", "StrictHostKeyChecking=accept-new", msg.hostName, msg.command)
 		}
 		sshCmd.Env = buildSSHEnv(msg.hostName)
 		return m, tea.ExecProcess(sshCmd, func(err error) tea.Msg {
@@ -703,9 +707,9 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// Build the SSH command with the appropriate config file
 				var sshCmd *exec.Cmd
 				if m.configFile != "" {
-					sshCmd = exec.Command("ssh", "-F", m.configFile, hostName)
+					sshCmd = exec.Command("ssh", "-F", m.configFile, "-o", "StrictHostKeyChecking=accept-new", hostName)
 				} else {
-					sshCmd = exec.Command("ssh", hostName)
+					sshCmd = exec.Command("ssh", "-o", "StrictHostKeyChecking=accept-new", hostName)
 				}
 
 				// Set up SSH_ASKPASS for zero-touch auto-login with saved passwords

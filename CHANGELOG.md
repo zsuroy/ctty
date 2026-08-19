@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - User snippets marked with ★ in the list; built-ins cannot be deleted
   - `Tab` to fill input with selected snippet, `↑/↓` to browse, `Enter` to run
   - SSH auto-login (saved passwords) supported via `SSH_ASKPASS` injection
+- **SSH First-Connection Host Key Auto-Accept** — Automatically accepts and saves new host keys on first connection (`StrictHostKeyChecking=accept-new`), eliminating the interactive `Are you sure you want to continue connecting (yes/no)?` prompt that blocked TUI connections
 
 ## [0.4.3] - 2026-08-16
 
