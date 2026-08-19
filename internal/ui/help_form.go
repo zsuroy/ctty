@@ -14,17 +14,19 @@ type helpModel struct {
 	width        int
 	height       int
 	scrollOffset int
+	version      string
 }
 
 // helpCloseMsg is sent when the help window is closed
 type helpCloseMsg struct{}
 
 // NewHelpForm creates a new help form model
-func NewHelpForm(styles Styles, width, height int) *helpModel {
+func NewHelpForm(styles Styles, width, height int, ver string) *helpModel {
 	return &helpModel{
-		styles: styles,
-		width:  width,
-		height: height,
+		styles:  styles,
+		width:   width,
+		height:  height,
+		version: ver,
 	}
 }
 
@@ -184,7 +186,9 @@ func (m *helpModel) View() string {
 	}
 
 	// Truncate title and prompt to contentMaxW to prevent JoinVertical inflation
-	titleTrunc := ansi.Truncate(title, contentMaxW, "")
+	versionStr := m.styles.HelpText.Faint(true).Render("v" + m.version)
+	titleWithVer := title + " " + versionStr
+	titleTrunc := ansi.Truncate(titleWithVer, contentMaxW, "")
 	promptTrunc := ansi.Truncate(m.styles.HelpText.Render(promptText), contentMaxW, "")
 
 	content := lipgloss.JoinVertical(lipgloss.Center,

@@ -133,6 +133,7 @@ ctty
 - `f` - Setup port forwarding
 - `t` - Open serial device manager
 - `o` - Open SFTP file browser for selected host
+- `x` - Remote Command Execution (snippets supported)
 - `S` - Open Settings & Preferences (Language, Updates, ESC behavior)
 - `H` - Toggle hidden hosts visibility
 - `h` - Open help screen
@@ -338,6 +339,29 @@ Firefox: about:preferences → Network Settings
 Chrome: Launch with proxy
 chrome --proxy-server="socks5://localhost:[your_port]"
 ```
+
+### Remote Command Execution
+
+Press `x` on a selected host to open the remote command execution interface. This allows you to run commands on remote hosts without opening an interactive SSH session.
+
+**Features:**
+- Built-in common command snippets: `docker ps`, `df -h`, `free -m`, `uptime`, `top`, `last`, `ps`, `du`
+- Add custom snippets with `n` key (saved to `~/.config/ctty/snippets.json` with `0600` permissions)
+- Delete custom snippets with `d` key
+- User snippets marked with ★ in the list
+- `Tab` to fill input with selected snippet
+- `↑/↓` to browse snippets
+- `Enter` to execute the command
+- SSH auto-login with saved passwords supported
+- First-connection host key auto-accept (no interactive `yes/no` prompt)
+
+**Command Execution Navigation:**
+- `↑/↓` or `j/k` - Browse command snippets
+- `Tab` - Fill input with selected snippet
+- `Enter` - Execute the command
+- `n` - Add new custom snippet
+- `d` - Delete selected custom snippet
+- `Esc` - Return to host list
 
 ### CLI Usage
 

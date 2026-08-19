@@ -862,7 +862,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "h":
 		if !m.searchMode && !m.deleteMode {
 			// Show help
-			m.helpForm = NewHelpForm(m.styles, m.width, m.height)
+			m.helpForm = NewHelpForm(m.styles, m.width, m.height, m.currentVersion)
 			m.viewMode = ViewHelp
 			return m, nil
 		}
