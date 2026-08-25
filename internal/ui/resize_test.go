@@ -30,6 +30,9 @@ func TestResizeStress(t *testing.T) {
 	}
 	sftp.updateTableRows()
 
+	// 4. Test Telnet Form
+	tn := NewTelnetForm(styles, 80, 24)
+
 	// Test all combinations of width and height
 	for w := 5; w <= 160; w += 3 {
 		for h := 3; h <= 60; h += 2 {
@@ -49,6 +52,10 @@ func TestResizeStress(t *testing.T) {
 			sftpRes, _ := sftp.Update(sizeMsg)
 			sftp = sftpRes.(*sftpFormModel)
 			_ = sftp.View()
+
+			tnRes, _ := tn.Update(sizeMsg)
+			tn = tnRes.(*telnetFormModel)
+			_ = tn.View()
 		}
 	}
 }

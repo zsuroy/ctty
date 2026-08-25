@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/zsuroy/ctty/internal/i18n"
@@ -46,6 +48,10 @@ func (m Model) View() string {
 		if m.serialForm != nil {
 			return m.serialForm.View()
 		}
+	case ViewTelnet:
+		if m.telnetForm != nil {
+			return m.telnetForm.View()
+		}
 	case ViewSFTP:
 		if m.sftpForm != nil {
 			return m.sftpForm.View()
@@ -75,6 +81,23 @@ func searchMaxWidth(terminalWidth int) int {
 		w = 5
 	}
 	return w
+}
+
+// fillTerminal pads content to the full terminal so a smaller frame
+// overwrites leftover cells from the previous size.
+func fillTerminal(width, height int, content string) string {
+	if width <= 0 {
+		return content
+	}
+	var lines []string
+	for _, line := range strings.Split(content, "\n") {
+		lines = append(lines, ansi.Truncate(line, width, ""))
+	}
+	content = strings.Join(lines, "\n")
+	if height <= 0 {
+		return content
+	}
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, content)
 }
 
 // renderListView renders the main list interface

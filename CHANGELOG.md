@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-09-02
+
+### Added
+
+- **Full Telnet Support** — Native RFC 854 telnet client for lab equipment, console servers, and legacy network gear (no system `telnet` binary required — macOS ≥ 10.13 ships without one, and Windows/Termux need optional extras):
+  - `ctty telnet` opens a dedicated device-manager TUI mirroring the serial workflow: list, connect, add, edit, delete, search (`/`), info (`i`), and reachability probe (`p` — concurrent TCP dial with 3s timeout, 🟢/🔴 indicators). List columns are Name / Host / Port / Tags (host no longer repeats `:port`); help wraps onto two lines; delete confirm stays on the list instead of replacing the whole screen. Add/edit/info form borders track the terminal width; field prompts align by display width (Chinese labels included). Add/edit save from any field with Ctrl+S. Tags use the same per-tag colors as the SSH host list.
+  - `ctty telnet <name>` connects to a saved device; `ctty telnet <host[:port]>` dials directly (bracketed IPv6 supported); shell completions offer saved names
+  - `T` key from the main SSH host list opens the same manager
+  - Conservative negotiation: accepts ECHO / SGA / BINARY, refuses everything else with WONT/DONT; answers NAWS window-size queries with 80×24 (IAC-escaped); swallows subnegotiations; CR-NUL handled per RFC
+  - Interactive bridge with raw terminal mode via `golang.org/x/term`; disconnect with `Ctrl+]` or SIGINT/SIGTERM
+  - Saved devices in `~/.config/ctty/telnet.json` (0600, atomic temp+rename writes), separate from SSH config
+  - Full bilingual i18n (English / 简体中文) for all new UI strings
+  - Unit tests: IAC parser state machine (split sequences across chunks, IAC unescaping, subnegotiation framing), negotiation replies, NAWS encoding, `ParseHostPort` edge cases, config CRUD round-trip
+- **Shared Raw-Mode Package (`internal/rawterm`)** — Terminal raw-mode enter/restore unified on `golang.org/x/term`, replacing hand-rolled termios on Unix and fixing the previous no-op Windows stub; used by both serial and telnet sessions
+
 ## [0.5.3] - 2026-09-02
 
 ### Fixed

@@ -11,9 +11,9 @@
 [![License](https://img.shields.io/github/license/zsuroy/ctty?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)](https://github.com/zsuroy/ctty/releases)
 
-> **一个轻量级的一体化终端连接管理器 —— SSH、串口、SFTP 尽在一个 TUI** 🔥
+> **一个轻量级的一体化终端连接管理器 —— SSH、串口、Telnet、SFTP 尽在一个 TUI** 🔥
 
-ctty 是一个快速、原生的终端工具，用于管理你的所有连接 —— SSH 主机、串口设备、SFTP 文件传输 —— 无需 Electron 的开销。使用 Go 编写，拥有直观的 TUI 界面，将 Tabby 等图形化连接管理器的便利性带到终端中，零臃肿。
+ctty 是一个快速、原生的终端工具，用于管理你的所有连接 —— SSH 主机、串口设备、Telnet 端点、SFTP 文件传输 —— 无需 Electron 的开销。使用 Go 编写，拥有直观的 TUI 界面，将 Tabby 等图形化连接管理器的便利性带到终端中，零臃肿。
 
 **为什么选择 ctty？**
 - **嫌 Tabby 太重？** ctty 是单个约 5MB 的二进制文件，没有 Electron，没有浏览器引擎 —— 纯 Go
@@ -39,6 +39,7 @@ ctty 是一个快速、原生的终端工具，用于管理你的所有连接 �
 - **🔍 智能搜索** - 内置过滤和搜索快速找到主机
 - **📝 实时状态** - 异步 ping 检查和颜色编码的 SSH 连接状态指示
 - **🔌 串口连接** - 管理和连接串口设备（控制台、交换机、路由器），可配置波特率、数据位、校验、停止位；自动检测端口即时出现在列表中
+- **📡 Telnet 连接** - 原生 RFC 854 telnet 客户端（无需系统 telnet）：保存并管理实验室设备、控制台服务器和传统设备；一键探测可达性
 - **🔑 密码存储与免密自动登录** - 支持在本地 AES-256-GCM 加密保险库（`~/.config/ctty/credentials.json`，`0600` 权限）中安全保存密码，基于 OpenSSH 原生 `SSH_ASKPASS` 协议实现一键免密直连（零第三方依赖，完美兼容 macOS、Linux、Windows 和 Termux）
 - **🖥️ 分屏与极小窗口完美适配** - 所有表单与弹窗（添加/编辑主机、端口转发、帮助菜单、主机详情）均采用焦点跟随的动态视口滚动，固定头部与底部导航；在 tmux/Zellij 分屏、VS Code/JetBrains 下方终端、i3/Sway 平铺窗口（即使只有 8~12 行）下均可丝滑操作，绝无高度拦截与内容裁切
 - **🌐 多语言国际化与偏好设置** - 全界面支持中英双语，全平台自动检测系统语言（macOS / Windows / Linux / Termux），并内置交互式设置面板（按 `S` 键）实时切换与保存配置
@@ -131,6 +132,7 @@ ctty
 - `p` - 探测所有主机的网络连通性
 - `f` - 配置端口转发
 - `t` - 打开串口设备管理器
+- `T` - 打开 Telnet 设备管理器
 - `o` - 打开选中主机的 SFTP 文件浏览器
 - `x` - 远程命令执行（支持代码片段）
 - `S` - 打开系统设置与偏好配置（语言、自动更新、ESC 行为）
@@ -201,6 +203,34 @@ ctty serial    # 跳过 SSH 主机列表，直接进入串口设备管理
 ```
 
 串口设备配置存储在 `~/.config/ctty/serial.json`，与 `~/.ssh/config` 分离。
+
+### Telnet 连接
+
+在主界面按 `T`（Shift+T）打开 Telnet 设备管理器 —— 适用于暴露 telnet 服务的实验室设备、控制台服务器和传统网络设备。
+
+> ⚠️ **明文协议** — Telnet 以明文传输所有内容（包括密码）。设备支持时请优先使用 SSH。
+
+**Telnet 设备列表：**
+- `Enter` - 连接选中的 Telnet 设备
+- `i` - 查看设备详情（名称、主机、端口、标签）
+- `a` - 添加新的 Telnet 设备
+- `e` - 编辑选中的设备
+- `d` - 删除已保存的 Telnet 设备
+- `p` - 探测所有已保存主机的可达性（TCP 拨测，3 秒超时；🟢 在线 / 🔴 离线）
+- `/` - 搜索/过滤设备（按名称、主机或标签）
+- `Esc`/`q` - 返回 SSH 主机列表
+
+**连接：** TUI 暂停并将终端直接桥接到 Telnet 会话。按 `Ctrl+]`（经典 telnet 转义符）断开并返回 TUI。客户端采用保守协商策略：接受 ECHO / SGA / BINARY，拒绝其他选项，窗口大小查询应答 80×24。
+
+也可以不经管理器直接连接：
+```bash
+ctty telnet                  # Telnet 设备管理器 TUI
+ctty telnet core-sw          # 按名称连接已保存的设备
+ctty telnet 192.168.1.1      # 直接连接（端口 23）
+ctty telnet 10.0.0.5:2001    # 指定端口直接连接
+```
+
+已保存的设备存储在 `~/.config/ctty/telnet.json`，与 SSH 配置分离。
 
 ### SFTP 文件传输
 
@@ -947,6 +977,7 @@ ctty/
 │   ├── move.go         # 移动主机命令
 │   ├── search.go       # 搜索命令
 │   ├── serial.go       # 串口管理命令
+│   ├── telnet.go       # Telnet 管理 / 直连命令
 │   ├── sftp.go         # SFTP 文件传输命令
 │   ├── info.go         # 机器可读 JSON 主机信息
 │   └── completion.go   # Shell 补全脚本生成
@@ -968,8 +999,14 @@ ctty/
 │   │   ├── serial.go   # 设备配置存储 (~/.config/ctty/serial.json)
 │   │   ├── ports.go    # 端口枚举和辅助函数
 │   │   ├── connect.go  # 串口连接桥接 (ExecCommand)
-│   │   ├── raw_unix.go # POSIX raw 终端模式
-│   │   └── raw_windows.go # Windows stub
+│   │   ├── raw_unix.go # POSIX raw 终端模式 (x/term)
+│   │   └── raw_windows.go # Windows raw 终端模式 (x/term)
+│   ├── rawterm/        # 串口与 telnet 共享的 raw 模式辅助包
+│   │   └── rawterm.go  # 基于 x/term 的 MakeRaw / Restore 封装
+│   ├── telnetconfig/   # Telnet 设备配置
+│   │   └── telnet.go   # 设备配置存储 (~/.config/ctty/telnet.json，原子写入)
+│   ├── telnetclient/   # 原生 RFC 854 telnet 客户端
+│   │   └── telnet.go   # IAC 状态机、协商与交互桥接
 │   ├── sftpconfig/     # SFTP 客户端引擎与文件传输
 │   │   └── client.go   # SFTP 会话、上传、下载与目录遍历
 │   ├── version/        # 版本检查和更新
@@ -994,6 +1031,7 @@ ctty/
 │   │   ├── serial_form.go         # 串口设备列表 UI
 │   │   ├── serial_add_form.go     # 添加串口设备表单
 │   │   ├── serial_connect_form.go # 连接前参数编辑表单
+│   │   ├── telnet_form.go         # Telnet 设备列表 UI（含可达性探测）
 │   │   └── sftp_view.go           # SFTP 远程与本地双模文件浏览器
 │   └── validation/     # 输入验证
 │       └── ssh.go      # SSH 配置验证

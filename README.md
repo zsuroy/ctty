@@ -13,13 +13,14 @@
 [![License](https://img.shields.io/github/license/zsuroy/ctty?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)](https://github.com/zsuroy/ctty/releases)
 
-> **A lightweight, all-in-one connection manager — SSH, serial, and SFTP in a single TUI** 🔥
+> **A lightweight, all-in-one connection manager — SSH, serial, telnet, and SFTP in a single TUI** 🔥
 
-ctty is a fast, native terminal tool for managing all your connections — SSH hosts, serial devices, and SFTP file transfers — without the overhead of Electron apps. Built with Go and featuring an intuitive TUI interface, it brings the convenience of GUI connection managers like Tabby to the terminal, with zero bloat.
+ctty is a fast, native terminal tool for managing all your connections — SSH hosts, serial devices, telnet endpoints, and SFTP file transfers — without the overhead of Electron apps. Built with Go and featuring an intuitive TUI interface, it brings the convenience of GUI connection managers like Tabby to the terminal, with zero bloat.
 
 **Why ctty?**
 - **Tabby too heavy?** ctty is a single ~5MB binary, no Electron, no browser engine — just pure Go
 - **Need serial + SSH + SFTP in one tool?** Most terminal emulators only do SSH; ctty covers all three
+- **Native telnet client built in** — no system `telnet` binary required (macOS dropped it, Windows and Termux need extras); IAC-aware with conservative negotiation
 - **Want to stay in the terminal?** No context switching between apps — everything is keyboard-driven
 
 <p align="center">
@@ -41,6 +42,7 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 - **🔍 Smart Search** - Find hosts quickly with built-in filtering and search
 - **📝 Real-time Status** - Live SSH connectivity indicators with asynchronous ping checks and color-coded status
 - **🔌 Serial Connections** - Manage and connect to serial devices (console, switch, router) with configurable baud rate, data bits, parity, and stop bits; auto-detected ports appear in the list instantly
+- **📡 Telnet Connections** - Native RFC 854 telnet client (no system telnet needed): save and manage lab equipment, console servers, and legacy devices; reachability probe with one keypress
 - **🔑 Password Storage & Zero-Touch Auto-Login** - Save SSH passwords securely in a local AES-256-GCM encrypted vault (`~/.config/ctty/credentials.json`, `0600` permissions) with native OpenSSH `SSH_ASKPASS` protocol bridge (zero third-party dependencies, works on macOS, Linux, Windows, and Termux)
 - **🖥️ Split-Pane & Small Terminal Friendly** - All forms and dialogs (Add/Edit Host, Port Forwarding, Host Info, Help Menu) feature focus-following dynamic viewport scrolling with fixed headers/footers. Works flawlessly in tmux/Zellij splits, VS Code/JetBrains embedded terminals, and tiling WMs (i3/Sway) down to 8~12 lines with zero height blocking or truncation
 - **🌐 Bilingual i18n & Settings UI** - Full English and Simplified Chinese support with automatic OS detection (macOS, Windows, Linux, Termux) and interactive in-TUI Settings menu (`S` key) to configure language, updates, and keybindings
@@ -133,6 +135,7 @@ ctty
 - `p` - Ping all hosts to check connectivity
 - `f` - Setup port forwarding
 - `t` - Open serial device manager
+- `T` - Open telnet device manager
 - `o` - Open SFTP file browser for selected host
 - `x` - Remote Command Execution (snippets supported)
 - `S` - Open Settings & Preferences (Language, Updates, ESC behavior)
@@ -202,6 +205,35 @@ You can also launch the serial manager directly:
 ```bash
 ctty serial    # Skip the SSH host list, go straight to serial devices
 ```
+
+
+### Telnet Connections
+
+Press `T` (Shift+T) from the main TUI to open the telnet device manager — for lab equipment, console servers, and legacy network gear that expose a telnet service.
+
+> ⚠️ **Cleartext protocol** — Telnet transmits everything, including passwords, unencrypted. Prefer SSH wherever the device supports it.
+
+**Telnet device list:**
+- `Enter` - Connect to selected telnet device
+- `i` - Show device info (name, host, port, tags)
+- `a` - Add a new telnet device
+- `e` - Edit the selected device
+- `d` - Delete a saved telnet device
+- `p` - Probe reachability of all saved hosts (TCP dial with 3s timeout; 🟢 up / 🔴 down)
+- `/` - Search/filter devices by name, host, or tags
+- `Esc`/`q` - Return to SSH host list
+
+**Connecting:** The TUI suspends and bridges your terminal directly to the telnet session. Press `Ctrl+]` (classic telnet escape) to disconnect and return to the TUI. The client negotiates conservatively: it accepts ECHO / SGA / BINARY, refuses other options, and answers window-size queries with 80×24.
+
+You can also connect without opening the manager:
+```bash
+ctty telnet                  # Telnet device manager TUI
+ctty telnet core-sw          # Connect to a saved device by name
+ctty telnet 192.168.1.1      # Direct connection (port 23)
+ctty telnet 10.0.0.5:2001    # Direct connection with explicit port
+```
+
+Saved devices live in `~/.config/ctty/telnet.json`, separate from your SSH config.
 
 
 ### SFTP File Transfer
@@ -950,6 +982,7 @@ ctty/
 │   ├── move.go         # Move host command
 │   ├── search.go       # Search command
 │   ├── serial.go       # Serial device manager command
+│   ├── telnet.go       # Telnet manager / direct-connect command
 │   ├── sftp.go         # SFTP file browser command
 │   ├── info.go         # Machine-readable JSON host info
 │   └── completion.go   # Shell tab completion script generator
@@ -971,8 +1004,14 @@ ctty/
 │   │   ├── serial.go   # Device config storage (~/.config/ctty/serial.json)
 │   │   ├── ports.go    # Port enumeration and helpers
 │   │   ├── connect.go  # Serial connection bridge (ExecCommand)
-│   │   ├── raw_unix.go # POSIX raw terminal mode
-│   │   └── raw_windows.go # Windows stub
+│   │   ├── raw_unix.go # POSIX raw terminal mode (x/term)
+│   │   └── raw_windows.go # Windows raw terminal mode (x/term)
+│   ├── rawterm/        # Shared raw-mode helpers for serial & telnet
+│   │   └── rawterm.go  # MakeRaw / Restore wrappers over x/term
+│   ├── telnetconfig/   # Telnet device configuration
+│   │   └── telnet.go   # Device config storage (~/.config/ctty/telnet.json, atomic writes)
+│   ├── telnetclient/   # Native RFC 854 telnet client
+│   │   ├── telnet.go   # IAC state machine, negotiation, interactive bridge
 │   ├── sftpconfig/     # SFTP client engine & file transfer
 │   │   └── client.go   # SFTP session, upload, download, and listing
 │   ├── version/        # Version checking and updates
@@ -990,13 +1029,13 @@ ctty/
 │   │   ├── move_form.go# Move host form interface
 │   │   ├── info_form.go# Host details modal
 │   │   ├── help_form.go# Keyboard shortcut help modal
-│   │   ├── settings_form.go # Settings & preferences modal
 │   │   ├── port_forward_form.go # Port forwarding setup with history
 │   │   ├── styles.go   # Lip Gloss styling definitions
 │   │   ├── sort.go     # Sorting and filtering logic
 │   │   ├── serial_form.go         # Serial device list UI
 │   │   ├── serial_add_form.go     # Add serial device form
 │   │   ├── serial_connect_form.go # Edit serial parameters form
+│   │   ├── telnet_form.go         # Telnet device list UI with reachability probe
 │   │   └── sftp_view.go           # SFTP remote & local browser UI
 │   └── validation/     # Input validation
 │       └── ssh.go      # SSH config validation
