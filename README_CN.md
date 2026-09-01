@@ -133,6 +133,7 @@ ctty
 - `o` - 打开选中主机的 SFTP 文件浏览器
 - `x` - 远程命令执行（支持代码片段）
 - `S` - 打开系统设置与偏好配置（语言、自动更新、ESC 行为）
+- `U` - 打开自更新弹窗（有可用更新时）
 - `H` - 切换隐藏主机的显示/隐藏状态
 - `h` - 打开帮助菜单
 - `q` - 退出应用程序
@@ -439,6 +440,10 @@ ctty --version
 # 禁用自动更新检查（适用于离线机器）
 ctty --no-update-check
 
+# 自更新：检查新版本（加 --yes 直接下载并安装）
+ctty update
+ctty update --yes
+
 # 显示帮助和可用命令
 ctty --help
 ```
@@ -680,6 +685,15 @@ ctty --no-update-check
   "check_for_updates": false
 }
 ```
+
+#### 自更新（Self-Update）
+
+检测到新版本后，可以直接在 ctty 内完成升级：
+
+- **TUI 内** — 出现更新横幅时按 `U`，按 `y` 确认。下载 → 校验 → 安装过程在弹窗中实时显示，完成后重启 ctty 即可运行新版本。
+- **命令行** — `ctty update` 仅检查新版本；`ctty update --yes` 下载并安装。
+
+更新以裸二进制形式从 [GitHub Releases](https://github.com/zsuroy/ctty/releases) 下载（`ctty-<os>-<arch>`），对照发布页的 `checksums.txt` 做 sha256 校验，并以原子方式替换当前可执行文件——即使更新中途被打断，也不会留下损坏的二进制。若可执行文件所在目录需要管理员权限，请用 sudo 重跑或修正该文件属主。
 
 #### 端口转发历史
 

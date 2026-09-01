@@ -2,7 +2,6 @@ package version
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,13 +9,11 @@ import (
 	"time"
 )
 
-// GitHubRelease represents a GitHub release response
-type GitHubRelease struct {
-	TagName    string `json:"tag_name"`
-	Name       string `json:"name"`
-	HTMLURL    string `json:"html_url"`
-	Prerelease bool   `json:"prerelease"`
-	Draft      bool   `json:"draft"`
+const GitHubRepo = "zsuroy/ctty"
+
+// RepoURL is the canonical GitHub repository URL.
+func RepoURL() string {
+	return "https://github.com/" + GitHubRepo
 }
 
 // UpdateInfo contains information about available updates
@@ -82,7 +79,11 @@ func compareVersions(v1, v2 string) int {
 	return 0
 }
 
-// CheckForUpdates checks GitHub for the latest release of ctty
+// CheckForUpdates checks GitHub for the latest release of ctty.
+//
+// Instead of the REST API (60 req/h unauthenticated, routinely exhausted on
+// shared IPs), it resolves the releases/latest/download/ redirect and reads
+// the tag from the Location header — same data, no rate-limit quota.
 func CheckForUpdates(ctx context.Context, currentVersion string) (*UpdateInfo, error) {
 	// Skip version check if current version is "dev"
 	if currentVersion == "dev" {
@@ -92,54 +93,56 @@ func CheckForUpdates(ctx context.Context, currentVersion string) (*UpdateInfo, e
 		}, nil
 	}
 
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	// Create request with context
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		"https://api.github.com/repos/zsuroy/ctty/releases/latest", nil)
+	client := &http.Client{Timeout: 15 * time.Second, Transport: http.DefaultTransport}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead,
+		"https://github.com/"+GitHubRepo+"/releases/latest/download/checksums.txt", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
-	// Set user agent
 	req.Header.Set("User-Agent", "ctty/"+currentVersion)
 
-	// Make the request
-	resp, err := client.Do(req)
+	// Do NOT follow the final redirect to the CDN; the first hop carries
+	// /releases/download/<tag>/ which is all we need.
+	resp, err := client.Transport.RoundTrip(req.WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch latest release: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	if resp.StatusCode == http.StatusNotFound {
+		return &UpdateInfo{Available: false, CurrentVer: currentVersion}, nil
+	}
+	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub returned status %d checking latest release", resp.StatusCode)
 	}
 
-	// Parse the response
-	var release GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+	loc := resp.Header.Get("Location")
+	tag := latestTagFromLocation(loc)
+	if tag == "" {
+		return nil, fmt.Errorf("could not determine latest version from redirect %q", loc)
 	}
 
-	// Skip pre-releases and drafts
-	if release.Prerelease || release.Draft {
-		return &UpdateInfo{
-			Available:  false,
-			CurrentVer: currentVersion,
-		}, nil
-	}
-
-	// Compare versions
-	updateAvailable := compareVersions(currentVersion, release.TagName) < 0
-
+	updateAvailable := compareVersions(currentVersion, tag) < 0
 	return &UpdateInfo{
 		Available:   updateAvailable,
 		CurrentVer:  currentVersion,
-		LatestVer:   release.TagName,
-		ReleaseURL:  release.HTMLURL,
-		ReleaseName: release.Name,
+		LatestVer:   tag,
+		ReleaseURL:  fmt.Sprintf("https://github.com/%s/releases/tag/%s", GitHubRepo, tag),
+		ReleaseName: "ctty " + tag,
 	}, nil
+}
+
+// latestTagFromLocation extracts "<tag>" from a GitHub asset redirect like
+// https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>.
+func latestTagFromLocation(loc string) string {
+	const marker = "/releases/download/"
+	i := strings.Index(loc, marker)
+	if i < 0 {
+		return ""
+	}
+	rest := loc[i+len(marker):]
+	if j := strings.IndexByte(rest, '/'); j >= 0 {
+		rest = rest[:j]
+	}
+	return strings.TrimPrefix(rest, "v")
 }

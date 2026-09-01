@@ -96,6 +96,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Handle different message types
 	switch msg := msg.(type) {
+
+	// Async self-update events MUST be routed to the update form regardless
+	// of viewMode — the modal is on screen whenever these can fire.
+	case updateProgressMsg, updateTickMsg, updateAppliedMsg, updateErrorMsg:
+		if m.updateForm != nil {
+			var newForm tea.Model
+			newForm, cmd = m.updateForm.Update(msg)
+			if uf, ok := newForm.(*updateFormModel); ok {
+				m.updateForm = uf
+			}
+			return m, cmd
+		}
+
 	case tea.WindowSizeMsg:
 		// Update terminal size and recalculate styles
 		m.width = msg.Width
@@ -171,6 +184,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg != nil {
 			m.updateInfo = msg
 		}
+		return m, nil
+
+	case updateCloseMsg:
+		m.updateForm = nil
+		m.viewMode = ViewList
+		m.table.Focus()
 		return m, nil
 
 	case versionErrorMsg:
@@ -555,6 +574,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, cmd
 			}
+		case ViewUpdate:
+			if m.updateForm != nil {
+				var newForm tea.Model
+				newForm, cmd = m.updateForm.Update(msg)
+				if uf, ok := newForm.(*updateFormModel); ok {
+					m.updateForm = uf
+				}
+				return m, cmd
+			}
 		case ViewList:
 			// Handle list view keys
 			return m.handleListViewKeys(msg)
@@ -922,6 +950,17 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.searchMode && !m.deleteMode {
 			m.settingsForm = NewSettingsForm(m.styles, m.width, m.height, m.appConfig)
 			m.viewMode = ViewSettings
+			return m, nil
+		}
+	case "U":
+		if !m.searchMode && !m.deleteMode {
+			// Open the self-update modal; requires a known update.
+			if m.updateInfo != nil && m.updateInfo.Available {
+				m.updateForm = NewUpdateForm(m.styles, m.width, m.height, m.updateInfo.CurrentVer, m.updateInfo.LatestVer, m.updateInfo.ReleaseURL)
+				m.viewMode = ViewUpdate
+			} else {
+				m.setStatus(i18n.T("update.none_toast"))
+			}
 			return m, nil
 		}
 	case "x":

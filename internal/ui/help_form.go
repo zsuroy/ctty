@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/zsuroy/ctty/internal/i18n"
+	"github.com/zsuroy/ctty/internal/version"
 )
 
 type helpModel struct {
@@ -107,6 +108,7 @@ func (m *helpModel) View() string {
 		"",
 		m.styles.FocusedLabel.Render(i18n.T("help.cat_system")),
 		"",
+		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("U   "), m.styles.HelpText.Render(i18n.T("help.update"))),
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("h   "), m.styles.HelpText.Render(i18n.T("help.show_help"))),
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("q   "), m.styles.HelpText.Render(i18n.T("help.quit"))),
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("ESC "), m.styles.HelpText.Render(i18n.T("help.exit_view"))),
@@ -148,62 +150,93 @@ func (m *helpModel) View() string {
 	if totalHeight <= 0 {
 		totalHeight = 24
 	}
-
-	viewportHeight := totalHeight - 6 // Reserve 6 lines for title, footer, padding
-	if viewportHeight < 5 {
-		viewportHeight = 5
+	totalWidth := m.width
+	if totalWidth <= 0 {
+		totalWidth = 80
 	}
 
-	if len(contentLines) <= viewportHeight {
-		m.scrollOffset = 0
-	} else {
-		if m.scrollOffset > len(contentLines)-viewportHeight {
-			m.scrollOffset = len(contentLines) - viewportHeight
-		}
-		if m.scrollOffset < 0 {
-			m.scrollOffset = 0
-		}
+	boxStyle := m.styles.FormContainer
+	if totalHeight < 22 {
+		boxStyle = boxStyle.Padding(0, 1)
 	}
 
-	endIdx := m.scrollOffset + viewportHeight
-	if endIdx > len(contentLines) {
-		endIdx = len(contentLines)
+	compact := totalHeight < 16
+	headerLines := 2 // title + repo
+	footerLines := 1 // close prompt
+	if !compact {
+		headerLines++
+		footerLines++
 	}
-	// Truncate each line to fit terminal: App(2) + FormContainer border(2) + padding(4) = 8
-	contentMaxW := m.width - 8
+	reserved := boxStyle.GetVerticalFrameSize() + headerLines + footerLines
+	viewportHeight := totalHeight - reserved
+	if viewportHeight < 1 {
+		viewportHeight = 1
+	}
+
+	contentMaxW := totalWidth - boxStyle.GetHorizontalFrameSize()
 	if contentMaxW < 10 {
 		contentMaxW = 10
 	}
-	var truncatedLines []string
-	for _, line := range contentLines[m.scrollOffset:endIdx] {
-		truncatedLines = append(truncatedLines, ansi.Truncate(line, contentMaxW, ""))
-	}
-	visibleContent := strings.Join(truncatedLines, "\n")
 
-	promptText := i18n.T("help.close_prompt")
-	if len(contentLines) > viewportHeight {
-		promptText = "↑/↓/PgUp/PgDn: scroll • " + promptText
-	}
-
-	// Truncate title and prompt to contentMaxW to prevent JoinVertical inflation
 	versionStr := m.styles.HelpText.Faint(true).Render("v" + m.version)
-	titleWithVer := title + " " + versionStr
-	titleTrunc := ansi.Truncate(titleWithVer, contentMaxW, "")
-	promptTrunc := ansi.Truncate(m.styles.HelpText.Render(promptText), contentMaxW, "")
+	titleTrunc := ansi.Truncate(title+" "+versionStr, contentMaxW, "")
+	repoTrunc := ansi.Truncate(m.styles.HelpText.Faint(true).Render(version.RepoURL()), contentMaxW, "")
 
-	content := lipgloss.JoinVertical(lipgloss.Center,
-		titleTrunc,
-		"",
-		visibleContent,
-		"",
-		promptTrunc,
-	)
+	var box string
+	for {
+		m.scrollOffset = clampHelpScroll(m.scrollOffset, len(contentLines), viewportHeight)
+		endIdx := m.scrollOffset + viewportHeight
+		if endIdx > len(contentLines) {
+			endIdx = len(contentLines)
+		}
+		var truncatedLines []string
+		for _, line := range contentLines[m.scrollOffset:endIdx] {
+			truncatedLines = append(truncatedLines, ansi.Truncate(line, contentMaxW, ""))
+		}
+		visibleContent := strings.Join(truncatedLines, "\n")
 
-	return lipgloss.Place(
-		m.width,
-		m.height,
-		lipgloss.Center,
-		lipgloss.Center,
-		m.styles.FormContainer.Render(content),
-	)
+		promptText := i18n.T("help.close_prompt")
+		if len(contentLines) > viewportHeight {
+			promptText = "↑/↓/PgUp/PgDn: scroll • " + promptText
+		}
+		promptTrunc := ansi.Truncate(m.styles.HelpText.Render(promptText), contentMaxW, "")
+
+		parts := []string{titleTrunc, repoTrunc}
+		if !compact {
+			parts = append(parts, "")
+		}
+		parts = append(parts, visibleContent)
+		if !compact {
+			parts = append(parts, "")
+		}
+		parts = append(parts, promptTrunc)
+
+		inner := lipgloss.JoinVertical(lipgloss.Center, parts...)
+		box = boxStyle.MaxWidth(totalWidth).Render(inner)
+		if lipgloss.Height(box) <= totalHeight || viewportHeight <= 1 {
+			break
+		}
+		viewportHeight--
+	}
+
+	vAlign := lipgloss.Center
+	if lipgloss.Height(box) >= totalHeight {
+		vAlign = lipgloss.Top
+	}
+	placed := lipgloss.Place(totalWidth, totalHeight, lipgloss.Center, vAlign, box)
+	return lipgloss.NewStyle().MaxHeight(totalHeight).MaxWidth(totalWidth).Render(placed)
+}
+
+func clampHelpScroll(offset, n, viewport int) int {
+	if n <= viewport {
+		return 0
+	}
+	maxOff := n - viewport
+	if offset > maxOff {
+		return maxOff
+	}
+	if offset < 0 {
+		return 0
+	}
+	return offset
 }
