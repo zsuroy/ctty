@@ -58,8 +58,11 @@ func (m Model) View() string {
 		if m.snippetForm != nil {
 			return m.snippetForm.View()
 		}
+	case ViewUpdate:
+		if m.updateForm != nil {
+			return m.updateForm.View()
+		}
 	}
-
 	return m.renderListView()
 }
 

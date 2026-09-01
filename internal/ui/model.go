@@ -56,6 +56,7 @@ const (
 	ViewSFTP
 	ViewSettings
 	ViewSnippet
+	ViewUpdate
 )
 
 // PortForwardType defines the type of port forwarding
@@ -116,6 +117,7 @@ type Model struct {
 	sftpForm         *sftpFormModel
 	settingsForm     *settingsFormModel
 	snippetForm      *snippetFormModel
+	updateForm       *updateFormModel
 
 	// Terminal size and styles
 	width      int

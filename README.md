@@ -135,6 +135,7 @@ ctty
 - `o` - Open SFTP file browser for selected host
 - `x` - Remote Command Execution (snippets supported)
 - `S` - Open Settings & Preferences (Language, Updates, ESC behavior)
+- `U` - Open self-update modal (when an update is available)
 - `H` - Toggle hidden hosts visibility
 - `h` - Open help screen
 - `q` - Quit
@@ -442,6 +443,10 @@ ctty --version
 # Disable automatic update check (useful on air-gapped machines)
 ctty --no-update-check
 
+# Self-update: check for a newer release (add --yes to download & install)
+ctty update
+ctty update --yes
+
 # Show help and available commands
 ctty --help
 ```
@@ -683,6 +688,15 @@ Via `~/.config/ctty/config.json` (persistent):
   "check_for_updates": false
 }
 ```
+
+#### Self-Update
+
+When a new release is detected, update directly from inside ctty:
+
+- **From the TUI** — press `U` when the update banner is shown, confirm with `y`. Progress (download → checksum verification → install) runs in a modal; restart ctty afterwards to run the new version.
+- **From the CLI** — `ctty update` checks for a newer release; `ctty update --yes` downloads and installs it.
+
+Updates are downloaded as raw binaries from [GitHub Releases](https://github.com/zsuroy/ctty/releases) (`ctty-<os>-<arch>`), sha256-verified against the published `checksums.txt`, and swapped in atomically — an interrupted update never leaves you with a broken binary. If the binary was installed to a directory requiring elevated permissions, re-run with sudo or fix ownership of the executable.
 
 #### Port Forwarding History
 

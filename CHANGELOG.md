@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-09-02
+
+### Added
+
+- **In-App Self-Update** — Check for and install new releases directly from ctty:
+  - `ctty update` checks GitHub for a newer release; `ctty update --yes` downloads and installs it
+  - From the TUI, press `U` when an update banner is visible to open the update modal (confirm with `y`)
+  - Downloads the raw `ctty-<os>-<arch>` asset from GitHub Releases, sha256-verifies it against the published `checksums.txt`, and atomically replaces the running binary (via [minio/selfupdate](https://github.com/minio/selfupdate))
+  - Progress phases (downloading → verifying → applying) rendered live in the TUI; success prompts a restart
+  - goreleaser config now publishes raw binaries for darwin/linux/windows × amd64/arm64 alongside the existing archives
+
 ## [0.5.0] - 2026-08-18
 
 ### Added
