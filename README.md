@@ -48,6 +48,7 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 ### 🛠️ **Technical Features**
 - **🔒 Secure** - Works directly with your existing `~/.ssh/config` file (credentials stored separately, never pollutes standard SSH configs)
 - **📁 Custom Config Support** - Use any SSH configuration file with the `-c` flag
+- **📦 Host Import** - Migrate SSH profiles from Tabby with `ctty import --from tabby`
 - **📂 SSH Include Support** - Full support for SSH Include directives to organize configurations across multiple files
 - **⚙️ SSH Options Support** - Add any SSH configuration option through intuitive forms
 - **🔄 Automatic Conversion** - Seamlessly converts between command-line and config formats
@@ -447,6 +448,11 @@ ctty --no-update-check
 ctty update
 ctty update --yes
 
+# Import SSH hosts from Tabby (writes ~/.ssh/config.d/tabby.conf)
+ctty import --from tabby
+ctty import tabby --dry-run
+ctty import tabby -f /path/to/tabby/config.yaml
+
 # Show help and available commands
 ctty --help
 ```
@@ -697,6 +703,18 @@ When a new release is detected, update directly from inside ctty:
 - **From the CLI** — `ctty update` checks for a newer release; `ctty update --yes` downloads and installs it.
 
 Updates are downloaded as raw binaries from [GitHub Releases](https://github.com/zsuroy/ctty/releases) (`ctty-<os>-<arch>`), sha256-verified against the published `checksums.txt`, and swapped in atomically — an interrupted update never leaves you with a broken binary. If the binary was installed to a directory requiring elevated permissions, re-run with sudo or fix ownership of the executable.
+
+#### Import from Tabby
+
+Migrate SSH profiles from [Tabby](https://tabby.sh) into OpenSSH config that ctty already uses:
+
+```bash
+ctty import --from tabby
+ctty import tabby --dry-run
+ctty import tabby -f /path/to/tabby/config.yaml
+```
+
+Profiles (`type: ssh`) are appended to `~/.ssh/config.d/tabby.conf`, and an `Include` line is added to `~/.ssh/config` if needed. Existing `Host` names are skipped. Tabby vault passwords are not imported — set them again in ctty or keep using keys.
 
 #### Port Forwarding History
 

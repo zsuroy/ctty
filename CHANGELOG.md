@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.2] - 2026-09-02
+
+### Added
+
+- **Host Import** — From Tabby: `ctty import --from tabby` reads Tabby's `config.yaml`, converts `type: ssh` profiles into OpenSSH host blocks, and appends them to `~/.ssh/config.d/tabby.conf` (adding an `Include` to the main SSH config if needed). Existing host names are skipped; Tabby vault passwords are not imported. Use `--dry-run` to preview. Import sources are registered behind a `Source` interface so additional apps can be added without changing the CLI.
+
 ## [0.5.1] - 2026-09-02
 
 ### Added
