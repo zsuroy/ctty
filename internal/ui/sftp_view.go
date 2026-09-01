@@ -53,6 +53,9 @@ type sftpFormModel struct {
 	progressDone  int64
 	progressTotal int64
 	progressFile  string
+	progressGen   int
+	transferring  bool
+	queue         sftpTransferQueue
 
 	// For input modes
 	inputBuffer string
@@ -84,6 +87,7 @@ type sftpConnectedMsg struct {
 type sftpEntriesMsg struct {
 	entries []sftpconfig.RemoteEntry
 	cwd     string
+	err     error
 }
 
 type sftpErrorMsg struct {
@@ -91,12 +95,14 @@ type sftpErrorMsg struct {
 }
 
 type sftpDownloadResultMsg struct {
+	gen      int
 	filename string
 	success  bool
 	err      error
 }
 
 type sftpProgressMsg struct {
+	gen        int
 	filename   string
 	downloaded int64
 	total      int64
@@ -104,14 +110,16 @@ type sftpProgressMsg struct {
 }
 
 type sftpUploadResultMsg struct {
+	gen      int
 	filename string
 	success  bool
 	err      error
 }
 
 type sftpDeleteResultMsg struct {
-	success bool
-	err     error
+	filename string
+	success  bool
+	err      error
 }
 
 type sftpMkdirResultMsg struct {
@@ -186,14 +194,61 @@ func (m *sftpFormModel) loadDirCmd(path string) tea.Cmd {
 	return func() tea.Msg {
 		entries, err := m.client.ListDir(path)
 		if err != nil {
-			return sftpErrorMsg{err: err}
+			return sftpEntriesMsg{cwd: path, err: err}
 		}
 		return sftpEntriesMsg{entries: entries, cwd: path}
 	}
 }
 
+func (m *sftpFormModel) requestTransfer(job sftpTransferJob) tea.Cmd {
+	started, now := m.queue.startOrEnqueue(job)
+	if !now {
+		return nil
+	}
+	return m.beginJob(started)
+}
+
+func (m *sftpFormModel) beginJob(job sftpTransferJob) tea.Cmd {
+	m.transferring = true
+	m.loading = true
+	m.progressFile = job.filename
+	m.progressDone = 0
+	m.progressTotal = 0
+	cur, total := m.queue.position()
+	m.statusMsg = formatSFTPProgress(job, 0, 0, cur, total)
+	m.statusExpiry = time.Now().Add(10 * time.Second)
+	if job.isUpload {
+		return m.uploadCmd(job.localPath, job.remotePath)
+	}
+	return m.downloadCmd(job.remotePath, job.localPath)
+}
+
+func (m *sftpFormModel) handleTransferResult(gen int, filename string, success bool, err error, isUpload bool) tea.Cmd {
+	if !m.transferring || gen != m.progressGen {
+		return nil
+	}
+	next, ok := m.queue.finishCurrent()
+	if ok {
+		return m.beginJob(next)
+	}
+	m.transferring = false
+	m.loading = false
+	if success {
+		if isUpload {
+			m.setStatus("Uploaded: " + filename)
+		} else {
+			m.setStatus(fmt.Sprintf("Downloaded: %s → %s", filename, m.localDownloadPath(filename)))
+		}
+	} else if err != nil {
+		m.setStatus("Failed: " + filename + ": " + err.Error())
+	}
+	return m.loadDirCmd(m.cwd)
+}
+
 func (m *sftpFormModel) downloadCmd(remotePath, localPath string) tea.Cmd {
 	filename := filepath.Base(remotePath)
+	m.progressGen++
+	gen := m.progressGen
 	m.progressFile = filename
 	m.progressDone = 0
 	m.progressTotal = 0
@@ -203,19 +258,21 @@ func (m *sftpFormModel) downloadCmd(remotePath, localPath string) tea.Cmd {
 			m.progressDone = downloaded
 			m.progressTotal = total
 		})
-		return sftpDownloadResultMsg{filename: filename, success: err == nil, err: err}
+		return sftpDownloadResultMsg{gen: gen, filename: filename, success: err == nil, err: err}
 	}
 
 	return tea.Batch(
 		download,
 		tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
-			return sftpProgressMsg{filename: filename, downloaded: m.progressDone, total: m.progressTotal, isUpload: false}
+			return sftpProgressMsg{gen: gen, filename: filename, downloaded: m.progressDone, total: m.progressTotal, isUpload: false}
 		}),
 	)
 }
 
 func (m *sftpFormModel) uploadCmd(localPath, remotePath string) tea.Cmd {
 	filename := filepath.Base(localPath)
+	m.progressGen++
+	gen := m.progressGen
 	m.progressFile = filename
 	m.progressDone = 0
 	m.progressTotal = 0
@@ -225,21 +282,22 @@ func (m *sftpFormModel) uploadCmd(localPath, remotePath string) tea.Cmd {
 			m.progressDone = uploaded
 			m.progressTotal = total
 		})
-		return sftpUploadResultMsg{filename: filename, success: err == nil, err: err}
+		return sftpUploadResultMsg{gen: gen, filename: filename, success: err == nil, err: err}
 	}
 
 	return tea.Batch(
 		upload,
 		tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
-			return sftpProgressMsg{filename: filename, downloaded: m.progressDone, total: m.progressTotal, isUpload: true}
+			return sftpProgressMsg{gen: gen, filename: filename, downloaded: m.progressDone, total: m.progressTotal, isUpload: true}
 		}),
 	)
 }
 
 func (m *sftpFormModel) deleteCmd(remotePath string) tea.Cmd {
+	filename := path.Base(remotePath)
 	return func() tea.Msg {
 		err := m.client.Remove(remotePath)
-		return sftpDeleteResultMsg{success: err == nil, err: err}
+		return sftpDeleteResultMsg{filename: filename, success: err == nil, err: err}
 	}
 }
 
@@ -284,9 +342,20 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sftpEntriesMsg:
 		m.loading = false
+		if msg.err != nil {
+			if !m.ready {
+				m.loadError = msg.err.Error()
+				m.mode = sftpError
+				return m, nil
+			}
+			m.setStatus("Refresh failed: " + msg.err.Error())
+			return m, nil
+		}
 		m.entries = msg.entries
 		m.cwd = msg.cwd
-		m.updateTableRows()
+		if m.mode != sftpUploadSelect {
+			m.updateTableRows()
+		}
 		return m, nil
 
 	case sftpErrorMsg:
@@ -296,53 +365,37 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sftpProgressMsg:
-		// Ignore progress if download was cancelled
-		if !m.loading {
+		if staleSFTPProgress(m.transferring, m.progressGen, msg.gen) {
 			return m, nil
 		}
-		// Update progress display
-		action := "Downloading"
-		if msg.isUpload {
-			action = "Uploading"
+		job := m.queue.current()
+		if job.filename == "" {
+			job = sftpTransferJob{filename: msg.filename, isUpload: msg.isUpload}
 		}
-		if msg.total > 0 {
-			pct := msg.downloaded * 100 / msg.total
-			m.statusMsg = fmt.Sprintf("%s %s: %s / %s (%d%%)",
-				action, msg.filename, formatSize(msg.downloaded), formatSize(msg.total), pct)
-		} else {
-			m.statusMsg = fmt.Sprintf("%s %s: %s", action, msg.filename, formatSize(msg.downloaded))
-		}
+		cur, count := m.queue.position()
+		m.statusMsg = formatSFTPProgress(job, msg.downloaded, msg.total, cur, count)
 		m.statusExpiry = time.Now().Add(10 * time.Second)
-		// Keep ticking if still loading
 		return m, tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
-			return sftpProgressMsg{filename: msg.filename, downloaded: m.progressDone, total: m.progressTotal, isUpload: msg.isUpload}
+			return sftpProgressMsg{gen: msg.gen, filename: job.filename, downloaded: m.progressDone, total: m.progressTotal, isUpload: job.isUpload}
 		})
 
 	case sftpDownloadResultMsg:
-		m.loading = false
-		if msg.success {
-			m.setStatus(fmt.Sprintf("Downloaded: %s → %s", msg.filename, m.localDownloadPath(msg.filename)))
-		} else {
-			m.loadError = msg.err.Error()
-			m.mode = sftpError
-		}
-		return m, nil
+		return m, m.handleTransferResult(msg.gen, msg.filename, msg.success, msg.err, false)
 
 	case sftpUploadResultMsg:
-		m.loading = false
-		if msg.success {
-			m.setStatus("Uploaded: " + msg.filename)
-		} else {
-			m.loadError = msg.err.Error()
-			m.mode = sftpError
-		}
-		return m, m.loadDirCmd(m.cwd)
+		return m, m.handleTransferResult(msg.gen, msg.filename, msg.success, msg.err, true)
 	case sftpDeleteResultMsg:
+		m.loading = false
+		m.mode = sftpBrowse
+		m.selectedEntry = nil
 		if msg.success {
-			m.setStatus("Deleted successfully")
-		} else {
-			m.loadError = msg.err.Error()
-			m.mode = sftpError
+			name := msg.filename
+			if name == "" {
+				name = "file"
+			}
+			m.setStatus(i18n.T("sftp.delete_success", name))
+		} else if msg.err != nil {
+			m.setStatus(i18n.T("sftp.delete_failed", msg.err.Error()))
 		}
 		return m, m.loadDirCmd(m.cwd)
 
@@ -418,12 +471,16 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "esc", "q":
-		if m.loading && m.client != nil {
-			// Cancel ongoing download/upload
+		if m.transferring || (m.loading && m.client != nil) {
 			m.loading = false
+			m.transferring = false
+			m.progressGen++
+			m.queue.clear()
 			m.setStatus(fmt.Sprintf("Cancelled: %s", m.progressFile))
-			m.mode = sftpBrowse
-			m.updateTableRows()
+			if m.mode != sftpUploadSelect {
+				m.mode = sftpBrowse
+				m.updateTableRows()
+			}
 			return m, nil
 		}
 		return m, func() tea.Msg { return sftpDoneMsg{} }
@@ -444,12 +501,23 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if entry == nil || entry.IsDir {
 			return m, nil
 		}
-		// File selected → show download confirm
+		job := sftpTransferJob{
+			filename:   entry.Name,
+			localPath:  m.localDownloadPath(entry.Name),
+			remotePath: path.Join(m.cwd, entry.Name),
+			isUpload:   false,
+		}
+		if m.transferring {
+			return m, m.requestTransfer(job)
+		}
 		m.selectedEntry = entry
 		m.mode = sftpDownloadConfirm
 		return m, nil
 
 	case "right", "l":
+		if m.transferring {
+			return m, nil
+		}
 		// Right/l: open directory
 		selected := m.table.SelectedRow()
 		if len(selected) == 0 {
@@ -466,6 +534,9 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.loadDirCmd(newPath)
 
 	case "left", "h", "backspace":
+		if m.transferring {
+			return m, nil
+		}
 		// Left/h/backspace: go to parent directory
 		parent := path.Dir(m.cwd)
 		if parent == m.cwd {
@@ -476,6 +547,9 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.loadDirCmd(parent)
 
 	case "u", "tab", "shift+tab":
+		if m.transferring {
+			return m, nil
+		}
 		// Upload: switch table to show local files
 		m.mode = sftpUploadSelect
 		if m.localCwd == "" {
@@ -487,6 +561,9 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "d":
+		if m.transferring {
+			return m, nil
+		}
 		// Delete selected file
 		selected := m.table.SelectedRow()
 		if len(selected) == 0 {
@@ -502,6 +579,9 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "n":
+		if m.transferring {
+			return m, nil
+		}
 		// New directory
 		m.mode = sftpMkdirInput
 		m.inputBuffer = ""
@@ -509,6 +589,9 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
+		if m.transferring {
+			return m, nil
+		}
 		// Refresh
 		return m, m.loadDirCmd(m.cwd)
 
@@ -670,14 +753,24 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		remotePath := path.Join(m.cwd, m.selectedEntry.Name)
 
 		if m.mode == sftpDownloadConfirm {
-			localPath := m.localDownloadPath(m.selectedEntry.Name)
-			m.loading = true
-			m.setStatus(fmt.Sprintf("Downloading %s", m.selectedEntry.Name))
 			m.mode = sftpBrowse
-			return m, m.downloadCmd(remotePath, localPath)
+			job := sftpTransferJob{
+				filename:   m.selectedEntry.Name,
+				localPath:  m.localDownloadPath(m.selectedEntry.Name),
+				remotePath: remotePath,
+				isUpload:   false,
+			}
+			m.selectedEntry = nil
+			return m, m.requestTransfer(job)
 		}
 
 		if m.mode == sftpDeleteConfirm {
+			name := m.selectedEntry.Name
+			m.mode = sftpBrowse
+			m.selectedEntry = nil
+			m.loading = true
+			m.statusMsg = i18n.T("sftp.deleting", name)
+			m.statusExpiry = time.Now().Add(10 * time.Second)
 			return m, m.deleteCmd(remotePath)
 		}
 
@@ -690,14 +783,24 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		}
 		remotePath := path.Join(m.cwd, m.selectedEntry.Name)
 		if m.mode == sftpDownloadConfirm {
-			localPath := m.localDownloadPath(m.selectedEntry.Name)
-			m.loading = true
-			m.setStatus(fmt.Sprintf("Downloading %s", m.selectedEntry.Name))
 			m.mode = sftpBrowse
-			return m, m.downloadCmd(remotePath, localPath)
+			job := sftpTransferJob{
+				filename:   m.selectedEntry.Name,
+				localPath:  m.localDownloadPath(m.selectedEntry.Name),
+				remotePath: remotePath,
+				isUpload:   false,
+			}
+			m.selectedEntry = nil
+			return m, m.requestTransfer(job)
 		}
 
 		if m.mode == sftpDeleteConfirm {
+			name := m.selectedEntry.Name
+			m.mode = sftpBrowse
+			m.selectedEntry = nil
+			m.loading = true
+			m.statusMsg = i18n.T("sftp.deleting", name)
+			m.statusExpiry = time.Now().Add(10 * time.Second)
 			return m, m.deleteCmd(remotePath)
 		}
 
@@ -722,6 +825,14 @@ func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 
 	switch key {
 	case "esc", "tab", "shift+tab":
+		if m.transferring {
+			m.loading = false
+			m.transferring = false
+			m.progressGen++
+			m.queue.clear()
+			m.setStatus(fmt.Sprintf("Cancelled: %s", m.progressFile))
+			return m, nil
+		}
 		m.mode = sftpBrowse
 		m.updateTableRows()
 		return m, nil
@@ -741,6 +852,9 @@ func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 				return m, nil
 			}
 			if info.IsDir() {
+				if m.transferring {
+					return m, nil
+				}
 				m.localCwd = localPath
 				m.localFiles = m.listLocalFiles()
 				m.updateLocalTableRows()
@@ -748,17 +862,19 @@ func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 				return m, nil
 			}
 			remotePath := path.Join(m.cwd, filepath.Base(localPath))
-			m.mode = sftpBrowse
-			m.loading = true
-			m.statusMsg = fmt.Sprintf("Uploading %s...", filepath.Base(localPath))
-			m.progressFile = filepath.Base(localPath)
-			m.progressDone = 0
-			m.progressTotal = 0
-			return m, m.uploadCmd(localPath, remotePath)
+			return m, m.requestTransfer(sftpTransferJob{
+				filename:   filepath.Base(localPath),
+				localPath:  localPath,
+				remotePath: remotePath,
+				isUpload:   true,
+			})
 		}
 		return m, nil
 
 	case "right", "l":
+		if m.transferring {
+			return m, nil
+		}
 		idx := m.table.Cursor()
 		if idx >= 0 && idx < len(m.localFiles) {
 			localPath := m.localFiles[idx]
@@ -773,6 +889,9 @@ func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		return m, nil
 
 	case "left", "h", "backspace":
+		if m.transferring {
+			return m, nil
+		}
 		parent := filepath.Dir(m.localCwd)
 		if parent != m.localCwd {
 			m.localCwd = parent

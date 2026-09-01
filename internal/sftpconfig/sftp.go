@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zsuroy/ctty/internal/config"
@@ -19,9 +20,13 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// SFTPClient wraps an SSH connection + SFTP session.
+// SFTPClient wraps an SSH connection + one reused SFTP session.
+// All remote ops share that session and are serialized with mu so a
+// directory refresh cannot overlap an in-flight upload/download.
 type SFTPClient struct {
 	sshClient  *ssh.Client
+	sftp       *sftpWrapper
+	mu         sync.Mutex
 	host       config.SSHHost
 	configFile string
 }
@@ -280,12 +285,22 @@ func expandPath(path string) string {
 	return path
 }
 
-// Close closes the underlying SSH connection.
+// Close closes the SFTP session and the underlying SSH connection.
 func (c *SFTPClient) Close() error {
-	if c.sshClient != nil {
-		return c.sshClient.Close()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var err error
+	if c.sftp != nil {
+		err = c.sftp.Close()
+		c.sftp = nil
 	}
-	return nil
+	if c.sshClient != nil {
+		if e := c.sshClient.Close(); e != nil && err == nil {
+			err = e
+		}
+		c.sshClient = nil
+	}
+	return err
 }
 
 // HostName returns the name of the connected host.
@@ -299,236 +314,190 @@ func (c *SFTPClient) HostName() string {
 // and returns its output. Used as a lightweight alternative to the SFTP subsystem.
 // Actually, we'll use the SFTP subsystem directly via github.com/pkg/sftp.
 
-// startSFTP opens an SFTP session over the SSH connection.
-func (c *SFTPClient) newSFTPSession() (*sftpWrapper, error) {
+func (c *SFTPClient) getSession() (*sftpWrapper, error) {
+	if c.sftp != nil {
+		return c.sftp, nil
+	}
 	sc, err := sftpNewClient(c.sshClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start SFTP subsystem: %w", err)
 	}
+	c.sftp = sc
 	return sc, nil
+}
+
+func (c *SFTPClient) withSession(fn func(*sftpWrapper) error) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	sc, err := c.getSession()
+	if err != nil {
+		return err
+	}
+	return fn(sc)
 }
 
 // ListDir lists the contents of a remote directory.
 func (c *SFTPClient) ListDir(path string) ([]RemoteEntry, error) {
-	sc, err := c.newSFTPSession()
-	if err != nil {
-		return nil, err
-	}
-	defer sc.Close()
-
-	entries, err := sc.ReadDir(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read directory %s: %w", path, err)
-	}
-
 	var result []RemoteEntry
-	for _, entry := range entries {
-		info, err := entry.Info()
+	err := c.withSession(func(sc *sftpWrapper) error {
+		entries, err := sc.ReadDir(path)
 		if err != nil {
-			continue
+			return fmt.Errorf("failed to read directory %s: %w", path, err)
 		}
-		result = append(result, RemoteEntry{
-			Name:     entry.Name(),
-			IsDir:    entry.IsDir(),
-			Size:     info.Size(),
-			ModTime:  info.ModTime(),
-			Mode:     info.Mode().String(),
-			LongName: formatLongEntry(entry),
-		})
-	}
-
-	return result, nil
+		for _, entry := range entries {
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			result = append(result, RemoteEntry{
+				Name:     entry.Name(),
+				IsDir:    entry.IsDir(),
+				Size:     info.Size(),
+				ModTime:  info.ModTime(),
+				Mode:     info.Mode().String(),
+				LongName: formatLongEntry(entry),
+			})
+		}
+		return nil
+	})
+	return result, err
 }
 
 // Download downloads a remote file to a local path.
 func (c *SFTPClient) Download(remotePath, localPath string) error {
-	sc, err := c.newSFTPSession()
-	if err != nil {
-		return err
-	}
-	defer sc.Close()
-
-	remoteFile, err := sc.Open(remotePath)
-	if err != nil {
-		return fmt.Errorf("failed to open remote file %s: %w", remotePath, err)
-	}
-	defer remoteFile.Close()
-
-	localFile, err := os.Create(localPath)
-	if err != nil {
-		return fmt.Errorf("failed to create local file %s: %w", localPath, err)
-	}
-	defer localFile.Close()
-
-	_, err = io.Copy(localFile, remoteFile)
-	return err
+	return c.DownloadWithProgress(remotePath, localPath, nil)
 }
 
 // DownloadWithProgress downloads a remote file with a progress callback.
 // The callback receives bytes downloaded and total size.
 func (c *SFTPClient) DownloadWithProgress(remotePath, localPath string, progress func(downloaded, total int64)) error {
-	sc, err := c.newSFTPSession()
-	if err != nil {
-		return err
-	}
-	defer sc.Close()
-
-	remoteFile, err := sc.Open(remotePath)
-	if err != nil {
-		return fmt.Errorf("failed to open remote file %s: %w", remotePath, err)
-	}
-	defer remoteFile.Close()
-
-	stat, err := remoteFile.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to stat remote file: %w", err)
-	}
-	totalSize := stat.Size()
-
-	localFile, err := os.Create(localPath)
-	if err != nil {
-		return fmt.Errorf("failed to create local file %s: %w", localPath, err)
-	}
-	defer localFile.Close()
-
-	buf := make([]byte, 32*1024)
-	var downloaded int64
-	for {
-		n, err := remoteFile.Read(buf)
-		if n > 0 {
-			if _, werr := localFile.Write(buf[:n]); werr != nil {
-				return werr
-			}
-			downloaded += int64(n)
-			if progress != nil {
-				progress(downloaded, totalSize)
-			}
-		}
-		if err == io.EOF {
-			break
-		}
+	return c.withSession(func(sc *sftpWrapper) error {
+		remoteFile, err := sc.Open(remotePath)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to open remote file %s: %w", remotePath, err)
 		}
-	}
-	return nil
+		defer remoteFile.Close()
+
+		stat, err := remoteFile.Stat()
+		if err != nil {
+			return fmt.Errorf("failed to stat remote file: %w", err)
+		}
+		totalSize := stat.Size()
+
+		localFile, err := os.Create(localPath)
+		if err != nil {
+			return fmt.Errorf("failed to create local file %s: %w", localPath, err)
+		}
+		defer localFile.Close()
+
+		buf := make([]byte, 32*1024)
+		var downloaded int64
+		for {
+			n, err := remoteFile.Read(buf)
+			if n > 0 {
+				if _, werr := localFile.Write(buf[:n]); werr != nil {
+					return werr
+				}
+				downloaded += int64(n)
+				if progress != nil {
+					progress(downloaded, totalSize)
+				}
+			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // UploadWithProgress uploads a local file with a progress callback.
 func (c *SFTPClient) UploadWithProgress(localPath, remotePath string, progress func(uploaded, total int64)) error {
-	sc, err := c.newSFTPSession()
-	if err != nil {
-		return err
-	}
-	defer sc.Close()
-
-	localFile, err := os.Open(localPath)
-	if err != nil {
-		return fmt.Errorf("failed to open local file %s: %w", localPath, err)
-	}
-	defer localFile.Close()
-
-	stat, err := localFile.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to stat local file: %w", err)
-	}
-	totalSize := stat.Size()
-
-	remoteFile, err := sc.Create(remotePath)
-	if err != nil {
-		return fmt.Errorf("failed to create remote file %s: %w", remotePath, err)
-	}
-	defer remoteFile.Close()
-
-	buf := make([]byte, 32*1024)
-	var uploaded int64
-	for {
-		n, err := localFile.Read(buf)
-		if n > 0 {
-			if _, werr := remoteFile.Write(buf[:n]); werr != nil {
-				return werr
-			}
-			uploaded += int64(n)
-			if progress != nil {
-				progress(uploaded, totalSize)
-			}
-		}
-		if err == io.EOF {
-			break
-		}
+	return c.withSession(func(sc *sftpWrapper) error {
+		localFile, err := os.Open(localPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to open local file %s: %w", localPath, err)
 		}
-	}
-	return nil
+		defer localFile.Close()
+
+		stat, err := localFile.Stat()
+		if err != nil {
+			return fmt.Errorf("failed to stat local file: %w", err)
+		}
+		totalSize := stat.Size()
+
+		remoteFile, err := sc.Create(remotePath)
+		if err != nil {
+			return fmt.Errorf("failed to create remote file %s: %w", remotePath, err)
+		}
+		defer remoteFile.Close()
+
+		buf := make([]byte, 32*1024)
+		var uploaded int64
+		for {
+			n, err := localFile.Read(buf)
+			if n > 0 {
+				if _, werr := remoteFile.Write(buf[:n]); werr != nil {
+					return werr
+				}
+				uploaded += int64(n)
+				if progress != nil {
+					progress(uploaded, totalSize)
+				}
+			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // Upload uploads a local file to a remote path.
 func (c *SFTPClient) Upload(localPath, remotePath string) error {
-	sc, err := c.newSFTPSession()
-	if err != nil {
-		return err
-	}
-	defer sc.Close()
-
-	localFile, err := os.Open(localPath)
-	if err != nil {
-		return fmt.Errorf("failed to open local file %s: %w", localPath, err)
-	}
-	defer localFile.Close()
-
-	remoteFile, err := sc.Create(remotePath)
-	if err != nil {
-		return fmt.Errorf("failed to create remote file %s: %w", remotePath, err)
-	}
-	defer remoteFile.Close()
-
-	_, err = io.Copy(remoteFile, localFile)
-	return err
+	return c.UploadWithProgress(localPath, remotePath, nil)
 }
 
 // Stat returns info about a remote path.
 func (c *SFTPClient) Stat(path string) (os.FileInfo, error) {
-	sc, err := c.newSFTPSession()
-	if err != nil {
-		return nil, err
-	}
-	defer sc.Close()
-
-	return sc.Stat(path)
+	var info os.FileInfo
+	err := c.withSession(func(sc *sftpWrapper) error {
+		var err error
+		info, err = sc.Stat(path)
+		return err
+	})
+	return info, err
 }
 
 // Mkdir creates a directory on the remote host.
 func (c *SFTPClient) Mkdir(path string) error {
-	sc, err := c.newSFTPSession()
-	if err != nil {
-		return err
-	}
-	defer sc.Close()
-
-	return sc.Mkdir(path)
+	return c.withSession(func(sc *sftpWrapper) error {
+		return sc.Mkdir(path)
+	})
 }
 
 // Remove deletes a file on the remote host.
 func (c *SFTPClient) Remove(path string) error {
-	sc, err := c.newSFTPSession()
-	if err != nil {
-		return err
-	}
-	defer sc.Close()
-
-	return sc.Remove(path)
+	return c.withSession(func(sc *sftpWrapper) error {
+		return sc.Remove(path)
+	})
 }
 
 // RealPath returns the canonical absolute path.
 func (c *SFTPClient) RealPath(path string) (string, error) {
-	sc, err := c.newSFTPSession()
-	if err != nil {
-		return "", err
-	}
-	defer sc.Close()
-
-	return sc.RealPath(path)
+	var resolved string
+	err := c.withSession(func(sc *sftpWrapper) error {
+		var err error
+		resolved, err = sc.RealPath(path)
+		return err
+	})
+	return resolved, err
 }
 
 // formatLongEntry formats a remote entry similar to `ls -l` output.
