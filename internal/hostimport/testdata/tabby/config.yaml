@@ -1,0 +1,55 @@
+# Tabby config.yaml fixture (not OpenSSH, not a generic YAML dump).
+#
+# This is the on-disk format Tabby writes to:
+#   macOS:   ~/Library/Application Support/tabby/config.yaml
+#   Linux:   ~/.config/tabby/config.yaml
+#   Windows: %APPDATA%/tabby/config.yaml
+#
+# ctty import --from tabby reads the same schema. Only type: ssh profiles
+# with options.host are imported; type: local and empty host are skipped.
+# Passwords (Tabby vault) are not present here and are never imported.
+#
+# This file is trimmed to fields the parser uses, plus skip/jump-host cases.
+
+version: 7
+profiles:
+  - name: web-prod
+    type: ssh
+    group: grp-prod
+    options:
+      host: 10.0.0.1
+      user: deploy
+      port: 2222
+      privateKeys:
+        - /home/me/.ssh/id_ed25519
+        - file:///home/me/.ssh/id_rsa
+      proxyCommand: ssh jump -W %h:%p
+  - name: skip-local
+    type: local
+    options:
+      command: bash
+  - name: db prod
+    type: ssh
+    group: grp-prod
+    options:
+      host: db.example.com
+      user: postgres
+  - name: jumper
+    type: ssh
+    id: ssh:custom:jumper:aaa
+    options:
+      host: jump.example.com
+      user: jump
+  - name: behind-jump
+    type: ssh
+    options:
+      host: internal.example.com
+      user: app
+      jumpHost: ssh:custom:jumper:aaa
+  - name: no-host
+    type: ssh
+    options:
+      user: nobody
+groups:
+  - id: grp-prod
+    name: production

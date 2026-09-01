@@ -46,6 +46,7 @@ ctty 是一个快速、原生的终端工具，用于管理你的所有连接 �
 ### 🛠️ **技术特性**
 - **🔒 安全** - 直接使用现有的 `~/.ssh/config` 文件（密码凭据独立存储，绝不污染标准 SSH 配置）
 - **📁 自定义配置** - 通过 `-c` 标志使用任意 SSH 配置文件
+- **📦 主机导入** - 用 `ctty import --from tabby` 把 Tabby 的 SSH 配置迁过来
 - **📂 SSH Include 支持** - 完整支持 SSH Include 指令，跨多文件组织配置
 - **⚙️ SSH 选项** - 通过直观的表单添加任意 SSH 配置选项
 - **🔄 自动转换** - 命令行和配置格式之间无缝转换
@@ -444,6 +445,11 @@ ctty --no-update-check
 ctty update
 ctty update --yes
 
+# 从 Tabby 导入 SSH 主机（写入 ~/.ssh/config.d/tabby.conf）
+ctty import --from tabby
+ctty import tabby --dry-run
+ctty import tabby -f /path/to/tabby/config.yaml
+
 # 显示帮助和可用命令
 ctty --help
 ```
@@ -694,6 +700,18 @@ ctty --no-update-check
 - **命令行** — `ctty update` 仅检查新版本；`ctty update --yes` 下载并安装。
 
 更新以裸二进制形式从 [GitHub Releases](https://github.com/zsuroy/ctty/releases) 下载（`ctty-<os>-<arch>`），对照发布页的 `checksums.txt` 做 sha256 校验，并以原子方式替换当前可执行文件——即使更新中途被打断，也不会留下损坏的二进制。若可执行文件所在目录需要管理员权限，请用 sudo 重跑或修正该文件属主。
+
+#### 从 Tabby 导入
+
+把 [Tabby](https://tabby.sh) 里的 SSH 配置迁到 ctty 使用的 OpenSSH 配置：
+
+```bash
+ctty import --from tabby
+ctty import tabby --dry-run
+ctty import tabby -f /path/to/tabby/config.yaml
+```
+
+`type: ssh` 的配置会追加到 `~/.ssh/config.d/tabby.conf`，必要时在 `~/.ssh/config` 里加上 `Include`。已存在的 `Host` 名称会跳过。Tabby 保险库里的密码不会导入——请用密钥，或在 ctty 里重新保存密码。
 
 #### 端口转发历史
 
