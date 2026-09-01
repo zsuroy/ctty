@@ -117,8 +117,9 @@ type sftpUploadResultMsg struct {
 }
 
 type sftpDeleteResultMsg struct {
-	success bool
-	err     error
+	filename string
+	success  bool
+	err      error
 }
 
 type sftpMkdirResultMsg struct {
@@ -293,9 +294,10 @@ func (m *sftpFormModel) uploadCmd(localPath, remotePath string) tea.Cmd {
 }
 
 func (m *sftpFormModel) deleteCmd(remotePath string) tea.Cmd {
+	filename := path.Base(remotePath)
 	return func() tea.Msg {
 		err := m.client.Remove(remotePath)
-		return sftpDeleteResultMsg{success: err == nil, err: err}
+		return sftpDeleteResultMsg{filename: filename, success: err == nil, err: err}
 	}
 }
 
@@ -383,11 +385,17 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sftpUploadResultMsg:
 		return m, m.handleTransferResult(msg.gen, msg.filename, msg.success, msg.err, true)
 	case sftpDeleteResultMsg:
+		m.loading = false
+		m.mode = sftpBrowse
+		m.selectedEntry = nil
 		if msg.success {
-			m.setStatus("Deleted successfully")
-		} else {
-			m.loadError = msg.err.Error()
-			m.mode = sftpError
+			name := msg.filename
+			if name == "" {
+				name = "file"
+			}
+			m.setStatus(i18n.T("sftp.delete_success", name))
+		} else if msg.err != nil {
+			m.setStatus(i18n.T("sftp.delete_failed", msg.err.Error()))
 		}
 		return m, m.loadDirCmd(m.cwd)
 
@@ -757,6 +765,12 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		}
 
 		if m.mode == sftpDeleteConfirm {
+			name := m.selectedEntry.Name
+			m.mode = sftpBrowse
+			m.selectedEntry = nil
+			m.loading = true
+			m.statusMsg = i18n.T("sftp.deleting", name)
+			m.statusExpiry = time.Now().Add(10 * time.Second)
 			return m, m.deleteCmd(remotePath)
 		}
 
@@ -781,6 +795,12 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		}
 
 		if m.mode == sftpDeleteConfirm {
+			name := m.selectedEntry.Name
+			m.mode = sftpBrowse
+			m.selectedEntry = nil
+			m.loading = true
+			m.statusMsg = i18n.T("sftp.deleting", name)
+			m.statusExpiry = time.Now().Add(10 * time.Second)
 			return m, m.deleteCmd(remotePath)
 		}
 

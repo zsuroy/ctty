@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - **SFTP multi-file transfer** — Sequential queue so a second Enter no longer overlaps the first transfer. Progress shows one file at a time (`[1/2]`, `[2/2]`) instead of flickering names. The SFTP subsystem is reused and serialized; transfer or refresh errors stay in the browser instead of dumping the session.
+- **SFTP delete confirm** — The `[Y/n]` prompt closes as soon as you confirm, so it no longer sits under the “Deleted successfully” toast.
 
 ## [0.5.2] - 2026-09-02
 
