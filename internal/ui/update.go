@@ -452,6 +452,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sftpDoneMsg:
+		if m.sftpForm != nil && m.sftpForm.client != nil {
+			_ = m.sftpForm.client.Close()
+		}
 		m.sftpForm = nil
 		m.viewMode = ViewList
 		m.table.Focus()

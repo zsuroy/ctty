@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.3] - 2026-09-02
+
+### Fixed
+
+- **SFTP multi-file transfer** — Sequential queue so a second Enter no longer overlaps the first transfer. Progress shows one file at a time (`[1/2]`, `[2/2]`) instead of flickering names. The SFTP subsystem is reused and serialized; transfer or refresh errors stay in the browser instead of dumping the session.
+
 ## [0.5.2] - 2026-09-02
 
 ### Added
