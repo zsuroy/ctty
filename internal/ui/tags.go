@@ -170,7 +170,7 @@ func FormatColoredTag(tag string) string {
 	clean := strings.TrimPrefix(tag, "#")
 	hex := GetTagHexColor(clean)
 
-	profile := termenv.ColorProfile()
+	profile := lipgloss.ColorProfile()
 	if profile == termenv.Ascii {
 		return "#" + clean
 	}

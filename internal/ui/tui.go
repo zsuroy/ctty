@@ -191,6 +191,21 @@ func RunSerialMode(currentVersion string, noUpdateCheck bool) error {
 	return nil
 }
 
+// RunTelnetMode starts the TUI directly in the telnet device manager view.
+func RunTelnetMode(currentVersion string, noUpdateCheck bool) error {
+	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
+	m.telnetForm = NewTelnetForm(m.styles, m.width, m.height)
+	m.viewMode = ViewTelnet
+	m.telnetOnly = true
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	_, err := p.Run()
+	if err != nil {
+		return fmt.Errorf("error running TUI: %w", err)
+	}
+	return nil
+}
+
 // RunSFTPMode starts the TUI directly in the SFTP file browser for a host.
 func RunSFTPMode(hostName, configFile, currentVersion string, noUpdateCheck bool) error {
 	m := NewModel(nil, configFile, false, currentVersion, noUpdateCheck)

@@ -10,6 +10,15 @@ import (
 	"github.com/zsuroy/ctty/internal/i18n"
 )
 
+// padDisplay right-pads s with spaces to the given terminal display width.
+func padDisplay(s string, width int) string {
+	w := ansi.StringWidth(s)
+	if w >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-w)
+}
+
 // searchInputWidth calculates a responsive search input width based on the
 // terminal width and the search prompt text.
 //

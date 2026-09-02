@@ -13,6 +13,7 @@ import (
 	"github.com/zsuroy/ctty/internal/credential"
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
+	"github.com/zsuroy/ctty/internal/telnetclient"
 	"github.com/zsuroy/ctty/internal/version"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -159,6 +160,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.serialForm != nil {
 			m.serialForm.Update(msg)
+		}
+		if m.telnetForm != nil {
+			m.telnetForm.Update(msg)
 		}
 		if m.sftpForm != nil {
 			m.sftpForm.Update(msg)
@@ -451,6 +455,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.Focus()
 		return m, nil
 
+	case telnetConnectMsg:
+		// Suspend the TUI and run the interactive telnet bridge; the
+		// terminal is released to normal (raw) mode for the session.
+		m.telnetForm = nil
+		if m.telnetOnly {
+			// Launched via 'ctty telnet <target>' — exit entirely when
+			// the session ends, matching direct-connect expectations.
+			return m, tea.Exec(telnetclient.NewExecCommand(msg.host), func(err error) tea.Msg {
+				return tea.Quit()
+			})
+		}
+		// Opened from the main SSH host list ('T' key) — resume the TUI.
+		m.viewMode = ViewList
+		m.table.Focus()
+		return m, tea.Exec(telnetclient.NewExecCommand(msg.host), func(err error) tea.Msg {
+			return telnetDoneMsg{}
+		})
+
+	case telnetDoneMsg:
+		m.telnetForm = nil
+		if m.telnetOnly {
+			// Launched via 'ctty telnet' — exit entirely
+			return m, tea.Quit
+		}
+		m.viewMode = ViewList
+		m.table.Focus()
+		return m, nil
+
 	case sftpDoneMsg:
 		if m.sftpForm != nil && m.sftpForm.client != nil {
 			_ = m.sftpForm.client.Close()
@@ -551,6 +583,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				updatedModel, cmd := m.serialForm.Update(msg)
 				if sm, ok := updatedModel.(*serialFormModel); ok {
 					m.serialForm = sm
+				}
+				return m, cmd
+			}
+		case ViewTelnet:
+			if m.telnetForm != nil {
+				updatedModel, cmd := m.telnetForm.Update(msg)
+				if tm, ok := updatedModel.(*telnetFormModel); ok {
+					m.telnetForm = tm
 				}
 				return m, cmd
 			}
@@ -877,6 +917,13 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Open serial device manager
 			m.serialForm = NewSerialForm(m.styles, m.width, m.height)
 			m.viewMode = ViewSerial
+			return m, nil
+		}
+	case "T":
+		if !m.searchMode && !m.deleteMode {
+			// Open telnet device manager
+			m.telnetForm = NewTelnetForm(m.styles, m.width, m.height)
+			m.viewMode = ViewTelnet
 			return m, nil
 		}
 	case "o":

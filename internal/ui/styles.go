@@ -131,6 +131,26 @@ func NewStyles(width int) Styles {
 	}
 }
 
+// formPageInnerWidth is the content width inside FormContainer.
+// App padding (2) + FormContainer border (2) + padding (4) = 8.
+func formPageInnerWidth(termWidth int) int {
+	w := termWidth - 8
+	if w < 10 {
+		return 10
+	}
+	return w
+}
+
+func renderFormPage(styles Styles, termWidth int, body string) string {
+	// FormContainer.Width is the padded block before borders.
+	// App pad(2) + border(2) = 4, so the rounded box fills the terminal.
+	box := termWidth - 4
+	if box < 12 {
+		box = 12
+	}
+	return styles.App.Render(styles.FormContainer.Width(box).Render(body))
+}
+
 // Application ASCII title
 const asciiTitle = "    _   _        \n" +
 	" __| |_| |_ _  _ \n" +

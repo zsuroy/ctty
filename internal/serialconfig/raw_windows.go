@@ -1,18 +1,20 @@
 //go:build windows
 
+// Raw terminal mode for stdin via the shared rawterm package
+// (golang.org/x/term). Windows previously shipped a no-op stub,
+// leaving the console in cooked mode during serial/telnet sessions.
+
 package serialconfig
 
-import "os"
+import "github.com/zsuroy/ctty/internal/rawterm"
 
-// On Windows, raw mode for stdin is handled differently.
-// For now, use a no-op stub — Windows serial support can be added later.
-type termios struct{}
+// termState aliases the x/term state handle used by both bridges.
+type termState = rawterm.State
 
-func setRawStdin() (*termios, error) {
-	return nil, nil
+func setRawStdin() (*termState, error) {
+	return rawterm.MakeRaw()
 }
 
-func restoreStdin(_ *termios) {}
-
-// Suppress unused import on Windows
-var _ = os.Stdin
+func restoreStdin(old *termState) {
+	rawterm.Restore(old)
+}
