@@ -1,6 +1,7 @@
 package sftpconfig
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -371,6 +372,11 @@ func (c *SFTPClient) Download(remotePath, localPath string) error {
 // DownloadWithProgress downloads a remote file with a progress callback.
 // The callback receives bytes downloaded and total size.
 func (c *SFTPClient) DownloadWithProgress(remotePath, localPath string, progress func(downloaded, total int64)) error {
+	return c.DownloadWithProgressCtx(context.Background(), remotePath, localPath, progress)
+}
+
+// DownloadWithProgressCtx is like DownloadWithProgress but accepts a context for cancellation.
+func (c *SFTPClient) DownloadWithProgressCtx(ctx context.Context, remotePath, localPath string, progress func(downloaded, total int64)) error {
 	return c.withSession(func(sc *sftpWrapper) error {
 		remoteFile, err := sc.Open(remotePath)
 		if err != nil {
@@ -393,6 +399,11 @@ func (c *SFTPClient) DownloadWithProgress(remotePath, localPath string, progress
 		buf := make([]byte, 32*1024)
 		var downloaded int64
 		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
 			n, err := remoteFile.Read(buf)
 			if n > 0 {
 				if _, werr := localFile.Write(buf[:n]); werr != nil {
@@ -416,6 +427,11 @@ func (c *SFTPClient) DownloadWithProgress(remotePath, localPath string, progress
 
 // UploadWithProgress uploads a local file with a progress callback.
 func (c *SFTPClient) UploadWithProgress(localPath, remotePath string, progress func(uploaded, total int64)) error {
+	return c.UploadWithProgressCtx(context.Background(), localPath, remotePath, progress)
+}
+
+// UploadWithProgressCtx is like UploadWithProgress but accepts a context for cancellation.
+func (c *SFTPClient) UploadWithProgressCtx(ctx context.Context, localPath, remotePath string, progress func(uploaded, total int64)) error {
 	return c.withSession(func(sc *sftpWrapper) error {
 		localFile, err := os.Open(localPath)
 		if err != nil {
@@ -438,6 +454,11 @@ func (c *SFTPClient) UploadWithProgress(localPath, remotePath string, progress f
 		buf := make([]byte, 32*1024)
 		var uploaded int64
 		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
 			n, err := localFile.Read(buf)
 			if n > 0 {
 				if _, werr := remoteFile.Write(buf[:n]); werr != nil {
