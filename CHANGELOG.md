@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-09-03
+
+### Added
+
+- **Agent Skill (`skills/ctty/`)** — Cursor / Claude Code / Codex agent skill with full non-interactive usage guide, install commands, workflow checklists, and JSON reference. Lets AI agents drive ctty's CLI (search, info, remote exec, import) without launching the TUI.
+
+### Fixed
+
+- **SFTP transfer cancel deadlock** — Pressing ESC during an upload/download now truly cancels the in-flight goroutine via `context.WithCancel`, releasing the SFTP session mutex immediately. Previously the goroutine kept running and held the lock, so subsequent ESC (exit) or any directory operation would deadlock the entire TUI.
+
 ## [0.6.0] - 2026-09-02
 
 ### Added

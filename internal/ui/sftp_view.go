@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -55,6 +56,7 @@ type sftpFormModel struct {
 	progressFile  string
 	progressGen   int
 	transferring  bool
+	transferCancel context.CancelFunc // cancels the in-flight upload/download goroutine
 	queue         sftpTransferQueue
 
 	// For input modes
@@ -245,6 +247,13 @@ func (m *sftpFormModel) handleTransferResult(gen int, filename string, success b
 	return m.loadDirCmd(m.cwd)
 }
 
+func (m *sftpFormModel) cancelTransfer() {
+	if m.transferCancel != nil {
+		m.transferCancel()
+		m.transferCancel = nil
+	}
+}
+
 func (m *sftpFormModel) downloadCmd(remotePath, localPath string) tea.Cmd {
 	filename := filepath.Base(remotePath)
 	m.progressGen++
@@ -253,11 +262,17 @@ func (m *sftpFormModel) downloadCmd(remotePath, localPath string) tea.Cmd {
 	m.progressDone = 0
 	m.progressTotal = 0
 
+	ctx, cancel := context.WithCancel(context.Background())
+	m.transferCancel = cancel
+
 	download := func() tea.Msg {
-		err := m.client.DownloadWithProgress(remotePath, localPath, func(downloaded, total int64) {
+		err := m.client.DownloadWithProgressCtx(ctx, remotePath, localPath, func(downloaded, total int64) {
 			m.progressDone = downloaded
 			m.progressTotal = total
 		})
+		if ctx.Err() != nil {
+			return sftpDownloadResultMsg{gen: gen, filename: filename, success: false, err: ctx.Err()}
+		}
 		return sftpDownloadResultMsg{gen: gen, filename: filename, success: err == nil, err: err}
 	}
 
@@ -277,11 +292,17 @@ func (m *sftpFormModel) uploadCmd(localPath, remotePath string) tea.Cmd {
 	m.progressDone = 0
 	m.progressTotal = 0
 
+	ctx, cancel := context.WithCancel(context.Background())
+	m.transferCancel = cancel
+
 	upload := func() tea.Msg {
-		err := m.client.UploadWithProgress(localPath, remotePath, func(uploaded, total int64) {
+		err := m.client.UploadWithProgressCtx(ctx, localPath, remotePath, func(uploaded, total int64) {
 			m.progressDone = uploaded
 			m.progressTotal = total
 		})
+		if ctx.Err() != nil {
+			return sftpUploadResultMsg{gen: gen, filename: filename, success: false, err: ctx.Err()}
+		}
 		return sftpUploadResultMsg{gen: gen, filename: filename, success: err == nil, err: err}
 	}
 
@@ -472,6 +493,7 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q":
 		if m.transferring || (m.loading && m.client != nil) {
+			m.cancelTransfer()
 			m.loading = false
 			m.transferring = false
 			m.progressGen++
@@ -826,6 +848,7 @@ func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	switch key {
 	case "esc", "tab", "shift+tab":
 		if m.transferring {
+			m.cancelTransfer()
 			m.loading = false
 			m.transferring = false
 			m.progressGen++
