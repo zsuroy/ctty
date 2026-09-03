@@ -46,10 +46,10 @@ temp/
 # Log files
 *.log
 
-# Project specific
-ctty
-ctty-*
-!ctty-test
+# Project specific (repo-root binary only)
+/ctty
+/ctty-*
+!/ctty-test
 release/
 
 # Backup files

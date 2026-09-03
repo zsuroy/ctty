@@ -60,6 +60,31 @@ ctty 是一个快速、原生的终端工具，用于管理你的所有连接 �
 
 ## 🚀 快速开始
 
+### Agent Skill
+
+给 Cursor、Claude Code、Codex 等 agent 装一份 **怎么用 ctty** 的技能（搜主机、跑远程命令、列出串口/Telnet 设备）。技能安装之后可以直接让 Agent: "帮我安装 ctty"
+
+```bash
+# 只列出仓库里的 skill，不安装
+npx skills add zsuroy/ctty --list
+
+# 装到当前项目（写入 .agents/skills/）
+npx skills add zsuroy/ctty -y
+
+# 装到本机全局，所有项目都能用（推荐）
+npx skills add zsuroy/ctty -g -y
+```
+
+`-y` 跳过确认。`-g` 装到用户全局技能目录。不加 `-g` 则只装当前项目。
+
+```bash
+npx skills list          # 查看已安装
+npx skills remove ctty   # 卸载
+npx skills update ctty   # 更新到最新 SKILL.md
+```
+
+技能源文件在仓库的 [`skills/ctty/`](skills/ctty/)。
+
 ### 安装
 
 **Homebrew（macOS 推荐）：**

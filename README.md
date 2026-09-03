@@ -63,6 +63,31 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 
 ## 🚀 Quick Start
 
+### Agent Skill
+
+Teach Cursor, Claude Code, Codex, and other agents to **use** ctty (search hosts, run remote commands, list serial/telnet devices) without opening the TUI. This is separate from installing the `ctty` binary below.
+
+```bash
+# Preview skills in this repo
+npx skills add zsuroy/ctty --list
+
+# Install into the current project (committed under .agents/skills/)
+npx skills add zsuroy/ctty -y
+
+# Install globally so every project can use it (recommended)
+npx skills add zsuroy/ctty -g -y
+```
+
+`-y` skips prompts. `-g` installs to your user global skills dir. Default without `-g` is project-local.
+
+```bash
+npx skills list          # see what is installed
+npx skills remove ctty   # uninstall
+npx skills update ctty   # pull the latest SKILL.md
+```
+
+The skill lives at [`skills/ctty/`](skills/ctty/) in this repository.
+
 ### Installation
 
 **Homebrew (Recommended for macOS):**
