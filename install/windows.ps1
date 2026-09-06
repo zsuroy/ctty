@@ -67,56 +67,67 @@ if ($LocalBinary -ne "") {
 } else {
     # Online installation
     Write-Info "Starting online installation..."
+    $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ctty-install-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     
-    # Get latest version
-    Write-Info "Fetching latest version..."
     try {
-        $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/zsuroy/ctty/releases/latest"
-        $latestVersion = $latestRelease.tag_name
-        Write-Info "Target version: $latestVersion"
-    } catch {
-        Write-Error "Failed to fetch version information"
-        exit 1
-    }
+        # Get latest version
+        Write-Info "Fetching latest version..."
+        try {
+            $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/zsuroy/ctty/releases/latest"
+            $latestVersion = $latestRelease.tag_name
+            Write-Info "Target version: $latestVersion"
+        } catch {
+            throw "Failed to fetch version information: $($_.Exception.Message)"
+        }
 
-    # Download binary
-    # Map architecture to match GoReleaser format
-    $goreleaserArch = if ($arch -eq "amd64") { "x86_64" } else { "i386" }
-    
-    # GoReleaser format: ctty_Windows_x86_64.zip
-    $fileName = "ctty_Windows_$goreleaserArch.zip"
-    $downloadUrl = "https://github.com/zsuroy/ctty/releases/download/$latestVersion/$fileName"
-    $tempFile = "$env:TEMP\$fileName"
+        # Download binary and the GoReleaser checksum manifest.
+        $goreleaserArch = if ($arch -eq "amd64") { "x86_64" } else { "i386" }
+        $fileName = "ctty_Windows_$goreleaserArch.zip"
+        $releaseBase = "https://github.com/zsuroy/ctty/releases/download/$latestVersion"
+        $downloadUrl = "$releaseBase/$fileName"
+        $tempFile = Join-Path $tempDir $fileName
+        $checksumsFile = Join-Path $tempDir "checksums.txt"
 
-    Write-Info "Downloading $fileName..."
-    try {
+        Write-Info "Downloading $fileName..."
         Invoke-WebRequest -Uri $downloadUrl -OutFile $tempFile
-    } catch {
-        Write-Error "Download failed"
-        exit 1
-    }
+        Invoke-WebRequest -Uri "$releaseBase/checksums.txt" -OutFile $checksumsFile
 
-    # Create installation directory
-    if (-not (Test-Path $InstallDir)) {
-        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-    }
+        $escapedName = [regex]::Escape($fileName)
+        $checksumLine = @(Get-Content $checksumsFile | Where-Object { $_ -match "^([0-9A-Fa-f]{64})\s+$escapedName$" })
+        if ($checksumLine.Count -ne 1) {
+            throw "No unique SHA-256 checksum found for $fileName"
+        }
+        $expectedChecksum = ($checksumLine[0] -split '\s+')[0]
+        $actualChecksum = (Get-FileHash -Path $tempFile -Algorithm SHA256).Hash
+        if (-not $actualChecksum.Equals($expectedChecksum, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Checksum verification failed for $fileName"
+        }
+        Write-Info "Checksum verified."
 
-    # Extract archive
-    Write-Info "Extracting..."
-    try {
-        Expand-Archive -Path $tempFile -DestinationPath $env:TEMP -Force
+        # Create installation directory
+        if (-not (Test-Path $InstallDir)) {
+            New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+        }
+
+        # Extract archive inside this invocation's private temporary directory.
+        Write-Info "Extracting..."
+        $extractDir = Join-Path $tempDir "extracted"
+        Expand-Archive -Path $tempFile -DestinationPath $extractDir -Force
         # GoReleaser extracts the binary as just "ctty.exe", not with platform suffix
-        $extractedBinary = "$env:TEMP\ctty.exe"
+        $extractedBinary = Join-Path $extractDir "ctty.exe"
+        if (-not (Test-Path -LiteralPath $extractedBinary -PathType Leaf)) {
+            throw "Archive does not contain ctty.exe"
+        }
         $targetPath = "$InstallDir\ctty.exe"
         
         Move-Item -Path $extractedBinary -Destination $targetPath -Force
     } catch {
-        Write-Error "Extraction failed"
+        Write-Error $_.Exception.Message
         exit 1
+    } finally {
+        Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
-
-    # Clean up
-    Remove-Item $tempFile -Force
 }
 
 # Check PATH
