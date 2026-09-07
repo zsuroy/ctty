@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,38 +36,36 @@ type CredentialStore struct {
 
 var (
 	defaultStore *CredentialStore
-	once         sync.Once
+	storeMu      sync.Mutex
 )
 
-// getStore returns the singleton credential store.
+// getStore returns the singleton credential store. Initialization failures are
+// not cached so a repaired config directory or credential file can be retried.
 func getStore() (*CredentialStore, error) {
-	var initErr error
-	once.Do(func() {
-		configDir, err := config.GetcttyConfigDir()
-		if err != nil {
-			initErr = err
-			return
-		}
+	storeMu.Lock()
+	defer storeMu.Unlock()
 
-		filePath := filepath.Join(configDir, "credentials.json")
-		key := deriveMachineKey()
-
-		store := &CredentialStore{
-			credentials: make(map[string]Credential),
-			filePath:    filePath,
-			masterKey:   key,
-		}
-
-		if err := store.load(); err != nil && !os.IsNotExist(err) {
-			// If file exists but corrupt, keep empty store
-		}
-
-		defaultStore = store
-	})
-
-	if initErr != nil {
-		return nil, initErr
+	if defaultStore != nil {
+		return defaultStore, nil
 	}
+
+	configDir, err := config.GetcttyConfigDir()
+	if err != nil {
+		return nil, fmt.Errorf("get credential directory: %w", err)
+	}
+
+	filePath := filepath.Join(configDir, "credentials.json")
+	store := &CredentialStore{
+		credentials: make(map[string]Credential),
+		filePath:    filePath,
+		masterKey:   deriveMachineKey(),
+	}
+
+	if err := store.load(); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("load credential store %s: %w", filePath, err)
+	}
+
+	defaultStore = store
 	return defaultStore, nil
 }
 

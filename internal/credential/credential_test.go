@@ -1,10 +1,24 @@
 package credential
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func resetDefaultStore(t *testing.T) {
+	t.Helper()
+	storeMu.Lock()
+	previous := defaultStore
+	defaultStore = nil
+	storeMu.Unlock()
+	t.Cleanup(func() {
+		storeMu.Lock()
+		defaultStore = previous
+		storeMu.Unlock()
+	})
+}
 
 func TestEncryptDecrypt(t *testing.T) {
 	key := deriveMachineKey()
@@ -30,6 +44,8 @@ func TestEncryptDecrypt(t *testing.T) {
 }
 
 func TestCredentialStoreOperations(t *testing.T) {
+	resetDefaultStore(t)
+
 	tmpDir, err := os.MkdirTemp("", "ctty-cred-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -45,7 +61,9 @@ func TestCredentialStoreOperations(t *testing.T) {
 		masterKey:   key,
 	}
 
+	storeMu.Lock()
 	defaultStore = store
+	storeMu.Unlock()
 
 	// 1. Set password
 	err = SetPassword("test-host", "mypassword123")
@@ -87,5 +105,54 @@ func TestCredentialStoreOperations(t *testing.T) {
 	_, found = GetPassword("test-host-renamed")
 	if found {
 		t.Fatal("Deleted password should not be found")
+	}
+}
+
+func TestCredentialStoreFailsClosedAndRetriesAfterRepair(t *testing.T) {
+	resetDefaultStore(t)
+
+	configRoot := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	configDir := filepath.Join(configRoot, "ctty")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	vaultPath := filepath.Join(configDir, "credentials.json")
+	corrupt := []byte(`{"host_name":`)
+	if err := os.WriteFile(vaultPath, corrupt, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SetPassword("new-host", "new-password"); err == nil {
+		t.Fatal("SetPassword should reject an unreadable credential vault")
+	}
+	got, err := os.ReadFile(vaultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(corrupt) {
+		t.Fatalf("corrupt vault was overwritten: got %q", got)
+	}
+
+	if err := os.WriteFile(vaultPath, []byte("[]"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetPassword("new-host", "new-password"); err != nil {
+		t.Fatalf("SetPassword should retry after the vault is repaired: %v", err)
+	}
+
+	data, err := os.ReadFile(vaultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved []Credential
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatalf("saved vault is invalid JSON: %v", err)
+	}
+	if len(saved) != 1 || saved[0].HostName != "new-host" {
+		t.Fatalf("saved credentials = %#v, want new-host", saved)
+	}
+	if password, ok := GetPassword("new-host"); !ok || password != "new-password" {
+		t.Fatalf("GetPassword = %q, %v; want repaired credential", password, ok)
 	}
 }
