@@ -109,3 +109,75 @@ func TestAcceptNewHostKeyCallbackRejectsMalformedFile(t *testing.T) {
 		t.Fatal("malformed known_hosts file should fail closed")
 	}
 }
+
+func TestAcceptNewHostKeyCallbackAllowsReadOnlyKnownHosts(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "known_hosts")
+	hostname := "example.test:22"
+	remote := &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 22}
+	key := testPublicKey(t)
+	line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key)
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	callback, err := acceptNewHostKeyCallback(path)
+	if err != nil {
+		t.Fatalf("setup must not require write access: %v", err)
+	}
+	if err := callback(hostname, remote, key); err != nil {
+		t.Fatalf("trusted key should verify read-only: %v", err)
+	}
+}
+
+func TestAcceptNewHostKeyCallbackSetupWithoutFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "known_hosts")
+	callback, err := acceptNewHostKeyCallback(path)
+	if err != nil {
+		t.Fatalf("missing known_hosts must not fail setup: %v", err)
+	}
+	hostname := "new.example:22"
+	remote := &net.TCPAddr{IP: net.ParseIP("192.0.2.12"), Port: 22}
+	key := testPublicKey(t)
+	if err := callback(hostname, remote, key); err != nil {
+		t.Fatalf("first connection should create known_hosts: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("known_hosts should exist after TOFU: %v", err)
+	}
+}
+
+func TestHostKeyAlgorithmsPrefersKnownTypes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "known_hosts")
+	hostname := "algo.example:22"
+	key := testPublicKey(t)
+	line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key)
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	algos := hostKeyAlgorithms(path, hostname)
+	if len(algos) == 0 {
+		t.Fatal("expected host key algorithms from known_hosts")
+	}
+	found := false
+	for _, a := range algos {
+		if a == key.Type() {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("algorithms %v missing known type %s", algos, key.Type())
+	}
+	if got := hostKeyAlgorithms(path, "missing.example:22"); len(got) != 0 {
+		t.Fatalf("unknown host should yield no algorithms, got %v", got)
+	}
+}
