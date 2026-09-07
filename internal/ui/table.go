@@ -28,14 +28,15 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 	maxLastLoginLength := ansi.StringWidth(i18n.T("table.col.last_login")) + 4
 
 	for _, host := range hosts {
-		// Name column includes status indicator (2 chars) + space (1 char) + name
-		nameLength := 3 + len(host.Name)
+		// Name column: status emoji (display width 2) + space + host name
+		nameLength := 3 + ansi.StringWidth(host.Name)
 		if nameLength > maxNameLength {
 			maxNameLength = nameLength
 		}
 
-		if len(host.Hostname) > maxHostnameLength {
-			maxHostnameLength = len(host.Hostname)
+		hostLen := ansi.StringWidth(host.Hostname)
+		if hostLen > maxHostnameLength {
+			maxHostnameLength = hostLen
 		}
 
 		// Calculate tags string length
@@ -48,8 +49,8 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 		if m.historyManager != nil {
 			if lastConnect, exists := m.historyManager.GetLastConnectionTime(host.Name); exists {
 				timeStr := formatTimeAgo(lastConnect)
-				if len(timeStr) > maxLastLoginLength {
-					maxLastLoginLength = len(timeStr)
+				if w := ansi.StringWidth(timeStr); w > maxLastLoginLength {
+					maxLastLoginLength = w
 				}
 			}
 		}
@@ -61,13 +62,9 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 	maxTagsLength += 2
 	maxLastLoginLength += 2
 
-	// Calculate available width (minus borders and padding).
-	// Table border (2) + App horizontal padding (2) = 4.
-	// renderTableView uses JoinHorizontal without internal separators, so no separator cost.
-	availableWidth := m.width - 4
-	if availableWidth < 12 {
-		availableWidth = 12
-	}
+	// Content budget matches listBoxInnerWidth (App pad 2 + box border 2).
+	// renderTableView uses JoinHorizontal without internal separators.
+	availableWidth := listBoxInnerWidth(m.width)
 
 	totalNeededWidth := maxNameLength + maxHostnameLength + maxTagsLength + maxLastLoginLength
 
@@ -367,20 +364,14 @@ func (m *Model) renderTableView() string {
 		return ""
 	}
 
-	headerStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(SecondaryColor)).
-		BorderBottom(true).
-		Bold(false)
-
-	// 1. Render Headers
+	// 1. Render Headers (no per-cell BorderBottom — that desyncs lipgloss
+	// widths vs a single separator and misaligns the outer table box).
 	var headerCells []string
 	for _, col := range cols {
 		if col.Width <= 0 {
 			continue
 		}
-		rendered := headerStyle.Render(renderCell(col.Title, col.Width))
-		headerCells = append(headerCells, rendered)
+		headerCells = append(headerCells, renderCell(col.Title, col.Width))
 	}
 	headerRow := lipgloss.JoinHorizontal(lipgloss.Top, headerCells...)
 
@@ -506,13 +497,23 @@ func (m *Model) renderTableView() string {
 		}
 	}
 
-	result := headerRow + "\n" + strings.Join(renderedRows, "\n")
+	separator := ""
 	if tableContentWidth > 0 {
-		var truncatedLines []string
+		separator = strings.Repeat("─", tableContentWidth)
+	}
+	parts := []string{headerRow}
+	if separator != "" {
+		parts = append(parts, separator)
+	}
+	parts = append(parts, renderedRows...)
+	result := strings.Join(parts, "\n")
+	// When columns fill the terminal, sum(col.Width) equals listBoxInnerWidth.
+	if tableContentWidth > 0 {
+		var normalized []string
 		for _, line := range strings.Split(result, "\n") {
-			truncatedLines = append(truncatedLines, ansi.Truncate(line, tableContentWidth, ""))
+			normalized = append(normalized, padToTerminalWidth(line, tableContentWidth))
 		}
-		result = strings.Join(truncatedLines, "\n")
+		result = strings.Join(normalized, "\n")
 	}
 	return result
 }
