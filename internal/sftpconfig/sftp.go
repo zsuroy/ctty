@@ -2,6 +2,7 @@ package sftpconfig
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -179,10 +180,10 @@ func buildSSHConfig(host *config.SSHHost) (*ssh.ClientConfig, error) {
 		return nil, err
 	}
 
-	// Use InsecureIgnoreHostKey to avoid knownhosts key mismatch issues.
-	// This matches `ssh -o StrictHostKeyChecking=no` behavior.
-	// TODO: add proper known_hosts verification with host key update support.
-	knownHostsCallback := ssh.InsecureIgnoreHostKey()
+	knownHostsCallback, err := getHostKeyCallback()
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare host key verification: %w", err)
+	}
 
 	cfg := &ssh.ClientConfig{
 		User:            getUser(host),
@@ -261,17 +262,84 @@ func getAuthMethods(host *config.SSHHost) ([]ssh.AuthMethod, error) {
 	return methods, nil
 }
 
-// getHostKeyCallback returns a known_hosts based host key callback.
+var knownHostsMu sync.Mutex
+
+// getHostKeyCallback returns an accept-new known_hosts callback. Unknown keys
+// are recorded on first use; a changed key is rejected on later connections.
 func getHostKeyCallback() (ssh.HostKeyCallback, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
 	knownHostsPath := filepath.Join(homeDir, ".ssh", "known_hosts")
-	if _, err := os.Stat(knownHostsPath); err != nil {
-		return nil, err
+	return acceptNewHostKeyCallback(knownHostsPath)
+}
+
+func acceptNewHostKeyCallback(knownHostsPath string) (ssh.HostKeyCallback, error) {
+	if err := os.MkdirAll(filepath.Dir(knownHostsPath), 0o700); err != nil {
+		return nil, fmt.Errorf("create known_hosts directory: %w", err)
 	}
-	return knownhosts.New(knownHostsPath)
+	file, err := os.OpenFile(knownHostsPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open known_hosts: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return nil, fmt.Errorf("close known_hosts: %w", err)
+	}
+	if err := os.Chmod(knownHostsPath, 0o600); err != nil {
+		return nil, fmt.Errorf("secure known_hosts permissions: %w", err)
+	}
+
+	verify, err := knownhosts.New(knownHostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("parse known_hosts: %w", err)
+	}
+
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		if err := verify(hostname, remote, key); err == nil {
+			return nil
+		} else if !isUnknownHostKey(err) {
+			return fmt.Errorf("verify host key for %s: %w", hostname, err)
+		}
+
+		knownHostsMu.Lock()
+		defer knownHostsMu.Unlock()
+
+		// Re-read while holding the append lock. Another connection may have
+		// recorded this host after this callback captured its initial snapshot.
+		current, err := knownhosts.New(knownHostsPath)
+		if err != nil {
+			return fmt.Errorf("reload known_hosts: %w", err)
+		}
+		if err := current(hostname, remote, key); err == nil {
+			return nil
+		} else if !isUnknownHostKey(err) {
+			return fmt.Errorf("verify host key for %s: %w", hostname, err)
+		}
+
+		line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key)
+		file, err := os.OpenFile(knownHostsPath, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return fmt.Errorf("append known_hosts: %w", err)
+		}
+		if _, err := fmt.Fprintln(file, line); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("write known_hosts: %w", err)
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("sync known_hosts: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			return fmt.Errorf("close known_hosts: %w", err)
+		}
+		return nil
+	}, nil
+}
+
+func isUnknownHostKey(err error) bool {
+	var keyErr *knownhosts.KeyError
+	return errors.As(err, &keyErr) && len(keyErr.Want) == 0
 }
 
 func expandPath(path string) string {
