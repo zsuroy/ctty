@@ -2,6 +2,8 @@ package sftpconfig
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -180,16 +182,36 @@ func buildSSHConfig(host *config.SSHHost) (*ssh.ClientConfig, error) {
 		return nil, err
 	}
 
-	knownHostsCallback, err := getHostKeyCallback()
+	knownHostsPath, err := defaultKnownHostsPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare host key verification: %w", err)
+	}
+	knownHostsCallback, err := acceptNewHostKeyCallback(knownHostsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare host key verification: %w", err)
 	}
 
+	hostname := host.Hostname
+	if hostname == "" {
+		hostname = host.Name
+	}
+	port := host.Port
+	if port == "" {
+		port = "22"
+	}
+	dialAddr := net.JoinHostPort(hostname, port)
+	algoAddrs := []string{dialAddr}
+	// Also consider the Host alias: OpenSSH may have recorded keys under either name.
+	if host.Name != "" && host.Name != hostname {
+		algoAddrs = append(algoAddrs, net.JoinHostPort(host.Name, port))
+	}
+
 	cfg := &ssh.ClientConfig{
-		User:            getUser(host),
-		Auth:            authMethods,
-		HostKeyCallback: knownHostsCallback,
-		Timeout:         15 * time.Second,
+		User:              getUser(host),
+		Auth:              authMethods,
+		HostKeyCallback:   knownHostsCallback,
+		HostKeyAlgorithms: hostKeyAlgorithms(knownHostsPath, algoAddrs...),
+		Timeout:           15 * time.Second,
 	}
 
 	return cfg, nil
@@ -264,33 +286,97 @@ func getAuthMethods(host *config.SSHHost) ([]ssh.AuthMethod, error) {
 
 var knownHostsMu sync.Mutex
 
+func defaultKnownHostsPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, ".ssh", "known_hosts"), nil
+}
+
 // getHostKeyCallback returns an accept-new known_hosts callback. Unknown keys
 // are recorded on first use; a changed key is rejected on later connections.
 func getHostKeyCallback() (ssh.HostKeyCallback, error) {
-	homeDir, err := os.UserHomeDir()
+	knownHostsPath, err := defaultKnownHostsPath()
 	if err != nil {
 		return nil, err
 	}
-	knownHostsPath := filepath.Join(homeDir, ".ssh", "known_hosts")
 	return acceptNewHostKeyCallback(knownHostsPath)
 }
 
-func acceptNewHostKeyCallback(knownHostsPath string) (ssh.HostKeyCallback, error) {
-	if err := os.MkdirAll(filepath.Dir(knownHostsPath), 0o700); err != nil {
-		return nil, fmt.Errorf("create known_hosts directory: %w", err)
-	}
-	file, err := os.OpenFile(knownHostsPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open known_hosts: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return nil, fmt.Errorf("close known_hosts: %w", err)
-	}
-	if err := os.Chmod(knownHostsPath, 0o600); err != nil {
-		return nil, fmt.Errorf("secure known_hosts permissions: %w", err)
-	}
+var (
+	probeHostKeyOnce sync.Once
+	probeHostKey     ssh.PublicKey
+)
 
-	verify, err := knownhosts.New(knownHostsPath)
+func hostKeyProbeKey() ssh.PublicKey {
+	probeHostKeyOnce.Do(func() {
+		pub, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			panic(err)
+		}
+		key, err := ssh.NewPublicKey(pub)
+		if err != nil {
+			panic(err)
+		}
+		probeHostKey = key
+	})
+	return probeHostKey
+}
+
+// hostKeyAlgorithms returns preferred host key algorithms for dial targets that
+// already appear in known_hosts. This mirrors OpenSSH: prefer key types we
+// already trust so the server does not present a different type that would
+// look like a mismatch (golang/go#29286).
+func hostKeyAlgorithms(knownHostsPath string, addrs ...string) []string {
+	verify, err := knownHostsVerifier(knownHostsPath)
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var algos []string
+	add := func(algo string) {
+		if _, ok := seen[algo]; ok {
+			return
+		}
+		seen[algo] = struct{}{}
+		algos = append(algos, algo)
+	}
+	probe := hostKeyProbeKey()
+	for _, addr := range addrs {
+		if addr == "" {
+			continue
+		}
+		_, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			continue
+		}
+		remote := &net.TCPAddr{IP: net.IPv4zero, Port: 0}
+		if p, err := strconv.Atoi(port); err == nil {
+			remote.Port = p
+		}
+		err = verify(addr, remote, probe)
+		var keyErr *knownhosts.KeyError
+		if !errors.As(err, &keyErr) || len(keyErr.Want) == 0 {
+			continue
+		}
+		for _, known := range keyErr.Want {
+			typ := known.Key.Type()
+			if typ == ssh.KeyAlgoRSA {
+				// RSA host keys may be signed with SHA-2 algorithms.
+				add(ssh.KeyAlgoRSASHA512)
+				add(ssh.KeyAlgoRSASHA256)
+			}
+			add(typ)
+		}
+	}
+	return algos
+}
+
+func acceptNewHostKeyCallback(knownHostsPath string) (ssh.HostKeyCallback, error) {
+	// Read-only setup: do not create, append, or chmod here. Already-trusted
+	// hosts must verify even when ~/.ssh is not writable.
+	verify, err := knownHostsVerifier(knownHostsPath)
 	if err != nil {
 		return nil, fmt.Errorf("parse known_hosts: %w", err)
 	}
@@ -307,7 +393,7 @@ func acceptNewHostKeyCallback(knownHostsPath string) (ssh.HostKeyCallback, error
 
 		// Re-read while holding the append lock. Another connection may have
 		// recorded this host after this callback captured its initial snapshot.
-		current, err := knownhosts.New(knownHostsPath)
+		current, err := knownHostsVerifier(knownHostsPath)
 		if err != nil {
 			return fmt.Errorf("reload known_hosts: %w", err)
 		}
@@ -317,24 +403,48 @@ func acceptNewHostKeyCallback(knownHostsPath string) (ssh.HostKeyCallback, error
 			return fmt.Errorf("verify host key for %s: %w", hostname, err)
 		}
 
-		line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key)
-		file, err := os.OpenFile(knownHostsPath, os.O_APPEND|os.O_WRONLY, 0o600)
-		if err != nil {
-			return fmt.Errorf("append known_hosts: %w", err)
-		}
-		if _, err := fmt.Fprintln(file, line); err != nil {
-			_ = file.Close()
-			return fmt.Errorf("write known_hosts: %w", err)
-		}
-		if err := file.Sync(); err != nil {
-			_ = file.Close()
-			return fmt.Errorf("sync known_hosts: %w", err)
-		}
-		if err := file.Close(); err != nil {
-			return fmt.Errorf("close known_hosts: %w", err)
-		}
-		return nil
+		return appendKnownHost(knownHostsPath, hostname, key)
 	}, nil
+}
+
+// knownHostsVerifier returns a callback that checks known_hosts without writing.
+// A missing file is treated as "no known keys" so accept-new can append later.
+func knownHostsVerifier(knownHostsPath string) (ssh.HostKeyCallback, error) {
+	_, err := os.Stat(knownHostsPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			return &knownhosts.KeyError{}
+		}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return knownhosts.New(knownHostsPath)
+}
+
+func appendKnownHost(knownHostsPath, hostname string, key ssh.PublicKey) error {
+	if err := os.MkdirAll(filepath.Dir(knownHostsPath), 0o700); err != nil {
+		return fmt.Errorf("create known_hosts directory: %w", err)
+	}
+	line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key)
+	file, err := os.OpenFile(knownHostsPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("append known_hosts: %w", err)
+	}
+	if _, err := fmt.Fprintln(file, line); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("write known_hosts: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync known_hosts: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close known_hosts: %w", err)
+	}
+	// Best-effort: do not fail TOFU solely because chmod is denied after a successful write.
+	_ = os.Chmod(knownHostsPath, 0o600)
+	return nil
 }
 
 func isUnknownHostKey(err error) bool {

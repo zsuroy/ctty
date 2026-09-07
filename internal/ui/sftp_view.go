@@ -1076,8 +1076,11 @@ func (m *sftpFormModel) renderErrorView() string {
 		Bold(true).
 		Padding(1, 2)
 
-	// Friendly error message, hide technical details
-	content := i18n.T("sftp.err_session")
+	detail := m.loadError
+	if detail == "" {
+		detail = "(no details)"
+	}
+	content := i18n.T("sftp.err_session", detail)
 	return m.styles.FormContainer.Render(errStyle.Render(content))
 }
 

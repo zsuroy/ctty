@@ -117,18 +117,18 @@ irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/windows.ps1 | i
 *Linux/macOS:*
 ```bash
 # Download specific release
-wget https://github.com/zsuroy/ctty/releases/latest/download/ctty-linux-amd64.tar.gz
+wget https://github.com/zsuroy/ctty/releases/latest/download/ctty_Linux_x86_64.tar.gz
 
 # Extract and install
-tar -xzf ctty-linux-amd64.tar.gz
-sudo mv ctty-linux-amd64 /usr/local/bin/ctty
+tar -xzf ctty_Linux_x86_64.tar.gz   # contains the single "ctty" binary
+sudo mv ctty /usr/local/bin/ctty
 ```
 
 *Windows:*
 ```powershell
 # Download and extract
-Invoke-WebRequest -Uri "https://github.com/zsuroy/ctty/releases/latest/download/ctty-windows-amd64.zip" -OutFile "ctty-windows-amd64.zip"
-Expand-Archive ctty-windows-amd64.zip -DestinationPath C:\tools\
+Invoke-WebRequest -Uri "https://github.com/zsuroy/ctty/releases/latest/download/ctty_Windows_x86_64.zip" -OutFile "ctty_Windows_x86_64.zip"
+Expand-Archive ctty_Windows_x86_64.zip -DestinationPath C:\tools\
 # Add C:\tools to your PATH environment variable
 ```
 
@@ -777,7 +777,7 @@ When a new release is detected, update directly from inside ctty:
 - **From the TUI** — press `U` when the update banner is shown, confirm with `y`. Progress (download → checksum verification → install) runs in a modal; restart ctty afterwards to run the new version.
 - **From the CLI** — `ctty update` checks for a newer release; `ctty update --yes` downloads and installs it.
 
-Updates are downloaded as raw binaries from [GitHub Releases](https://github.com/zsuroy/ctty/releases) (`ctty-<os>-<arch>`), sha256-verified against the published `checksums.txt`, and swapped in atomically — an interrupted update never leaves you with a broken binary. If the binary was installed to a directory requiring elevated permissions, re-run with sudo or fix ownership of the executable.
+Updates download the same release assets as the installers (`ctty_<Os>_<Arch>.tar.gz`, `.zip` on Windows), verify the sha256 against the published `checksums.txt`, and swap the binary in atomically — an interrupted update never leaves you with a broken binary. If the binary was installed to a directory requiring elevated permissions, re-run with sudo or fix ownership of the executable.
 
 #### Import from Tabby
 
@@ -1112,12 +1112,11 @@ Automated releases are built for multiple platforms:
 
 | Platform | Architecture | Download |
 |----------|-------------|----------|
-| Linux | AMD64 | [ctty-linux-amd64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty-linux-amd64.tar.gz) |
-| Linux | ARM64 | [ctty-linux-arm64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty-linux-arm64.tar.gz) |
-| macOS | Intel | [ctty-darwin-amd64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty-darwin-amd64.tar.gz) |
-| macOS | Apple Silicon | [ctty-darwin-arm64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty-darwin-arm64.tar.gz) |
-| Windows | AMD64 | [ctty-windows-amd64.zip](https://github.com/zsuroy/ctty/releases/latest/download/ctty-windows-amd64.zip) |
-| Windows | ARM64 | [ctty-windows-arm64.zip](https://github.com/zsuroy/ctty/releases/latest/download/ctty-windows-arm64.zip) |
+| Linux | AMD64 | [ctty_Linux_x86_64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty_Linux_x86_64.tar.gz) |
+| Linux | ARM64 | [ctty_Linux_arm64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty_Linux_arm64.tar.gz) |
+| macOS | Intel | [ctty_Darwin_x86_64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty_Darwin_x86_64.tar.gz) |
+| macOS | Apple Silicon | [ctty_Darwin_arm64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty_Darwin_arm64.tar.gz) |
+| Windows | AMD64 | [ctty_Windows_x86_64.zip](https://github.com/zsuroy/ctty/releases/latest/download/ctty_Windows_x86_64.zip) |
 
 ## 🤝 Contributing
 

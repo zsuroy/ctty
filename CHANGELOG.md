@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.2]
 
 ### Added
 
@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Agent CLI: file transfer** — `ctty put <host> <local> <remote>`, `ctty get <host> <remote> <local>`, and `ctty scp` (host:path notation) using the built-in SFTP client; recursive directories; progress on stderr; non-zero exit on failure.
 - **Agent CLI: serial / telnet JSON** — `ctty serial list|search|info` and `ctty telnet list|search|info` with `--format json`. No-args still opens the TUI; `ctty telnet <name>` connect is unchanged.
 - **Agent CLI: batch exec** — `ctty exec --tags prod -- uptime` and/or `--hosts a,b` with `--concurrency` (default 8) and `--format json` array of `{host,ok,exit_code,stdout,stderr}`; aggregate exit 0 iff all succeed.
+
+### Fixed
+
+- **SFTP host key verify (post-#11)** — Trusted hosts verify against `known_hosts` read-only; the file is created/appended only for unknown keys (accept-new). Setup no longer fails solely because `~/.ssh` is not writable or `chmod` is denied.
+- **SFTP host key algorithms** — Prefer host key types already recorded in `known_hosts` for the dial target and Host alias (OpenSSH-compatible). Avoids false `knownhosts: key mismatch` when the server offers a different algorithm than the one OpenSSH previously trusted (golang/go#29286).
+- **SFTP error details** — The SFTP error screen shows the underlying Dial/host-key error text instead of only the generic “failed to start SFTP session” message.
 
 ## [0.6.1] - 2026-09-03
 
