@@ -135,3 +135,17 @@ func DefaultDevice() SerialDevice {
 		FlowControl: "none",
 	}
 }
+
+// Find returns the saved serial device with the given name.
+func Find(name string) (SerialDevice, bool) {
+	devices, err := Load()
+	if err != nil {
+		return SerialDevice{}, false
+	}
+	for _, d := range devices {
+		if d.Name == name {
+			return d, true
+		}
+	}
+	return SerialDevice{}, false
+}

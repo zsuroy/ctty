@@ -18,20 +18,21 @@ the ctty config dir. Agents must drive it **non-interactively**.
 
 | Kind | Agent can | Hand to the human |
 |------|-----------|-------------------|
-| SSH | `search`, `info`, `ctty <alias> -- <cmd>` | `ctty <alias>` shell, port-forward TUI (`f`) |
-| SFTP | `scp`/`rsync`/`sftp` with the same alias | `ctty sftp <alias>` |
-| Telnet | Read `telnet.json`; quote `ctty telnet <name>` | Interactive session (`Ctrl+]`) |
-| Serial | Read `serial.json`; quote `ctty serial` | Device manager TUI |
+| SSH | `search`, `info`, `add`/`edit` (flags), `exec`, `ctty <alias> -- <cmd>` | `ctty <alias>` shell, port-forward TUI (`f`) |
+| SFTP | `ctty put` / `ctty get` / `ctty scp` (preferred); or OpenSSH `scp`/`rsync` | `ctty sftp <alias>` TUI |
+| Telnet | `ctty telnet list|search|info --format json` | Interactive session (`Ctrl+]`) |
+| Serial | `ctty serial list|search|info --format json` | Device manager TUI |
 | Import | `ctty import tabby --dry-run` then import | Confirm overwrite / Include |
 
 ## Hard rules
 
 1. **Never launch the TUI.** These hang a non-TTY agent session:
    - `ctty` with no args
-   - `ctty add` / `ctty edit` / `ctty move`
-   - `ctty sftp <host>`
-   - `ctty serial` (always TUI)
-   - `ctty telnet` with no argument (manager TUI)
+   - `ctty add` / `ctty edit` **without** host-config flags (use flags / `--non-interactive`)
+   - `ctty move`
+   - `ctty sftp <host>` (use `put`/`get`/`scp` instead)
+   - `ctty serial` with no subcommand (use `list|search|info`)
+   - `ctty telnet` with no argument (manager TUI; use `list|search|info`)
    - `ctty telnet <name-or-host>` (raw interactive session)
    - `ctty <host>` with **no remote command** (interactive SSH)
 2. **Prefer ctty's aliases over raw `ssh`/`scp`/`telnet`.** SSH goes through
@@ -157,32 +158,55 @@ ctty --lang en --no-update-check -t prod-web -- sudo systemctl restart nginx
   it to open a shell
 - Do not start `vim`, `less`, `top`, or an interactive shell
 
-### 4. SFTP / files
+### 3b. SSH — add / edit hosts (non-interactive)
 
-`ctty sftp <alias>` is a TUI. For agents, use OpenSSH with the **same Host
-alias**:
+Non-interactive mode triggers when `--non-interactive` is set **or** any of
+`--name`, `--hostname`, `--user`, `--port`, `--identity-file`, `--proxy-jump`,
+`--proxy-command`, `--option`/`-o`, `--tags`, `--password`, `--force` is
+provided. Otherwise the TUI form opens — never do that from an agent.
 
 ```bash
-scp prod-web:/var/log/nginx/error.log /tmp/
-scp ./deploy.sh prod-web:/tmp/
-rsync -az ./out/ prod-web:/opt/app/
-sftp prod-web
+ctty --lang en --no-update-check add --name web1 --hostname 10.0.0.1 --user deploy --tags prod,web --format json
+ctty --lang en --no-update-check add --name web1 --hostname 10.0.0.1 --force --format json
+ctty --lang en --no-update-check edit web1 --port 2222 --tags prod,api --format json
 ```
 
-Do not send files to `~/Downloads/ctty` unless the user asked; put them where
-the task needs them. `sftp` without a batch file is still interactive — prefer
-`scp`/`rsync`.
+`--password` is optional and stored only in the credential vault (never SSH
+config, never printed). `-c` selects a custom SSH config file.
+
+### 3c. SSH — batch exec
+
+```bash
+ctty --lang en --no-update-check exec --tags prod -- uptime
+ctty --lang en --no-update-check exec --hosts web1,web2 --concurrency 4 --format json -- df -h
+```
+
+Aggregate exit 0 iff all hosts succeed. JSON items: `{host,ok,exit_code,stdout,stderr}`.
+
+### 4. SFTP / files
+
+Prefer ctty's built-in transfer (uses the same Host alias + credential vault):
+
+```bash
+ctty --lang en --no-update-check put prod-web ./deploy.sh /tmp/deploy.sh
+ctty --lang en --no-update-check get prod-web /var/log/app.log ./app.log
+ctty --lang en --no-update-check scp ./out/ prod-web:/opt/app/
+ctty --lang en --no-update-check scp prod-web:/var/log/nginx/error.log /tmp/
+```
+
+Progress is on stderr; exit non-zero on failure; directories are recursive.
+`ctty sftp <alias>` remains a TUI — do not open it. OpenSSH `scp`/`rsync` with
+the same alias is still fine as a fallback.
 
 ### 5. Telnet
 
-Saved devices: `~/.config/ctty/telnet.json` (Windows: `%APPDATA%\ctty\telnet.json`).
-List with `jq`; do not start a session.
-
 ```bash
-jq '.hosts[] | {name, host, port, tags}' ~/.config/ctty/telnet.json
+ctty --lang en --no-update-check telnet list --format json
+ctty --lang en --no-update-check telnet search lab --format json
+ctty --lang en --no-update-check telnet info core-sw --format json
 ```
 
-Connect commands for the human (cleartext; prefer SSH if the box has it):
+Do not start a session. Quote connect commands for the human (cleartext):
 
 ```text
 ctty telnet core-sw          # saved name
@@ -190,19 +214,18 @@ ctty telnet 192.168.1.1      # port 23
 ctty telnet 10.0.0.5:2001    # explicit port
 ```
 
-Disconnect: `Ctrl+]`. Missing file ⇒ no saved devices, not an error.
+Disconnect: `Ctrl+]`. Missing store ⇒ empty list, not an error.
 
 ### 6. Serial
 
-Saved devices: `~/.config/ctty/serial.json`. Auto-detected ports only appear
-inside the TUI.
-
 ```bash
-jq '.devices[] | {name, device, baud_rate, data_bits, parity, stop_bits}' ~/.config/ctty/serial.json
+ctty --lang en --no-update-check serial list --format json
+ctty --lang en --no-update-check serial search usb --format json
+ctty --lang en --no-update-check serial info Switch-Console --format json
 ```
 
-There is no `ctty serial <name>` CLI. Tell the user to run `ctty serial` and
-pick the device. Disconnect: `Ctrl+]` or `Ctrl+C`.
+Auto-detected ports only appear inside the TUI. Quote `ctty serial` for the
+human to connect. Disconnect: `Ctrl+]` or `Ctrl+C`.
 
 ### 7. Import (Tabby → SSH)
 
@@ -223,15 +246,16 @@ names are skipped.
 | Request | Agent does | Human does |
 |---------|------------|------------|
 | "SSH into prod" | `info` + remote commands, or quote `ctty prod` | Interactive SSH |
-| "SFTP / copy files" | `scp`/`rsync` with the alias | `ctty sftp host` |
-| "Telnet to the switch" | List `telnet.json`, quote `ctty telnet <name>` | Interactive telnet |
-| "Open serial / console" | List `serial.json`, quote `ctty serial` | Serial TUI |
+| "SFTP / copy files" | `ctty put`/`get`/`scp` (or OpenSSH) | `ctty sftp host` |
+| "Telnet to the switch" | `telnet list|search|info --format json`, quote connect | Interactive telnet |
+| "Open serial / console" | `serial list|search|info --format json`, quote `ctty serial` | Serial TUI |
 | "Port forward" | Explain `-L`/`-R`/`-D`; do not open TUI | `f` in the host list |
-| "Add a host" | Append a `Host` block (see [reference.md](references/reference.md)) | `ctty add` |
+| "Add a host" | `ctty add --name … --hostname …` (non-interactive flags) | `ctty add` TUI |
 | "Import Tabby" | `import tabby --dry-run`, then import if asked | Confirm result |
 
 Do not treat Cobra subcommand names as SSH hosts: `add`, `edit`, `move`,
-`search`, `info`, `sftp`, `serial`, `telnet`, `import`, `update`, `completion`.
+`search`, `info`, `sftp`, `serial`, `telnet`, `import`, `update`, `completion`,
+`put`, `get`, `scp`, `exec`.
 
 ## Examples
 
@@ -257,7 +281,8 @@ Quote: `ctty Netease`. Do not execute it.
 **User:** "连实验室那台 telnet 交换机"
 
 ```bash
-jq '.hosts[] | {name, host, port, tags}' ~/.config/ctty/telnet.json
+ctty --lang en --no-update-check telnet search 交换机 --format json
+# or: ctty telnet list --format json
 ```
 
 Then quote `ctty telnet core-sw` (or whatever `name` matched). Do not run it.
@@ -265,7 +290,7 @@ Then quote `ctty telnet core-sw` (or whatever `name` matched). Do not run it.
 **User:** "串口连交换机"
 
 ```bash
-jq '.devices[]' ~/.config/ctty/serial.json
+ctty --lang en --no-update-check serial list --format json
 ```
 
 Then quote `ctty serial`.

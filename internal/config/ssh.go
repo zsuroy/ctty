@@ -2015,3 +2015,19 @@ func UpdateMultiHostBlock(originalHosts, newHosts []string, commonProperties SSH
 	newContent := strings.Join(newLines, "\n")
 	return os.WriteFile(configPath, []byte(newContent), 0600)
 }
+
+// HostHasTag reports whether the given tag list contains the target tag
+// (case-insensitive; a leading '#' on either side is ignored).
+func HostHasTag(tags []string, target string) bool {
+	return hostHasTag(tags, target)
+}
+
+// HostHasAnyTag reports whether the host has at least one of the given tags.
+func HostHasAnyTag(tags []string, targets []string) bool {
+	for _, t := range targets {
+		if hostHasTag(tags, t) {
+			return true
+		}
+	}
+	return false
+}
