@@ -114,18 +114,18 @@ irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/windows.ps1 | i
 *Linux/macOS:*
 ```bash
 # 下载指定版本
-wget https://github.com/zsuroy/ctty/releases/latest/download/ctty-linux-amd64.tar.gz
+wget https://github.com/zsuroy/ctty/releases/latest/download/ctty_Linux_x86_64.tar.gz
 
 # 解压并安装
-tar -xzf ctty-linux-amd64.tar.gz
-sudo mv ctty-linux-amd64 /usr/local/bin/ctty
+tar -xzf ctty_Linux_x86_64.tar.gz   # 包内是单个 "ctty" 可执行文件
+sudo mv ctty /usr/local/bin/ctty
 ```
 
 *Windows:*
 ```powershell
 # 下载并解压
-Invoke-WebRequest -Uri "https://github.com/zsuroy/ctty/releases/latest/download/ctty-windows-amd64.zip" -OutFile "ctty-windows-amd64.zip"
-Expand-Archive ctty-windows-amd64.zip -DestinationPath C:\tools\
+Invoke-WebRequest -Uri "https://github.com/zsuroy/ctty/releases/latest/download/ctty_Windows_x86_64.zip" -OutFile "ctty_Windows_x86_64.zip"
+Expand-Archive ctty_Windows_x86_64.zip -DestinationPath C:\tools\
 # 将 C:\tools 添加到你的 PATH 环境变量
 ```
 
@@ -772,7 +772,7 @@ ctty --no-update-check
 - **TUI 内** — 出现更新横幅时按 `U`，按 `y` 确认。下载 → 校验 → 安装过程在弹窗中实时显示，完成后重启 ctty 即可运行新版本。
 - **命令行** — `ctty update` 仅检查新版本；`ctty update --yes` 下载并安装。
 
-更新以裸二进制形式从 [GitHub Releases](https://github.com/zsuroy/ctty/releases) 下载（`ctty-<os>-<arch>`），对照发布页的 `checksums.txt` 做 sha256 校验，并以原子方式替换当前可执行文件——即使更新中途被打断，也不会留下损坏的二进制。若可执行文件所在目录需要管理员权限，请用 sudo 重跑或修正该文件属主。
+更新下载与安装脚本一致的发布包（`ctty_<Os>_<Arch>.tar.gz`，Windows 为 `.zip`），对照发布页的 `checksums.txt` 做 sha256 校验，并以原子方式替换当前可执行文件——即使更新中途被打断，也不会留下损坏的二进制。若可执行文件所在目录需要管理员权限，请用 sudo 重跑或修正该文件属主。
 
 #### 从 Tabby 导入
 
@@ -1112,12 +1112,11 @@ ctty/
 
 | 平台 | 架构 | 下载 |
 |------|------|------|
-| Linux | AMD64 | [ctty-linux-amd64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty-linux-amd64.tar.gz) |
-| Linux | ARM64 | [ctty-linux-arm64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty-linux-arm64.tar.gz) |
-| macOS | Intel | [ctty-darwin-amd64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty-darwin-amd64.tar.gz) |
-| macOS | Apple Silicon | [ctty-darwin-arm64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty-darwin-arm64.tar.gz) |
-| Windows | AMD64 | [ctty-windows-amd64.zip](https://github.com/zsuroy/ctty/releases/latest/download/ctty-windows-amd64.zip) |
-| Windows | ARM64 | [ctty-windows-arm64.zip](https://github.com/zsuroy/ctty/releases/latest/download/ctty-windows-arm64.zip) |
+| Linux | AMD64 | [ctty_Linux_x86_64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty_Linux_x86_64.tar.gz) |
+| Linux | ARM64 | [ctty_Linux_arm64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty_Linux_arm64.tar.gz) |
+| macOS | Intel | [ctty_Darwin_x86_64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty_Darwin_x86_64.tar.gz) |
+| macOS | Apple Silicon | [ctty_Darwin_arm64.tar.gz](https://github.com/zsuroy/ctty/releases/latest/download/ctty_Darwin_arm64.tar.gz) |
+| Windows | AMD64 | [ctty_Windows_x86_64.zip](https://github.com/zsuroy/ctty/releases/latest/download/ctty_Windows_x86_64.zip) |
 
 ## 🤝 贡献
 
