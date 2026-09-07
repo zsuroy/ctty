@@ -47,6 +47,7 @@ ctty 是一个快速、原生的终端工具，用于管理你的所有连接 �
 ### 🛠️ **技术特性**
 - **🔒 安全** - 直接使用现有的 `~/.ssh/config` 文件（密码凭据独立存储，绝不污染标准 SSH 配置）
 - **📁 自定义配置** - 通过 `-c` 标志使用任意 SSH 配置文件
+- **🤖 Agent Skill / 非交互 CLI** - 内置 agent skill（Cursor / Claude Code / Codex）；不开 TUI 也能通过命令行完成全部操作，支持 JSON 输出，方便脚本和 AI 集成
 - **📦 主机导入** - 用 `ctty import --from tabby` 把 Tabby 的 SSH 配置迁过来
 - **📂 SSH Include 支持** - 完整支持 SSH Include 指令，跨多文件组织配置
 - **⚙️ SSH 选项** - 通过直观的表单添加任意 SSH 配置选项
@@ -474,6 +475,23 @@ ctty sftp prod-server
 
 # 直接打开串口设备管理器
 ctty serial
+
+# 不开表单，用参数直接新增/编辑主机
+ctty add --name web-server --hostname 10.0.1.10 --user root --tags prod
+ctty edit --name web-server --port 2222
+
+# 用 SFTP 直接传输文件（无需打开 TUI）
+ctty put web-server ./app.tar.gz /srv/www/app.tar.gz
+ctty get web-server /var/log/app.log ./app.log
+ctty scp web-server:/etc/ctty.conf ./ctty.conf
+
+# 一次在多台主机上执行同一条命令
+ctty exec --tags prod -- uptime
+ctty exec --hosts web-01,db-01 -- df -h
+
+# 用 JSON 查询已保存的串口 / Telnet 设备（方便脚本对接）
+ctty serial list --format json
+ctty telnet search core --format json
 
 # 指定界面语言（auto, zh, en）
 ctty --lang zh

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Agent CLI: non-interactive `add` / `edit`** — Skip Bubble Tea forms when `--non-interactive` is set or any host-config flag is provided (`--name`, `--hostname`, `--user`, `--port`, `--identity-file`, `--proxy-jump`, `--proxy-command`, `--option`/`-o`, `--tags`, `--password`, `--force`). Writes OpenSSH config via the existing backup/validation path; optional `--password` goes to the credential vault only; `--format json` emits a success payload for agents.
+- **Agent CLI: file transfer** — `ctty put <host> <local> <remote>`, `ctty get <host> <remote> <local>`, and `ctty scp` (host:path notation) using the built-in SFTP client; recursive directories; progress on stderr; non-zero exit on failure.
+- **Agent CLI: serial / telnet JSON** — `ctty serial list|search|info` and `ctty telnet list|search|info` with `--format json`. No-args still opens the TUI; `ctty telnet <name>` connect is unchanged.
+- **Agent CLI: batch exec** — `ctty exec --tags prod -- uptime` and/or `--hosts a,b` with `--concurrency` (default 8) and `--format json` array of `{host,ok,exit_code,stdout,stderr}`; aggregate exit 0 iff all succeed.
+
 ## [0.6.1] - 2026-09-03
 
 ### Added

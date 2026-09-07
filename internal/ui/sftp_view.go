@@ -51,13 +51,13 @@ type sftpFormModel struct {
 	password  string
 
 	// Download/upload progress (shared between goroutine and TUI)
-	progressDone  int64
-	progressTotal int64
-	progressFile  string
-	progressGen   int
-	transferring  bool
+	progressDone   int64
+	progressTotal  int64
+	progressFile   string
+	progressGen    int
+	transferring   bool
 	transferCancel context.CancelFunc // cancels the in-flight upload/download goroutine
-	queue         sftpTransferQueue
+	queue          sftpTransferQueue
 
 	// For input modes
 	inputBuffer string

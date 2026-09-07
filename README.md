@@ -50,6 +50,7 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 ### 🛠️ **Technical Features**
 - **🔒 Secure** - Works directly with your existing `~/.ssh/config` file (credentials stored separately, never pollutes standard SSH configs)
 - **📁 Custom Config Support** - Use any SSH configuration file with the `-c` flag
+- **🤖 Agent Skill & Headless CLI** - Agent skill for Cursor, Claude Code, and Codex; every operation available from the CLI without the TUI, with JSON output for scripts and agents
 - **📦 Host Import** - Migrate SSH profiles from Tabby with `ctty import --from tabby`
 - **📂 SSH Include Support** - Full support for SSH Include directives to organize configurations across multiple files
 - **⚙️ SSH Options Support** - Add any SSH configuration option through intuitive forms
@@ -479,6 +480,23 @@ ctty sftp prod-server
 
 # Open Serial device manager directly
 ctty serial
+
+# Add/edit a host without opening the form
+ctty add --name web-server --hostname 10.0.1.10 --user root --tags prod
+ctty edit --name web-server --port 2222
+
+# Transfer files over SFTP (no TUI needed)
+ctty put web-server ./app.tar.gz /srv/www/app.tar.gz
+ctty get web-server /var/log/app.log ./app.log
+ctty scp web-server:/etc/ctty.conf ./ctty.conf
+
+# Run the same command on many hosts at once
+ctty exec --tags prod -- uptime
+ctty exec --hosts web-01,db-01 -- df -h
+
+# Query saved devices as JSON (for scripts / agents)
+ctty serial list --format json
+ctty telnet search core --format json
 
 # Override interface language (auto, zh, en)
 ctty --lang zh
