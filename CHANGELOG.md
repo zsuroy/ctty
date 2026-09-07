@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Host list border alignment** — Host-list table uses a manual ASCII box + JetBrains gray-circle (U+26AB) padding; search keeps rounded chrome. On JetBrains/JediTerm, only the gray status circle advances as one column; green/red/yellow ping circles keep width 2 so ping results do not overflow; VS Code unchanged. Original status circles kept; no ellipsis from width hacks.
+
 - **SFTP upload local browse (Windows)** — Upload picker starts in the process working directory (where ctty was launched) instead of the user home. At a drive root (`C:\`), ← opens a drive list so other volumes are reachable; it no longer jumps back to the remote browser. Tab/Esc still return to remote.
 - **SFTP upload local browse (Unix)** — At filesystem root `/`, ← stays on the local picker instead of switching to remote (Tab/Esc still leave).
 - **SFTP connecting / password / error layout** — Those full-page SFTP states use `renderFormPage` so the bordered box tracks terminal width on resize; long error text wraps inside the box.

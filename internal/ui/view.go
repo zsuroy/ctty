@@ -72,9 +72,20 @@ func (m Model) View() string {
 	return m.renderListView()
 }
 
+// listBoxInnerWidth is the content width inside the host-list table ASCII box
+// (before left/right border columns). App pad(2) + border(2) = 4.
+func listBoxInnerWidth(terminalWidth int) int {
+	w := terminalWidth - 4
+	if w < 12 {
+		return 12
+	}
+	return w
+}
+
 // searchMaxWidth returns the maximum display width the search bar content
 // (prompt + textinput.View) should occupy, accounting for the App container
-// padding (2) and search bar border+padding (4).
+// padding (2) and search bar border+padding (4). Used by host-list search
+// (renderListView) and by renderSearchBar (serial/telnet/SFTP).
 func searchMaxWidth(terminalWidth int) int {
 	w := terminalWidth - 6 // app padding(2) + search border(2) + search padding(2)
 	if w < 5 {
@@ -158,9 +169,7 @@ func (m Model) renderListView() string {
 		components = append(components, hiddenBannerStyle.Render(i18n.T("main.show_hidden")))
 	}
 
-	// Add the search bar with the appropriate style based on focus.
-	// MaxWidth forces truncation so CJK placeholder text can't push the border
-	// off-screen on narrow terminals (e.g. Termux on phones).
+	// Search keeps master-style rounded SearchFocused/Unfocused chrome.
 	searchPrompt := i18n.T("search.prompt")
 	searchContent := searchPrompt + m.searchInput.View()
 	searchMaxW := searchMaxWidth(m.width)
@@ -171,14 +180,15 @@ func (m Model) renderListView() string {
 		components = append(components, m.styles.SearchUnfocused.Render(searchContent))
 	}
 
-	// Add the table with the appropriate style based on focus
+	// Table only: manual ASCII box (not lipgloss Border+Width). JetBrains/JediTerm
+	// advances gray status circle by 1 while ansi.StringWidth counts 2; padToTerminalWidth
+	// + renderAsciiBox keep right borders aligned with corners.
+	boxInner := listBoxInnerWidth(m.width)
+	tableFg := PrimaryColor
 	if m.searchMode {
-		// The table is not focused, use the unfocused style
-		components = append(components, m.styles.TableUnfocused.Render(m.renderTableView()))
-	} else {
-		// The table is focused, use the focused style with the primary color
-		components = append(components, m.styles.TableFocused.Render(m.renderTableView()))
+		tableFg = SecondaryColor
 	}
+	components = append(components, renderAsciiBox(boxInner, m.renderTableView(), tableFg))
 
 	// Add the help text, truncated to terminal width
 	var helpText string
@@ -256,7 +266,9 @@ func (m Model) renderUpdateNotification() string {
 }
 
 // renderSearchBar is a shared helper for rendering the search bar with proper
-// width constraints. Used by SSH list, serial, and SFTP views.
+// width constraints. Used by serial, telnet, and SFTP views (rounded Search
+// styles). Host list search uses the same SearchFocused/Unfocused styles inline
+// in renderListView.
 func renderSearchBar(styles Styles, searchMode bool, prompt string, searchView string, terminalWidth int) string {
 	content := prompt + searchView
 	maxW := searchMaxWidth(terminalWidth)
