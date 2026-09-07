@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **SFTP upload local browse (Windows)** — Upload picker starts in the process working directory (where ctty was launched) instead of the user home. At a drive root (`C:\`), ← opens a drive list so other volumes are reachable; it no longer jumps back to the remote browser. Tab/Esc still return to remote.
+- **SFTP upload local browse (Unix)** — At filesystem root `/`, ← stays on the local picker instead of switching to remote (Tab/Esc still leave).
+
 ## [0.6.2] - 2026-09-07
 
 ### Added

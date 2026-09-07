@@ -71,7 +71,8 @@ type sftpFormModel struct {
 	statusExpiry time.Time
 
 	// Local file selector for upload
-	localFiles []string
+	localFiles         []string
+	localShowingDrives bool // Windows: browsing drive list above volume roots
 
 	// Search
 	searchInput     textinput.Model
@@ -142,6 +143,7 @@ func NewSFTPForm(styles Styles, width, height int, hostName, configFile string) 
 		configFile: configFile,
 		mode:       sftpBrowse,
 		loading:    true,
+		localCwd:   defaultLocalUploadDir(),
 	}
 
 	initHeight := m.calculateTableHeight()
@@ -574,8 +576,9 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// Upload: switch table to show local files
 		m.mode = sftpUploadSelect
+		m.localShowingDrives = false
 		if m.localCwd == "" {
-			m.localCwd, _ = os.UserHomeDir()
+			m.localCwd = defaultLocalUploadDir()
 		}
 		m.localFiles = m.listLocalFiles()
 		m.updateLocalTableRows()
@@ -856,6 +859,7 @@ func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			m.setStatus(fmt.Sprintf("Cancelled: %s", m.progressFile))
 			return m, nil
 		}
+		m.localShowingDrives = false
 		m.mode = sftpBrowse
 		m.updateTableRows()
 		return m, nil
@@ -870,6 +874,17 @@ func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		idx := m.table.Cursor()
 		if idx >= 0 && idx < len(m.localFiles) {
 			localPath := m.localFiles[idx]
+			if m.localShowingDrives {
+				if m.transferring {
+					return m, nil
+				}
+				m.localShowingDrives = false
+				m.localCwd = localPath
+				m.localFiles = m.listLocalFiles()
+				m.updateLocalTableRows()
+				m.table.SetCursor(0)
+				return m, nil
+			}
 			info, err := os.Stat(localPath)
 			if err != nil {
 				return m, nil
@@ -901,6 +916,14 @@ func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		idx := m.table.Cursor()
 		if idx >= 0 && idx < len(m.localFiles) {
 			localPath := m.localFiles[idx]
+			if m.localShowingDrives {
+				m.localShowingDrives = false
+				m.localCwd = localPath
+				m.localFiles = m.listLocalFiles()
+				m.updateLocalTableRows()
+				m.table.SetCursor(0)
+				return m, nil
+			}
 			info, err := os.Stat(localPath)
 			if err == nil && info.IsDir() {
 				m.localCwd = localPath
@@ -915,16 +938,28 @@ func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		if m.transferring {
 			return m, nil
 		}
-		parent := filepath.Dir(m.localCwd)
-		if parent != m.localCwd {
-			m.localCwd = parent
-			m.localFiles = m.listLocalFiles()
-			m.updateLocalTableRows()
-			m.table.SetCursor(0)
+		// Drive list: Left stays here; Tab/Esc return to remote.
+		if m.localShowingDrives {
 			return m, nil
 		}
-		m.mode = sftpBrowse
-		m.updateTableRows()
+		// Volume / filesystem root: on Windows open drive picker; never jump to remote.
+		if isLocalFilesystemRoot(m.localCwd) {
+			if drives := listLocalDrives(); len(drives) > 0 {
+				m.localShowingDrives = true
+				m.localFiles = drives
+				m.updateLocalTableRows()
+				m.table.SetCursor(0)
+			}
+			return m, nil
+		}
+		parent := filepath.Dir(m.localCwd)
+		if parent == m.localCwd || parent == "." {
+			return m, nil
+		}
+		m.localCwd = parent
+		m.localFiles = m.listLocalFiles()
+		m.updateLocalTableRows()
+		m.table.SetCursor(0)
 		return m, nil
 
 	case "up", "down", "k", "j", "pgup", "pgdown", "home", "end", "g", "G":
@@ -989,7 +1024,7 @@ func (m *sftpFormModel) View() string {
 	// Title bar
 	if m.height < 20 {
 		if m.mode == sftpUploadSelect {
-			components = append(components, m.styles.Header.Render(i18n.T("sftp.title_local")+" [LOCAL] "+truncatePath(m.localCwd, m.width-25)))
+			components = append(components, m.styles.Header.Render(i18n.T("sftp.title_local")+" [LOCAL] "+truncatePath(localBrowseLabel(m.localCwd, m.localShowingDrives), m.width-25)))
 		} else {
 			title := i18n.T("sftp.title_remote", m.hostName)
 			components = append(components, m.styles.Header.Render(title+" "+truncatePath(m.cwd, m.width-len(title)-10)))
@@ -999,7 +1034,7 @@ func (m *sftpFormModel) View() string {
 			components = append(components, m.styles.Header.Render(i18n.T("sftp.title_local")))
 			localStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 			remoteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
-			components = append(components, localStyle.Render(" [LOCAL]  "+truncatePath(m.localCwd, m.width-12)))
+			components = append(components, localStyle.Render(" [LOCAL]  "+truncatePath(localBrowseLabel(m.localCwd, m.localShowingDrives), m.width-12)))
 			components = append(components, remoteStyle.Render(" [REMOTE] "+truncatePath(m.cwd, m.width-12)))
 		} else {
 			components = append(components, m.styles.Header.Render(i18n.T("sftp.title_remote", m.hostName)))
@@ -1257,6 +1292,9 @@ func (m *sftpFormModel) updateLocalTableRows() {
 			continue
 		}
 		name := filepath.Base(f)
+		if m.localShowingDrives || name == "" || name == string(filepath.Separator) || name == "\\" {
+			name = f
+		}
 		entryType := i18n.T("sftp.type_file")
 		if info.IsDir() {
 			name = "📁 " + name
@@ -1317,8 +1355,11 @@ func (m *sftpFormModel) findEntry(name string) *sftpconfig.RemoteEntry {
 
 // listLocalFiles returns all entries (files and dirs) in localCwd.
 func (m *sftpFormModel) listLocalFiles() []string {
+	if m.localShowingDrives {
+		return listLocalDrives()
+	}
 	if m.localCwd == "" {
-		m.localCwd, _ = os.UserHomeDir()
+		m.localCwd = defaultLocalUploadDir()
 	}
 	entries, err := os.ReadDir(m.localCwd)
 	if err != nil {
