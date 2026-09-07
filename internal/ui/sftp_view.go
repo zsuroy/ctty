@@ -998,20 +998,18 @@ func (m *sftpFormModel) handleUploadSearchKeys(msg tea.KeyMsg) (tea.Model, tea.C
 // View renders the SFTP browser
 func (m *sftpFormModel) View() string {
 	if m.loading && m.client == nil {
-		return m.styles.FormContainer.Render(
-			m.styles.FormTitle.Render(" "+i18n.T("sftp.title_remote", m.hostName)+" ") + "\n\n" +
-				"  " + i18n.T("sftp.connecting", m.hostName),
-		)
+		body := m.styles.FormTitle.Render(" "+i18n.T("sftp.title_remote", m.hostName)+" ") + "\n\n" +
+			"  " + i18n.T("sftp.connecting", m.hostName)
+		return renderFormPage(m.styles, m.width, body)
 	}
 
 	if m.mode == sftpPasswordInput {
-		return m.styles.FormContainer.Render(
-			m.styles.FormTitle.Render(" SFTP - Password ") + "\n\n" +
-				fmt.Sprintf("  %s\n", m.inputPrompt) +
-				fmt.Sprintf("  %s_\n", strings.Repeat("*", len(m.inputBuffer))) +
-				"\n" +
-				m.styles.HelpText.Render("  Enter: connect • Esc: cancel"),
-		)
+		body := m.styles.FormTitle.Render(" SFTP - Password ") + "\n\n" +
+			fmt.Sprintf("  %s\n", m.inputPrompt) +
+			fmt.Sprintf("  %s_\n", strings.Repeat("*", len(m.inputBuffer))) +
+			"\n" +
+			m.styles.HelpText.Render("  Enter: connect • Esc: cancel")
+		return renderFormPage(m.styles, m.width, body)
 	}
 
 	if m.mode == sftpError {
@@ -1106,17 +1104,19 @@ func (m *sftpFormModel) View() string {
 }
 
 func (m *sftpFormModel) renderErrorView() string {
+	inner := formPageInnerWidth(m.width)
 	errStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("9")).
 		Bold(true).
-		Padding(1, 2)
+		Padding(1, 2).
+		Width(inner)
 
 	detail := m.loadError
 	if detail == "" {
 		detail = "(no details)"
 	}
 	content := i18n.T("sftp.err_session", detail)
-	return m.styles.FormContainer.Render(errStyle.Render(content))
+	return renderFormPage(m.styles, m.width, errStyle.Render(content))
 }
 
 func (m *sftpFormModel) renderInputLine() string {
