@@ -88,9 +88,12 @@ func (m Model) Init() tea.Cmd {
 		cmds = append(cmds, checkVersionCmd(m.currentVersion))
 	}
 
-	// Trigger async connection for standalone SFTP mode (`ctty sftp <host>`)
-	if m.viewMode == ViewSFTP && m.sftpForm != nil {
+	// Direct-launch modes (ctty sftp / ctty ftp <name>) need their form Init.
+	if m.sftpForm != nil && m.viewMode == ViewSFTP {
 		cmds = append(cmds, m.sftpForm.Init())
+	}
+	if m.ftpForm != nil && m.viewMode == ViewFTPBrowse {
+		cmds = append(cmds, m.ftpForm.Init())
 	}
 
 	return tea.Batch(cmds...)
@@ -171,6 +174,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.sftpForm != nil {
 			m.sftpForm.Update(msg)
+		}
+		if m.ftpSitesForm != nil {
+			m.ftpSitesForm.Update(msg)
+		}
+		if m.ftpForm != nil {
+			m.ftpForm.Update(msg)
 		}
 		if m.settingsForm != nil {
 			m.settingsForm.Update(msg)
@@ -497,6 +506,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.Focus()
 		return m, nil
 
+	case ftpOpenBrowserMsg:
+		m.ftpSitesForm = nil
+		layout := config.FTPLayoutDual
+		if m.appConfig != nil {
+			layout = config.NormalizeFTPLayout(m.appConfig.FTPLayout)
+		}
+		m.ftpForm = NewFTPFormWithLayout(m.styles, m.width, m.height, msg.siteName, layout)
+		m.viewMode = ViewFTPBrowse
+		m.ftpFromSites = true
+		return m, m.ftpForm.Init()
+
+	case ftpDoneMsg:
+		if m.ftpForm != nil && m.ftpForm.client != nil {
+			_ = m.ftpForm.client.Close()
+		}
+		m.ftpForm = nil
+		if m.viewMode == ViewFTPBrowse && m.ftpFromSites {
+			m.ftpFromSites = false
+			m.ftpSitesForm = NewFTPSitesForm(m.styles, m.width, m.height)
+			m.viewMode = ViewFTP
+			return m, nil
+		}
+		m.ftpSitesForm = nil
+		m.ftpFromSites = false
+		if m.ftpOnly {
+			return m, tea.Quit
+		}
+		m.viewMode = ViewList
+		m.table.Focus()
+		return m, nil
+
 	case settingsCloseMsg:
 		m.settingsForm = nil
 		m.viewMode = ViewList
@@ -607,6 +647,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, cmd
 			}
+		case ViewFTP:
+			if m.ftpSitesForm != nil {
+				updatedModel, cmd := m.ftpSitesForm.Update(msg)
+				if fm, ok := updatedModel.(*ftpSitesModel); ok {
+					m.ftpSitesForm = fm
+				}
+				return m, cmd
+			}
+		case ViewFTPBrowse:
+			if m.ftpForm != nil {
+				updatedModel, cmd := m.ftpForm.Update(msg)
+				if fm, ok := updatedModel.(*ftpFormModel); ok {
+					m.ftpForm = fm
+				}
+				return m, cmd
+			}
 		case ViewSettings:
 			if m.settingsForm != nil {
 				var newForm *settingsFormModel
@@ -644,6 +700,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sftpForm = sm
 		}
 		return m, sftpCmd
+	}
+
+	// Forward FTP browser async messages
+	if m.ftpForm != nil && m.viewMode == ViewFTPBrowse {
+		updatedModel, ftpCmd := m.ftpForm.Update(msg)
+		if fm, ok := updatedModel.(*ftpFormModel); ok {
+			m.ftpForm = fm
+		}
+		return m, ftpCmd
 	}
 
 	return m, cmd
@@ -929,6 +994,13 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Open telnet device manager
 			m.telnetForm = NewTelnetForm(m.styles, m.width, m.height)
 			m.viewMode = ViewTelnet
+			return m, nil
+		}
+	case "F":
+		if !m.searchMode && !m.deleteMode {
+			// Open FTP site manager (uppercase; avoid colliding with f = port-forward)
+			m.ftpSitesForm = NewFTPSitesForm(m.styles, m.width, m.height)
+			m.viewMode = ViewFTP
 			return m, nil
 		}
 	case "o":

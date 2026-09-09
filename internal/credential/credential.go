@@ -172,6 +172,14 @@ func (s *CredentialStore) save() error {
 	return os.WriteFile(s.filePath, data, 0600)
 }
 
+// ResetStoreForTest drops the cached singleton so tests can re-point the
+// store at an isolated directory via XDG_CONFIG_HOME. Tests only.
+func ResetStoreForTest() {
+	storeMu.Lock()
+	defer storeMu.Unlock()
+	defaultStore = nil
+}
+
 // GetPassword retrieves the decrypted password for a host.
 func GetPassword(hostName string) (string, bool) {
 	store, err := getStore()

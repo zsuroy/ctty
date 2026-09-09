@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **FTP support (first slice)** — Separate FTP transport (github.com/jlaffaye/ftp), not SFTP/SSH:
+  - Site inventory in `~/.config/ctty/ftp.json` (0600); passwords encrypted in the shared `credentials.json` vault under `ftp:` names.
+  - Agent CLI: `ctty ftp list|search|info --format json` (non-interactive).
+  - Human TUI: `ctty ftp` site manager; `ctty ftp <name>` dual-pane local|remote browser (list/chdir/upload/download). FTPS/TLS follow-up.
+  - Agent skill updated: agents use JSON CLI only; never open FTP TUI; warn cleartext traffic.
+
 ## [0.6.4] - 2026-09-11
 
 ### Added

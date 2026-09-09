@@ -2,18 +2,18 @@
 name: ctty
 description: >-
   Use and install ctty, a CLI/TUI connection manager for SSH, serial consoles,
-  telnet lab gear, and SFTP. Use when installing ctty; listing/searching SSH
+  telnet lab gear, SFTP, and FTP. Use when installing ctty; listing/searching SSH
   hosts or running remote commands; transferring files via a Host alias;
-  looking up saved serial or telnet devices; importing hosts from Tabby; or
+  looking up saved serial, telnet, or FTP sites; importing hosts from Tabby; or
   when the user mentions ctty, SSH aliases, #tags, serial/console, telnet,
-  SFTP, port forwarding, or ~/.ssh/config. Prefer ctty over raw ssh/telnet.
+  SFTP, FTP, port forwarding, or ~/.ssh/config. Prefer ctty over raw ssh/telnet.
   Never open the interactive TUI.
 ---
 
 # Use ctty (CLI, not TUI)
 
-ctty manages **SSH, serial, telnet, and SFTP** in one tool. SSH aliases live
-in `~/.ssh/config` (and `Include` files). Serial and telnet devices live under
+ctty manages **SSH, serial, telnet, SFTP, and FTP** in one tool. SSH aliases live
+in `~/.ssh/config` (and `Include` files). Serial, telnet, and FTP sites live under
 the ctty config dir. Agents must drive it **non-interactively**.
 
 | Kind | Agent can | Hand to the human |
@@ -22,6 +22,7 @@ the ctty config dir. Agents must drive it **non-interactively**.
 | SFTP | `ctty put` / `ctty get` / `ctty scp` (preferred); or OpenSSH `scp`/`rsync` | `ctty sftp <alias>` TUI |
 | Telnet | `ctty telnet list|search|info --format json` | Interactive session (`Ctrl+]`) |
 | Serial | `ctty serial list|search|info --format json` | Device manager TUI |
+| FTP | `ctty ftp list|search|info --format json` | Site manager / dual-pane TUI |
 | Import | `ctty import tabby --dry-run` then import | Confirm overwrite / Include |
 
 ## Hard rules
@@ -34,6 +35,8 @@ the ctty config dir. Agents must drive it **non-interactively**.
    - `ctty serial` with no subcommand (use `list|search|info`)
    - `ctty telnet` with no argument (manager TUI; use `list|search|info`)
    - `ctty telnet <name-or-host>` (raw interactive session)
+   - `ctty ftp` with no subcommand (site manager TUI)
+   - `ctty ftp <name>` (dual-pane FTP browser TUI)
    - `ctty <host>` with **no remote command** (interactive SSH)
 2. **Prefer ctty's aliases over raw `ssh`/`scp`/`telnet`.** SSH goes through
    OpenSSH config, history, and saved-password ASKPASS. Telnet is ctty's
@@ -42,8 +45,10 @@ the ctty config dir. Agents must drive it **non-interactively**.
 4. **Do not guess the target.** SSH: search → info → act. Serial/telnet:
    read the JSON store, then quote the connect command. Several matches →
    list them or ask.
-5. **Do not print secrets.** Never read `credentials.json` or dump keys.
-   Passwords are in ctty's vault, not in SSH config. Telnet is cleartext.
+5. **Do not print secrets.** Never read `credentials.json`,
+   or dump keys. SSH and FTP passwords are in ctty's encrypted vault
+   (FTP entries under `ftp:` names), not in SSH config. Telnet
+   passwords are cleartext — warn the user.
 
 Interactive sessions are for the **human**. Give them the command.
 
@@ -95,8 +100,8 @@ Optional: `-c /path/to/ssh_config` when not using `~/.ssh/config`.
 
 ```
 - [ ] Confirm ctty exists (`command -v ctty`); install if missing
-- [ ] Pick the transport: SSH / SFTP / serial / telnet
-- [ ] Resolve the target (search+info, or serial.json / telnet.json)
+- [ ] Pick the transport: SSH / SFTP / serial / telnet / FTP
+- [ ] Resolve the target (search+info, or serial.json / telnet.json / ftp.json)
 - [ ] Act non-interactively, or quote the connect command for the user
 - [ ] Check exit code when a remote command ran
 ```
@@ -227,6 +232,20 @@ ctty --lang en --no-update-check serial info Switch-Console --format json
 Auto-detected ports only appear inside the TUI. Quote `ctty serial` for the
 human to connect. Disconnect: `Ctrl+]` or `Ctrl+C`.
 
+
+### 6b. FTP
+
+```bash
+ctty --lang en --no-update-check ftp list --format json
+ctty --lang en --no-update-check ftp search lab --format json
+ctty --lang en --no-update-check ftp info lab-nas --format json
+```
+
+Do **not** open `ctty ftp` or `ctty ftp <name>` (TUI). Quote those for the human.
+FTP is cleartext by default; saved passwords live encrypted in
+the SSH `credentials.json` vault (FTP entries under `ftp:` names).
+Site inventory: `~/.config/ctty/ftp.json`.
+
 ### 7. Import (Tabby → SSH)
 
 Non-interactive. Always dry-run first. Secrets in the source app are **not**
@@ -249,12 +268,13 @@ names are skipped.
 | "SFTP / copy files" | `ctty put`/`get`/`scp` (or OpenSSH) | `ctty sftp host` |
 | "Telnet to the switch" | `telnet list|search|info --format json`, quote connect | Interactive telnet |
 | "Open serial / console" | `serial list|search|info --format json`, quote `ctty serial` | Serial TUI |
+| "FTP / browse FTP site" | `ftp list|search|info --format json`, quote `ctty ftp <name>` | FTP TUI |
 | "Port forward" | Explain `-L`/`-R`/`-D`; do not open TUI | `f` in the host list |
 | "Add a host" | `ctty add --name … --hostname …` (non-interactive flags) | `ctty add` TUI |
 | "Import Tabby" | `import tabby --dry-run`, then import if asked | Confirm result |
 
 Do not treat Cobra subcommand names as SSH hosts: `add`, `edit`, `move`,
-`search`, `info`, `sftp`, `serial`, `telnet`, `import`, `update`, `completion`,
+`search`, `info`, `sftp`, `serial`, `telnet`, `ftp`, `import`, `update`, `completion`,
 `put`, `get`, `scp`, `exec`.
 
 ## Examples

@@ -1,7 +1,8 @@
 # ctty CLI reference
 
-ctty is SSH + serial + telnet + SFTP. Only SSH `search` / `info` / remote-exec
-and `import` are non-interactive CLIs. Serial/telnet inventories are JSON files.
+ctty is SSH + serial + telnet + SFTP + FTP. SSH `search` / `info` / remote-exec,
+`import`, and serial/telnet/ftp `list|search|info` are non-interactive CLIs.
+Serial/telnet/FTP inventories are JSON files under the ctty config dir.
 
 ## Persistent flags (all commands)
 
@@ -210,3 +211,17 @@ Always `--dry-run` first. Do not run `ctty update --yes` unless asked.
   may prompt; in a non-TTY that fails. Don't loop on that; report it.
 - `ctty telnet <arg>` is never a one-shot probe; it attaches a raw terminal.
 - Serial has no named CLI connect; `ctty serial` is always the manager TUI.
+
+
+## `ctty ftp list|search|info`
+
+```bash
+ctty ftp list --format json
+ctty ftp search lab --format json
+ctty ftp info lab-nas --format json
+```
+
+JSON array / object of `{name,host,port,user,tags}`. Site file:
+`~/.config/ctty/ftp.json` (0600). Passwords encrypted in SSH
+`credentials.json` vault under `ftp:` names.
+Agents must not open `ctty ftp` / `ctty ftp <name>` TUI.
