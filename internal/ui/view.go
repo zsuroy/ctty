@@ -64,6 +64,10 @@ func (m Model) View() string {
 		if m.ftpForm != nil {
 			return m.ftpForm.View()
 		}
+	case ViewLocalBrowser:
+		if m.localBrowserForm != nil {
+			return m.localBrowserForm.View()
+		}
 	case ViewSettings:
 		if m.settingsForm != nil {
 			return m.settingsForm.View()

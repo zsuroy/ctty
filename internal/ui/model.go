@@ -60,6 +60,7 @@ const (
 	ViewTelnet
 	ViewFTP
 	ViewFTPBrowse
+	ViewLocalBrowser
 )
 
 // PortForwardType defines the type of port forwarding
@@ -121,6 +122,7 @@ type Model struct {
 	sftpForm         *sftpFormModel
 	ftpSitesForm     *ftpSitesModel
 	ftpForm          *ftpFormModel
+	localBrowserForm *localBrowserModel
 	settingsForm     *settingsFormModel
 	snippetForm      *snippetFormModel
 	updateForm       *updateFormModel
