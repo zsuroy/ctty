@@ -181,6 +181,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.ftpForm != nil {
 			m.ftpForm.Update(msg)
 		}
+		if m.localBrowserForm != nil {
+			m.localBrowserForm.Update(msg)
+		}
 		if m.settingsForm != nil {
 			m.settingsForm.Update(msg)
 		}
@@ -537,6 +540,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.Focus()
 		return m, nil
 
+	case localDoneMsg:
+		m.localBrowserForm = nil
+		m.viewMode = ViewList
+		m.table.Focus()
+		return m, nil
+
 	case settingsCloseMsg:
 		m.settingsForm = nil
 		m.viewMode = ViewList
@@ -660,6 +669,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				updatedModel, cmd := m.ftpForm.Update(msg)
 				if fm, ok := updatedModel.(*ftpFormModel); ok {
 					m.ftpForm = fm
+				}
+				return m, cmd
+			}
+		case ViewLocalBrowser:
+			if m.localBrowserForm != nil {
+				updatedModel, cmd := m.localBrowserForm.Update(msg)
+				if fm, ok := updatedModel.(*localBrowserModel); ok {
+					m.localBrowserForm = fm
 				}
 				return m, cmd
 			}
@@ -1001,6 +1018,17 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Open FTP site manager (uppercase; avoid colliding with f = port-forward)
 			m.ftpSitesForm = NewFTPSitesForm(m.styles, m.width, m.height)
 			m.viewMode = ViewFTP
+			return m, nil
+		}
+	case "b":
+		if !m.searchMode && !m.deleteMode {
+			// Open standalone local file browser
+			cwd, err := os.Getwd()
+			if err != nil {
+				cwd = ""
+			}
+			m.localBrowserForm = NewLocalBrowserForm(m.styles, m.width, m.height, cwd)
+			m.viewMode = ViewLocalBrowser
 			return m, nil
 		}
 	case "o":

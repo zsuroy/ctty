@@ -45,6 +45,7 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 - **📡 Telnet Connections** - Native RFC 854 telnet client (no system telnet needed): save and manage lab equipment, console servers, and legacy devices; reachability probe with one keypress
 - **📂 SFTP File Transfer** - Full-featured SFTP browser (`o` key) with remote browsing, upload/download queue with progress and cancel, search, mkdir/delete, plus headless CLI transfers (`put`/`get`/`scp`)
 - **📁 FTP Site Manager** - Plain-FTP support (`F` key) for hosts without SSH: tagged site inventory, dual-pane local|remote browser, mkdir/delete/rename in both panes, single/dual layout toggle, passwords in the encrypted vault
+- **🗂️ Local File Browser** - Standalone local filesystem manager (`b` key or `ctty browse [path]`): navigate, search, sort, mkdir/delete/rename with confirms, file details, open-with-default-app, reveal in file manager
 - **🔑 Password Storage & Zero-Touch Auto-Login** - Save SSH passwords securely in a local AES-256-GCM encrypted vault (`~/.config/ctty/credentials.json`, `0600` permissions) with native OpenSSH `SSH_ASKPASS` protocol bridge (zero third-party dependencies, works on macOS, Linux, Windows, and Termux)
 - **🖥️ Split-Pane & Small Terminal Friendly** - All forms and dialogs (Add/Edit Host, Port Forwarding, Host Info, Help Menu) feature focus-following dynamic viewport scrolling with fixed headers/footers. Works flawlessly in tmux/Zellij splits, VS Code/JetBrains embedded terminals, and tiling WMs (i3/Sway) down to 8~12 lines with zero height blocking or truncation
 - **🌐 Bilingual i18n & Settings UI** - Full English and Simplified Chinese support with automatic OS detection (macOS, Windows, Linux, Termux) and interactive in-TUI Settings menu (`S` key) to configure language, updates, and keybindings
@@ -166,6 +167,7 @@ ctty
 - `T` - Open telnet device manager
 - `o` - Open SFTP file browser for selected host
 - `F` - Open FTP site manager
+- `b` - Open local file browser
 - `x` - Remote Command Execution (snippets supported)
 - `S` - Open Settings & Preferences (Language, Updates, ESC behavior)
 - `U` - Open self-update modal (when an update is available)
@@ -524,6 +526,10 @@ ctty sftp prod-server
 # Open FTP site manager, or a site browser directly
 ctty ftp
 ctty ftp lab-nas
+
+# Browse the local filesystem (search, mkdir/delete/rename, file details)
+ctty browse
+ctty browse ~/Downloads
 
 # Open Serial device manager directly
 ctty serial
