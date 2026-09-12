@@ -574,3 +574,30 @@ func TestFTPSitesNarrowWideSwitchNoPanic(t *testing.T) {
 		_ = m.View()
 	}
 }
+
+func TestFTPEscFromLocalReturnsToRemote(t *testing.T) {
+	m := newManageTestForm(t)
+	m.setFocusLocal(true)
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	fm := updated.(*ftpFormModel)
+	if fm.focusLocal || fm.mode != ftpBrowse {
+		t.Fatal("esc from local must return to remote")
+	}
+	if cmd != nil {
+		t.Fatal("esc from local must not quit")
+	}
+
+	updated, cmd = fm.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("esc from remote must quit")
+	}
+	_ = updated
+
+	m2 := newManageTestForm(t)
+	m2.setFocusLocal(true)
+	_, cmd = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd == nil {
+		t.Fatal("q must quit from anywhere")
+	}
+}

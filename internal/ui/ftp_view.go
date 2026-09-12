@@ -635,6 +635,10 @@ func (m *ftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cancelTransfer()
 			return m, nil
 		}
+		if key == "esc" && m.focusLocal {
+			m.setFocusLocal(false)
+			return m, nil
+		}
 		if m.client != nil {
 			_ = m.client.Close()
 			m.client = nil

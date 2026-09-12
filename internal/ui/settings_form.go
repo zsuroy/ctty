@@ -17,6 +17,7 @@ const (
 	settingsFieldUpdate
 	settingsFieldEscQuit
 	settingsFieldFTPLayout
+	settingsFieldSFTPLayout
 	numSettingsFields
 )
 
@@ -33,6 +34,7 @@ type settingsFormModel struct {
 	updateIndex     int // 0=enabled, 1=disabled
 	disableEscIndex int // 0=enabled (quit on esc), 1=disabled (vim mode)
 	ftpLayoutIndex  int // 0=dual, 1=single
+	sftpLayoutIndex int // 0=dual, 1=single
 
 	saved     bool
 	cancelled bool
@@ -80,6 +82,12 @@ func NewSettingsForm(styles Styles, width, height int, appConfig *config.AppConf
 		ftpLayoutIdx = 1
 	}
 
+	sftpLayout := config.NormalizeSFTPLayout(cfg.SFTPLayout)
+	sftpLayoutIdx := 0
+	if sftpLayout == config.SFTPLayoutSingle {
+		sftpLayoutIdx = 1
+	}
+
 	return &settingsFormModel{
 		styles:          styles,
 		width:           width,
@@ -90,6 +98,7 @@ func NewSettingsForm(styles Styles, width, height int, appConfig *config.AppConf
 		updateIndex:     updateIdx,
 		disableEscIndex: escIdx,
 		ftpLayoutIndex:  ftpLayoutIdx,
+		sftpLayoutIndex: sftpLayoutIdx,
 	}
 }
 
@@ -148,6 +157,8 @@ func (m *settingsFormModel) adjustField(dir int) {
 		m.disableEscIndex = (m.disableEscIndex + dir + 2) % 2
 	case settingsFieldFTPLayout:
 		m.ftpLayoutIndex = (m.ftpLayoutIndex + dir + 2) % 2
+	case settingsFieldSFTPLayout:
+		m.sftpLayoutIndex = (m.sftpLayoutIndex + dir + 2) % 2
 	}
 }
 
@@ -162,6 +173,11 @@ func (m *settingsFormModel) saveSettings() tea.Cmd {
 			m.appConfig.FTPLayout = config.FTPLayoutDual
 		} else {
 			m.appConfig.FTPLayout = config.FTPLayoutSingle
+		}
+		if m.sftpLayoutIndex == 0 {
+			m.appConfig.SFTPLayout = config.SFTPLayoutDual
+		} else {
+			m.appConfig.SFTPLayout = config.SFTPLayoutSingle
 		}
 
 		// Persist to disk
@@ -220,6 +236,15 @@ func (m *settingsFormModel) View() string {
 		ftpLayoutDisplay = []string{"Dual pane", "Single pane"}
 	}
 	m.renderRow(&b, settingsFieldFTPLayout, i18n.T("settings.ftp_layout_label"), ftpLayoutDisplay[m.ftpLayoutIndex])
+
+	// 5. SFTP layout
+	var sftpLayoutDisplay []string
+	if i18n.CurrentLang() == i18n.LangZHCN {
+		sftpLayoutDisplay = []string{"双栏 (Dual pane)", "单栏 (Single pane)"}
+	} else {
+		sftpLayoutDisplay = []string{"Dual pane", "Single pane"}
+	}
+	m.renderRow(&b, settingsFieldSFTPLayout, i18n.T("settings.sftp_layout_label"), sftpLayoutDisplay[m.sftpLayoutIndex])
 
 	b.WriteString("\n")
 	b.WriteString(m.styles.HelpText.Render(i18n.T("settings.help")))

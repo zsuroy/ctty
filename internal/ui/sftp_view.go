@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/sftpconfig"
 
@@ -20,37 +21,43 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// SFTP view modes
+// SFTP view modes (dual-pane, FTP-aligned).
 type sftpMode int
 
 const (
 	sftpBrowse sftpMode = iota
+	sftpLocalBrowse
 	sftpDownloadConfirm
-	sftpUploadSelect
-	sftpDeleteConfirm
 	sftpMkdirInput
 	sftpRenameInput
+	sftpDeleteConfirm
 	sftpPasswordInput
 	sftpError
 )
 
-// sftpFormModel manages the SFTP file browser.
+// Narrow terminals show one focused pane instead of cramped dual columns.
+const sftpNarrowWidth = 80
+
+// sftpFormModel manages the dual-pane SFTP file browser.
 type sftpFormModel struct {
 	styles     Styles
 	width      int
 	height     int
 	hostName   string
 	configFile string
+	layout     config.SFTPLayout
 
-	client    *sftpconfig.SFTPClient
-	table     table.Model
-	entries   []sftpconfig.RemoteEntry
-	cwd       string // current working directory on remote
-	mode      sftpMode
-	ready     bool
-	loading   bool
-	loadError string
-	password  string
+	client     *sftpconfig.SFTPClient
+	remoteTbl  table.Model
+	localTbl   table.Model
+	entries    []sftpconfig.RemoteEntry
+	cwd        string // current working directory on remote
+	mode       sftpMode
+	ready      bool
+	loading    bool
+	loadError  string
+	password   string
+	focusLocal bool
 
 	// Download/upload progress (shared between goroutine and TUI)
 	progressDone   int64
@@ -65,9 +72,8 @@ type sftpFormModel struct {
 	inputBuffer string
 	inputPrompt string
 
-	// Local-target management for the upload selector: when true, the
-	// active mkdir/rename input or delete confirm operates on
-	// pendingLocalPath via os calls instead of the remote host.
+	// Local-target management: when true, the active mkdir/rename input
+	// or delete confirm operates on pendingLocalPath via os calls.
 	localOp          bool
 	pendingLocalPath string
 
@@ -82,15 +88,14 @@ type sftpFormModel struct {
 	statusMsg    string
 	statusExpiry time.Time
 
-	// Local file selector for upload
+	// Local pane state
 	localFiles         []string
 	localShowingDrives bool // Windows: browsing drive list above volume roots
+	localCwd           string
 
 	// Search
-	searchInput     textinput.Model
-	searchMode      bool
-	filteredEntries []sftpconfig.RemoteEntry
-	localCwd        string
+	searchInput textinput.Model
+	searchMode  bool
 }
 
 // sftpEntryInfo is a snapshot of the file or directory shown in the info overlay.
@@ -163,34 +168,31 @@ type sftpDoneMsg struct{}
 
 // NewSFTPForm creates the SFTP file browser.
 func NewSFTPForm(styles Styles, width, height int, hostName, configFile string) *sftpFormModel {
+	return NewSFTPFormWithLayout(styles, width, height, hostName, configFile, config.SFTPLayoutDual)
+}
+
+// NewSFTPFormWithLayout creates an SFTP browser using the configured pane layout.
+func NewSFTPFormWithLayout(styles Styles, width, height int, hostName, configFile string, layout config.SFTPLayout) *sftpFormModel {
 	m := &sftpFormModel{
 		styles:     styles,
 		width:      width,
 		height:     height,
 		hostName:   hostName,
 		configFile: configFile,
+		layout:     config.NormalizeSFTPLayout(layout),
 		mode:       sftpBrowse,
 		loading:    true,
 		localCwd:   defaultLocalUploadDir(),
+		focusLocal: false,
 	}
-
-	initHeight := m.calculateTableHeight()
-
-	cols := m.getColumns(false)
-	// Initialize table
-	m.table = table.New(
-		table.WithColumns(cols),
-		table.WithHeight(initHeight),
-		table.WithFocused(true),
-	)
-
-	// Initialize search input
+	h := m.paneTableHeight()
+	cols := m.remoteColumns()
+	m.remoteTbl = table.New(table.WithColumns(cols), table.WithHeight(h), table.WithFocused(true))
+	m.localTbl = table.New(table.WithColumns(m.localColumns()), table.WithHeight(h), table.WithFocused(false))
 	m.searchInput = textinput.New()
 	m.searchInput.Placeholder = i18n.T("sftp.search_placeholder")
 	m.searchInput.CharLimit = 50
 	m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
-	m.filteredEntries = m.entries
-
 	return m
 }
 
@@ -344,11 +346,15 @@ func (m *sftpFormModel) uploadCmd(localPath, remotePath string) tea.Cmd {
 	)
 }
 
-func (m *sftpFormModel) deleteCmd(remotePath string) tea.Cmd {
-	filename := path.Base(remotePath)
+func (m *sftpFormModel) deleteCmd(entry sftpconfig.RemoteEntry, remotePath string) tea.Cmd {
 	return func() tea.Msg {
-		err := m.client.Remove(remotePath)
-		return sftpDeleteResultMsg{filename: filename, success: err == nil, err: err}
+		var err error
+		if entry.IsDir {
+			err = m.client.RemoveAll(remotePath)
+		} else {
+			err = m.client.Remove(remotePath)
+		}
+		return sftpDeleteResultMsg{filename: entry.Name, success: err == nil, err: err}
 	}
 }
 
@@ -359,16 +365,11 @@ func (m *sftpFormModel) mkdirCmd(remotePath string) tea.Cmd {
 	}
 }
 
-func (m *sftpFormModel) calculateTableHeight() int {
-	overhead := 13
-	if m.height < 20 {
-		overhead = 9
+func (m *sftpFormModel) renameCmd(oldName, oldPath, newPath string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.Rename(oldPath, newPath)
+		return sftpRenameResultMsg{oldName: oldName, newName: filepath.Base(newPath), success: err == nil, err: err}
 	}
-	h := m.height - overhead
-	if h < 2 {
-		h = 2
-	}
-	return h
 }
 
 // Update handles SFTP view messages
@@ -382,6 +383,7 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.ready = true
 		m.setStatus("Connected to " + m.hostName)
+		m.refreshLocal()
 		return m, m.loadDirCmd(m.cwd)
 
 	case sftpPasswordPromptMsg:
@@ -404,9 +406,9 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.entries = msg.entries
 		m.cwd = msg.cwd
-		if m.mode != sftpUploadSelect {
-			m.updateTableRows()
-		}
+		m.sortEntries()
+		m.updateRemoteRows()
+		m.clampActiveCursor()
 		return m, nil
 
 	case sftpErrorMsg:
@@ -435,10 +437,16 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sftpUploadResultMsg:
 		return m, m.handleTransferResult(msg.gen, msg.filename, msg.success, msg.err, true)
+
 	case sftpDeleteResultMsg:
 		m.loading = false
-		m.mode = sftpBrowse
 		m.selectedEntry = nil
+		m.localOp = false
+		m.pendingLocalPath = ""
+		if !m.inInput() {
+			m.mode = sftpBrowse
+			m.setFocusLocal(false)
+		}
 		if msg.success {
 			name := msg.filename
 			if name == "" {
@@ -451,24 +459,32 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadDirCmd(m.cwd)
 
 	case sftpMkdirResultMsg:
+		m.localOp = false
 		if msg.success {
 			m.setStatus("Directory created")
+		} else if m.inInput() {
+			m.setStatus(i18n.T("sftp.mkdir_failed", msg.err))
 		} else {
 			m.loadError = msg.err.Error()
 			m.mode = sftpError
 		}
-		m.mode = sftpBrowse
-		m.inputBuffer = ""
-		m.localOp = false
+		if !m.inInput() {
+			m.mode = sftpBrowse
+			m.setFocusLocal(false)
+			m.inputBuffer = ""
+		}
 		return m, m.loadDirCmd(m.cwd)
 
 	case sftpRenameResultMsg:
-		m.mode = sftpBrowse
 		m.selectedEntry = nil
-		m.inputBuffer = ""
 		m.localOp = false
 		m.pendingLocalPath = ""
 		m.loading = false
+		if !m.inInput() {
+			m.mode = sftpBrowse
+			m.setFocusLocal(false)
+			m.inputBuffer = ""
+		}
 		if msg.success {
 			m.setStatus(i18n.T("sftp.rename_success", msg.oldName, msg.newName))
 			return m, m.loadDirCmd(m.cwd)
@@ -480,13 +496,12 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
-		tableHeight := m.calculateTableHeight()
-		m.table.SetHeight(tableHeight)
-		if m.mode == sftpUploadSelect {
-			m.updateLocalTableRows()
-		} else {
-			m.updateTableRows()
-		}
+		h := m.paneTableHeight()
+		m.remoteTbl.SetHeight(h)
+		m.localTbl.SetHeight(h)
+		m.updateRemoteRows()
+		m.updateLocalRows()
+		m.clampActiveCursor()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -498,17 +513,17 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle input modes (mkdir)
+		// Handle mkdir input mode
 		if m.mode == sftpMkdirInput {
 			return m.handleMkdirInput(msg)
 		}
 
-		// Handle rename input (remote or local upload selector)
+		// Handle rename input mode
 		if m.mode == sftpRenameInput {
 			return m.handleRenameInput(msg)
 		}
 
-		// Info overlay sits above browse and upload-select views.
+		// Info overlay sits above browse views.
 		if m.showInfo {
 			switch msg.String() {
 			case "esc", "i", "enter", "q":
@@ -528,26 +543,23 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleConfirmDialog(msg)
 		}
 
-		// Handle upload file selection
-		if m.mode == sftpUploadSelect {
-			return m.handleUploadSelect(msg)
-		}
-
 		// Normal browse mode
+		if m.searchMode {
+			return m.handleSearchKeys(msg)
+		}
 		return m.handleBrowseKeys(msg)
 	}
 
-	// Default: update table
-	m.table, cmd = m.table.Update(msg)
+	// Default: update focused table
+	if m.focusLocal {
+		m.localTbl, cmd = m.localTbl.Update(msg)
+	} else {
+		m.remoteTbl, cmd = m.remoteTbl.Update(msg)
+	}
 	return m, cmd
 }
 
 func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Handle search mode
-	if m.searchMode {
-		return m.handleSearchKeys(msg)
-	}
-
 	var cmd tea.Cmd
 	key := msg.String()
 
@@ -560,153 +572,85 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.progressGen++
 			m.queue.clear()
 			m.setStatus(fmt.Sprintf("Cancelled: %s", m.progressFile))
-			if m.mode != sftpUploadSelect {
-				m.mode = sftpBrowse
-				m.updateTableRows()
-			}
+			return m, nil
+		}
+		if key == "esc" && m.focusLocal {
+			m.setFocusLocal(false)
 			return m, nil
 		}
 		return m, func() tea.Msg { return sftpDoneMsg{} }
+	case "tab", "shift+tab":
+		m.setFocusLocal(!m.focusLocal)
+		return m, nil
+	case "u":
+		if !m.focusLocal {
+			m.setFocusLocal(true)
+		}
+		return m, nil
 	case "/", "ctrl+f":
-		m.searchMode = true
-		m.searchInput.Focus()
-		m.table.Blur()
-		return m, textinput.Blink
-
-	case "enter":
-		// Enter: download file only (not directories)
-		selected := m.table.SelectedRow()
-		if len(selected) == 0 {
-			return m, nil
-		}
-		name := selected[0]
-		entry := m.findEntry(name)
-		if entry == nil || entry.IsDir {
-			return m, nil
-		}
-		job := sftpTransferJob{
-			filename:   entry.Name,
-			localPath:  m.localDownloadPath(entry.Name),
-			remotePath: path.Join(m.cwd, entry.Name),
-			isUpload:   false,
-		}
-		if m.transferring {
-			return m, m.requestTransfer(job)
-		}
-		m.selectedEntry = entry
-		m.mode = sftpDownloadConfirm
-		return m, nil
-
-	case "right", "l":
-		if m.transferring {
-			return m, nil
-		}
-		// Right/l: open directory
-		selected := m.table.SelectedRow()
-		if len(selected) == 0 {
-			return m, nil
-		}
-		name := selected[0]
-		entry := m.findEntry(name)
-		if entry == nil || !entry.IsDir {
-			return m, nil
-		}
-		newPath := path.Join(m.cwd, entry.Name)
-		m.loading = true
-		m.statusMsg = "Loading " + entry.Name + "..."
-		return m, m.loadDirCmd(newPath)
-
+		return m, m.enterSearch()
 	case "left", "h", "backspace":
-		if m.transferring {
-			return m, nil
+		if m.focusLocal {
+			return m, m.localUp()
 		}
-		// Left/h/backspace: go to parent directory
-		parent := path.Dir(m.cwd)
-		if parent == m.cwd {
-			return m, nil
+		return m, m.remoteUp()
+	case "right", "l":
+		if m.focusLocal {
+			return m.handleLocalOpenDir()
 		}
-		m.loading = true
-		m.statusMsg = "Loading " + parent + "..."
-		return m, m.loadDirCmd(parent)
-
-	case "u", "tab", "shift+tab":
-		if m.transferring {
-			return m, nil
+		return m.handleRemoteOpenDir()
+	case "enter":
+		if m.focusLocal {
+			return m.handleLocalEnter()
 		}
-		// Upload: switch table to show local files
-		m.mode = sftpUploadSelect
-		m.localShowingDrives = false
-		if m.localCwd == "" {
-			m.localCwd = defaultLocalUploadDir()
-		}
-		m.localFiles = m.listLocalFiles()
-		m.updateLocalTableRows()
-		m.table.SetCursor(0)
-		return m, nil
-
+		return m.handleRemoteEnter()
 	case "d":
 		if m.transferring {
-			return m, nil
+			return m, m.busyStatus()
 		}
-		// Delete selected file
-		selected := m.table.SelectedRow()
-		if len(selected) == 0 {
-			return m, nil
-		}
-		name := selected[0]
-		entry := m.findEntry(name)
-		if entry == nil || entry.IsDir {
-			return m, nil
-		}
-		m.selectedEntry = entry
-		m.mode = sftpDeleteConfirm
-		return m, nil
-
+		return m.startDeleteConfirm()
 	case "n":
 		if m.transferring {
-			return m, nil
+			return m, m.busyStatus()
 		}
-		// New directory
+		m.localOp = m.focusLocal
 		m.mode = sftpMkdirInput
 		m.inputBuffer = ""
 		m.inputPrompt = i18n.T("sftp.mkdir_prompt")
 		return m, nil
-
-	case "r":
-		if m.transferring {
-			return m, nil
-		}
-		// Refresh
-		return m, m.loadDirCmd(m.cwd)
-
 	case "R":
 		if m.transferring {
-			return m, nil
+			return m, m.busyStatus()
 		}
-		selected := m.table.SelectedRow()
-		if len(selected) == 0 {
-			return m, nil
-		}
-		entry := m.findEntry(selected[0])
-		if entry == nil {
-			return m, nil
-		}
-		m.selectedEntry = entry
-		m.localOp = false
-		m.mode = sftpRenameInput
-		m.inputBuffer = entry.Name
-		m.inputPrompt = i18n.T("sftp.rename_prompt")
-		return m, nil
-
+		return m.startRenameInput()
 	case "i":
 		if info := m.focusedEntryInfo(); info != nil {
 			m.entryInfo = info
 			m.showInfo = true
 		}
 		return m, nil
-
+	case "v", "V":
+		return m.toggleLayout()
+	case "r":
+		if m.transferring {
+			return m, m.busyStatus()
+		}
+		if m.focusLocal {
+			m.refreshLocal()
+			m.updateLocalRows()
+			m.clampActiveCursor()
+			m.setStatus(i18n.T("ftp.refreshed"))
+			return m, nil
+		}
+		m.loading = true
+		m.setStatus(i18n.T("ftp.refreshing"))
+		return m, m.loadDirCmd(m.cwd)
 	case "up", "down", "k", "j", "pgup", "pgdown", "home", "end", "g", "G":
-		m.table, cmd = m.table.Update(msg)
+		if m.focusLocal {
+			m.localTbl, cmd = m.localTbl.Update(msg)
+		} else {
+			m.remoteTbl, cmd = m.remoteTbl.Update(msg)
+		}
 		return m, cmd
 	}
 
@@ -715,63 +659,614 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *sftpFormModel) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc":
-		m.searchMode = false
-		m.searchInput.Blur()
-		m.table.Focus()
-		return m, nil
-	case "enter", "tab":
-		m.searchMode = false
-		m.searchInput.Blur()
-		m.table.Focus()
+	case "esc", "enter", "tab":
+		m.exitSearch()
+		m.updateRemoteRows()
+		m.updateLocalRows()
+		m.clampActiveCursor()
 		return m, nil
 	}
 	var cmd tea.Cmd
 	oldValue := m.searchInput.Value()
 	m.searchInput, cmd = m.searchInput.Update(msg)
 	if m.searchInput.Value() != oldValue {
-		m.filterEntries()
+		m.updateRemoteRows()
+		m.updateLocalRows()
+		m.clampActiveCursor()
 	}
 	return m, cmd
 }
 
-// filterEntries filters the remote entries by search query and rebuilds table.
-func (m *sftpFormModel) filterEntries() {
-	query := strings.ToLower(m.searchInput.Value())
-	if query == "" {
-		m.filteredEntries = m.entries
-	} else {
-		filtered := make([]sftpconfig.RemoteEntry, 0, len(m.entries))
-		for _, e := range m.entries {
-			if strings.Contains(strings.ToLower(e.Name), query) {
-				filtered = append(filtered, e)
-			}
-		}
-		m.filteredEntries = filtered
+func (m *sftpFormModel) handleRemoteOpenDir() (tea.Model, tea.Cmd) {
+	e := m.selectedRemote()
+	if e == nil || !e.IsDir {
+		return m, nil
 	}
-	// Rebuild table with filtered entries
-	saved := m.entries
-	m.entries = m.filteredEntries
-	m.updateTableRows()
-	m.entries = saved // restore original for future searches
+	next := path.Join(m.cwd, e.Name)
+	m.loading = true
+	m.statusMsg = "Loading " + e.Name + "..."
+	return m, m.loadDirCmd(next)
 }
 
-// filterLocalFiles filters the local file list by search query and rebuilds table.
-func (m *sftpFormModel) filterLocalFiles() {
-	query := strings.ToLower(m.searchInput.Value())
-	allFiles := m.listLocalFiles()
-	if query == "" {
-		m.localFiles = allFiles
-	} else {
-		filtered := make([]string, 0, len(allFiles))
-		for _, f := range allFiles {
-			if strings.Contains(strings.ToLower(filepath.Base(f)), query) {
-				filtered = append(filtered, f)
+func (m *sftpFormModel) handleRemoteEnter() (tea.Model, tea.Cmd) {
+	e := m.selectedRemote()
+	if e == nil {
+		return m, nil
+	}
+	if e.IsDir {
+		next := path.Join(m.cwd, e.Name)
+		m.loading = true
+		m.statusMsg = "Loading " + e.Name + "..."
+		return m, m.loadDirCmd(next)
+	}
+	job := sftpTransferJob{
+		filename:   e.Name,
+		localPath:  m.localDownloadPath(e.Name),
+		remotePath: path.Join(m.cwd, e.Name),
+		isUpload:   false,
+	}
+	if m.transferring {
+		return m, m.requestTransfer(job)
+	}
+	m.selectedEntry = e
+	m.mode = sftpDownloadConfirm
+	return m, nil
+}
+
+func (m *sftpFormModel) handleLocalOpenDir() (tea.Model, tea.Cmd) {
+	files := m.filteredLocal()
+	idx := m.localTbl.Cursor()
+	if idx < 0 || idx >= len(files) {
+		return m, nil
+	}
+	full := files[idx]
+	if m.localShowingDrives {
+		if m.transferring {
+			return m, nil
+		}
+		m.localShowingDrives = false
+		m.localCwd = full
+		m.refreshLocal()
+		m.updateLocalRows()
+		m.localTbl.SetCursor(0)
+		return m, nil
+	}
+	info, err := os.Stat(full)
+	if err != nil || !info.IsDir() {
+		return m, nil
+	}
+	m.localCwd = full
+	m.refreshLocal()
+	m.updateLocalRows()
+	m.localTbl.SetCursor(0)
+	return m, nil
+}
+
+func (m *sftpFormModel) handleLocalEnter() (tea.Model, tea.Cmd) {
+	files := m.filteredLocal()
+	idx := m.localTbl.Cursor()
+	if idx < 0 || idx >= len(files) {
+		return m, nil
+	}
+	full := files[idx]
+	if m.localShowingDrives {
+		if m.transferring {
+			return m, nil
+		}
+		m.localShowingDrives = false
+		m.localCwd = full
+		m.refreshLocal()
+		m.updateLocalRows()
+		m.localTbl.SetCursor(0)
+		return m, nil
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return m, nil
+	}
+	if info.IsDir() {
+		if m.transferring {
+			return m, nil
+		}
+		m.localCwd = full
+		m.refreshLocal()
+		m.updateLocalRows()
+		m.localTbl.SetCursor(0)
+		return m, nil
+	}
+	remotePath := path.Join(m.cwd, filepath.Base(full))
+	return m, m.requestTransfer(sftpTransferJob{
+		filename:   filepath.Base(full),
+		localPath:  full,
+		remotePath: remotePath,
+		isUpload:   true,
+	})
+}
+
+func (m *sftpFormModel) startDeleteConfirm() (tea.Model, tea.Cmd) {
+	m.localOp = false
+	m.pendingLocalPath = ""
+	m.selectedEntry = nil
+	if m.focusLocal {
+		full := m.selectedLocal()
+		if full == "" || m.localShowingDrives {
+			return m, nil
+		}
+		m.localOp = true
+		m.pendingLocalPath = full
+		m.mode = sftpDeleteConfirm
+		return m, nil
+	}
+	e := m.selectedRemote()
+	if e == nil {
+		return m, nil
+	}
+	m.selectedEntry = e
+	m.mode = sftpDeleteConfirm
+	return m, nil
+}
+
+func (m *sftpFormModel) startRenameInput() (tea.Model, tea.Cmd) {
+	m.localOp = false
+	m.pendingLocalPath = ""
+	m.selectedEntry = nil
+	if m.focusLocal {
+		full := m.selectedLocal()
+		if full == "" || m.localShowingDrives {
+			return m, nil
+		}
+		m.localOp = true
+		m.pendingLocalPath = full
+		m.mode = sftpRenameInput
+		m.inputBuffer = filepath.Base(full)
+		m.inputPrompt = i18n.T("sftp.rename_prompt")
+		return m, nil
+	}
+	e := m.selectedRemote()
+	if e == nil {
+		return m, nil
+	}
+	m.selectedEntry = e
+	m.mode = sftpRenameInput
+	m.inputBuffer = e.Name
+	m.inputPrompt = i18n.T("sftp.rename_prompt")
+	return m, nil
+}
+
+func (m *sftpFormModel) remoteUp() tea.Cmd {
+	if m.cwd == "/" || m.cwd == "" {
+		return nil
+	}
+	parent := path.Dir(m.cwd)
+	if parent == m.cwd {
+		return nil
+	}
+	m.loading = true
+	m.statusMsg = "Loading " + parent + "..."
+	return m.loadDirCmd(parent)
+}
+
+func (m *sftpFormModel) localUp() tea.Cmd {
+	if isLocalFilesystemRoot(m.localCwd) {
+		if drives := listLocalDrives(); len(drives) > 0 {
+			m.localShowingDrives = true
+			m.localFiles = drives
+			m.updateLocalRows()
+			m.localTbl.SetCursor(0)
+		}
+		return nil
+	}
+	if m.localShowingDrives {
+		return nil
+	}
+	parent := filepath.Dir(m.localCwd)
+	if parent == m.localCwd || parent == "." {
+		return nil
+	}
+	m.localCwd = parent
+	m.refreshLocal()
+	m.updateLocalRows()
+	m.localTbl.SetCursor(0)
+	return nil
+}
+
+func (m *sftpFormModel) selectedRemote() *sftpconfig.RemoteEntry {
+	rows := m.filteredRemote()
+	idx := m.remoteTbl.Cursor()
+	if idx < 0 || idx >= len(rows) {
+		return nil
+	}
+	return &rows[idx]
+}
+
+func (m *sftpFormModel) selectedLocal() string {
+	files := m.filteredLocal()
+	idx := m.localTbl.Cursor()
+	if idx < 0 || idx >= len(files) {
+		return ""
+	}
+	return files[idx]
+}
+
+func (m *sftpFormModel) filteredRemote() []sftpconfig.RemoteEntry {
+	q := strings.ToLower(strings.TrimSpace(m.searchInput.Value()))
+	if q == "" || m.focusLocal {
+		return m.entries
+	}
+	words := strings.Fields(q)
+	var out []sftpconfig.RemoteEntry
+	for _, e := range m.entries {
+		ok := true
+		for _, w := range words {
+			if !strings.Contains(strings.ToLower(e.Name), w) {
+				ok = false
+				break
 			}
 		}
-		m.localFiles = filtered
+		if ok {
+			out = append(out, e)
+		}
 	}
-	m.updateLocalTableRows()
+	return out
+}
+
+func (m *sftpFormModel) filteredLocal() []string {
+	if m.localShowingDrives {
+		return m.localFiles
+	}
+	q := strings.ToLower(strings.TrimSpace(m.searchInput.Value()))
+	if q == "" || !m.focusLocal {
+		return m.localFiles
+	}
+	words := strings.Fields(q)
+	var out []string
+	for _, f := range m.localFiles {
+		name := strings.ToLower(filepath.Base(f))
+		ok := true
+		for _, w := range words {
+			if !strings.Contains(name, w) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func (m *sftpFormModel) sortEntries() {
+	sort.Slice(m.entries, func(i, j int) bool {
+		if m.entries[i].IsDir != m.entries[j].IsDir {
+			return m.entries[i].IsDir
+		}
+		return m.entries[i].Name < m.entries[j].Name
+	})
+}
+
+func (m *sftpFormModel) refreshLocal() {
+	m.localFiles = nil
+	if m.localShowingDrives {
+		m.localFiles = listLocalDrives()
+		return
+	}
+	if m.localCwd == "" {
+		m.localCwd = defaultLocalUploadDir()
+	}
+	entries, err := os.ReadDir(m.localCwd)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		m.localFiles = append(m.localFiles, filepath.Join(m.localCwd, entry.Name()))
+	}
+	sort.Slice(m.localFiles, func(i, j int) bool {
+		ii, ei := os.Stat(m.localFiles[i])
+		ij, ej := os.Stat(m.localFiles[j])
+		if ei != nil || ej != nil {
+			return m.localFiles[i] < m.localFiles[j]
+		}
+		if ii.IsDir() != ij.IsDir() {
+			return ii.IsDir()
+		}
+		return filepath.Base(m.localFiles[i]) < filepath.Base(m.localFiles[j])
+	})
+	m.updateLocalRows()
+}
+
+// listLocalFiles returns all visible entries (files and dirs) in localCwd.
+func (m *sftpFormModel) listLocalFiles() []string {
+	if m.localShowingDrives {
+		return listLocalDrives()
+	}
+	if m.localCwd == "" {
+		m.localCwd = defaultLocalUploadDir()
+	}
+	entries, err := os.ReadDir(m.localCwd)
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		files = append(files, filepath.Join(m.localCwd, entry.Name()))
+	}
+	sort.Strings(files)
+	return files
+}
+
+func (m *sftpFormModel) updateRemoteRows() {
+	cols := m.remoteColumns()
+	m.remoteTbl.SetColumns(cols)
+	var rows []table.Row
+	for _, e := range m.filteredRemote() {
+		name := e.Name
+		if e.IsDir {
+			name = "📁 " + name
+		} else {
+			name = "📄 " + name
+		}
+		kind := i18n.T("sftp.type_file")
+		if e.IsDir {
+			kind = i18n.T("sftp.type_dir")
+		}
+		rows = append(rows, table.Row{name, kind, formatSize(e.Size)})
+	}
+	m.remoteTbl.SetRows(rows)
+}
+
+func (m *sftpFormModel) updateLocalRows() {
+	cols := m.localColumns()
+	m.localTbl.SetColumns(cols)
+	var rows []table.Row
+	for _, f := range m.filteredLocal() {
+		name := filepath.Base(f)
+		if m.localShowingDrives || name == "" || name == string(filepath.Separator) || name == "\\" {
+			name = f
+		}
+		kind := i18n.T("sftp.type_file")
+		sz := ""
+		if !m.localShowingDrives {
+			info, err := os.Stat(f)
+			if err != nil {
+				continue
+			}
+			sz = formatSize(info.Size())
+			if info.IsDir() {
+				name = "📁 " + name
+				kind = i18n.T("sftp.type_dir")
+				sz = ""
+			} else {
+				name = "📄 " + name
+			}
+		}
+		rows = append(rows, table.Row{name, kind, sz})
+	}
+	if len(rows) == 0 {
+		emptyRow := make(table.Row, len(cols))
+		emptyRow[0] = i18n.T("sftp.empty_dir")
+		rows = append(rows, emptyRow)
+	}
+	m.localTbl.SetRows(rows)
+}
+
+// findEntry finds an entry by name (stripping the emoji prefix)
+func (m *sftpFormModel) findEntry(name string) *sftpconfig.RemoteEntry {
+	cleanName := strings.TrimPrefix(name, "📁 ")
+	cleanName = strings.TrimPrefix(cleanName, "📄 ")
+
+	for i := range m.entries {
+		if m.entries[i].Name == cleanName {
+			return &m.entries[i]
+		}
+	}
+	return nil
+}
+
+// inInput reports whether the user is typing in mkdir/rename input:
+// late results must not clobber the open input session.
+func (m *sftpFormModel) inInput() bool {
+	return m.mode == sftpMkdirInput || m.mode == sftpRenameInput
+}
+
+func (m *sftpFormModel) setFocusLocal(local bool) {
+	m.focusLocal = local
+	if local {
+		m.mode = sftpLocalBrowse
+		m.localTbl.Focus()
+		m.remoteTbl.Blur()
+	} else {
+		m.mode = sftpBrowse
+		m.remoteTbl.Focus()
+		m.localTbl.Blur()
+	}
+	m.updateRemoteRows()
+	m.updateLocalRows()
+	m.clampActiveCursor()
+}
+
+func (m *sftpFormModel) enterSearch() tea.Cmd {
+	m.searchMode = true
+	m.searchInput.Focus()
+	m.remoteTbl.Blur()
+	m.localTbl.Blur()
+	return textinput.Blink
+}
+
+func (m *sftpFormModel) exitSearch() {
+	m.searchMode = false
+	m.searchInput.Blur()
+	if m.focusLocal {
+		m.localTbl.Focus()
+		m.remoteTbl.Blur()
+	} else {
+		m.remoteTbl.Focus()
+		m.localTbl.Blur()
+	}
+}
+
+func (m *sftpFormModel) clampTableCursor(tbl *table.Model, count int) {
+	if count == 0 || (tbl.Cursor() >= 0 && tbl.Cursor() < count) {
+		return
+	}
+	tbl.SetCursor(0)
+}
+
+func (m *sftpFormModel) clampActiveCursor() {
+	if m.focusLocal {
+		m.clampTableCursor(&m.localTbl, len(m.filteredLocal()))
+	} else {
+		m.clampTableCursor(&m.remoteTbl, len(m.filteredRemote()))
+	}
+}
+
+func (m *sftpFormModel) focusedEntryInfo() *sftpEntryInfo {
+	if m.focusLocal {
+		full := m.selectedLocal()
+		if full == "" || m.localShowingDrives {
+			return nil
+		}
+		info := &sftpEntryInfo{name: filepath.Base(full), path: full}
+		if st, err := os.Stat(full); err == nil {
+			info.isDir = st.IsDir()
+			info.size = st.Size()
+			info.modTime = st.ModTime()
+		}
+		return info
+	}
+	e := m.selectedRemote()
+	if e == nil {
+		return nil
+	}
+	return &sftpEntryInfo{
+		name:    e.Name,
+		isDir:   e.IsDir,
+		size:    e.Size,
+		modTime: e.ModTime,
+		path:    path.Join(m.cwd, e.Name),
+	}
+}
+
+func (m *sftpFormModel) paneTableHeight() int {
+	// Frame budget: header(1) + paths(2) + search(3) + table box(h+2) +
+	// help(3 tall, 1 compact). The frame must never exceed the terminal
+	// height: on overflow the alt-screen scrolls and the diff renderer
+	// never rewrites the unchanged header, losing it permanently.
+	overhead := 11
+	if m.height < 20 {
+		overhead = 9
+	}
+	h := m.height - overhead
+	if h < 5 {
+		h = 5
+	}
+	return h
+}
+
+func (m *sftpFormModel) narrow() bool {
+	return m.width > 0 && m.width < sftpNarrowWidth
+}
+
+func (m *sftpFormModel) singlePane() bool {
+	return m.layout == config.SFTPLayoutSingle || m.narrow()
+}
+
+func (m *sftpFormModel) paneWidth() int {
+	if m.singlePane() {
+		w := m.width - 4
+		if w < 20 {
+			w = 20
+		}
+		return w
+	}
+	w := (m.width - 8) / 2
+	if w < 20 {
+		w = 20
+	}
+	return w
+}
+
+func (m *sftpFormModel) paneContentWidth() int {
+	w := m.paneWidth() - 6
+	if w < 12 {
+		return 12
+	}
+	return w
+}
+
+func (m *sftpFormModel) remoteColumns() []table.Column {
+	inner := m.paneContentWidth()
+	nameW := inner - 5 - 8
+	if nameW < 8 {
+		nameW = 8
+	}
+	return []table.Column{
+		{Title: i18n.T("ftp.col_remote"), Width: nameW},
+		{Title: i18n.T("sftp.col_type"), Width: 5},
+		{Title: i18n.T("sftp.col_size"), Width: 8},
+	}
+}
+
+func (m *sftpFormModel) localColumns() []table.Column {
+	inner := m.paneContentWidth()
+	nameW := inner - 5 - 8
+	if nameW < 8 {
+		nameW = 8
+	}
+	return []table.Column{
+		{Title: i18n.T("ftp.col_local"), Width: nameW},
+		{Title: i18n.T("sftp.col_type"), Width: 5},
+		{Title: i18n.T("sftp.col_size"), Width: 8},
+	}
+}
+
+// toggleLayout flips dual/single pane layout and persists it to app config.
+func (m *sftpFormModel) toggleLayout() (tea.Model, tea.Cmd) {
+	if m.layout == config.SFTPLayoutSingle {
+		m.layout = config.SFTPLayoutDual
+	} else {
+		m.layout = config.SFTPLayoutSingle
+	}
+	m.updateRemoteRows()
+	m.updateLocalRows()
+	m.clampActiveCursor()
+	persistSFTPLayout(m.layout)
+	name := i18n.T("sftp.layout_dual")
+	if m.layout == config.SFTPLayoutSingle {
+		name = i18n.T("sftp.layout_single")
+	}
+	m.setStatus(i18n.T("sftp.layout_status", name))
+	return m, nil
+}
+
+// persistSFTPLayout writes the chosen layout to ~/.config/ctty/config.json.
+// Failures are silent — the in-memory layout still applies for this session.
+func persistSFTPLayout(layout config.SFTPLayout) {
+	cfg, err := config.LoadAppConfig()
+	if err != nil || cfg == nil {
+		fallback := config.GetDefaultAppConfig()
+		cfg = &fallback
+	}
+	cfg.SFTPLayout = config.NormalizeSFTPLayout(layout)
+	_ = config.SaveAppConfig(cfg)
+}
+
+func (m *sftpFormModel) focusLabel(local bool) string {
+	active := local == m.focusLocal
+	name := "[REMOTE]"
+	if local {
+		name = "[LOCAL]"
+	}
+	if active {
+		return "● " + name
+	}
+	return "  " + name
 }
 
 func (m *sftpFormModel) handleMkdirInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -782,7 +1277,7 @@ func (m *sftpFormModel) handleMkdirInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputBuffer = ""
 		m.mode = sftpBrowse
 		if m.localOp {
-			m.mode = sftpUploadSelect
+			m.mode = sftpLocalBrowse
 		}
 		m.localOp = false
 		return m, nil
@@ -795,24 +1290,24 @@ func (m *sftpFormModel) handleMkdirInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if dirName == "" {
 			m.mode = sftpBrowse
 			if upload {
-				m.mode = sftpUploadSelect
+				m.mode = sftpLocalBrowse
 			}
 			return m, nil
 		}
 		if upload {
-			m.mode = sftpUploadSelect
+			m.mode = sftpLocalBrowse
 			if err := os.Mkdir(filepath.Join(m.localCwd, dirName), 0755); err != nil {
 				m.setStatus(i18n.T("sftp.mkdir_failed", err))
 			} else {
 				m.setStatus(i18n.T("sftp.mkdir_success", dirName))
 			}
-			m.localFiles = m.listLocalFiles()
-			m.updateLocalTableRows()
+			m.refreshLocal()
+			m.updateLocalRows()
+			m.clampActiveCursor()
 			return m, nil
 		}
 		m.mode = sftpBrowse
-		newPath := path.Join(m.cwd, dirName)
-		return m, m.mkdirCmd(newPath)
+		return m, m.mkdirCmd(path.Join(m.cwd, dirName))
 
 	case "backspace":
 		if len(m.inputBuffer) > 0 {
@@ -835,7 +1330,7 @@ func (m *sftpFormModel) handleRenameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputBuffer = ""
 		m.mode = sftpBrowse
 		if m.localOp {
-			m.mode = sftpUploadSelect
+			m.mode = sftpLocalBrowse
 		}
 		m.localOp = false
 		m.pendingLocalPath = ""
@@ -850,7 +1345,7 @@ func (m *sftpFormModel) handleRenameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		oldLocal := m.pendingLocalPath
 		m.pendingLocalPath = ""
 		if upload {
-			m.mode = sftpUploadSelect
+			m.mode = sftpLocalBrowse
 			if newName == "" || oldLocal == "" || newName == filepath.Base(oldLocal) {
 				return m, nil
 			}
@@ -859,8 +1354,9 @@ func (m *sftpFormModel) handleRenameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.setStatus(i18n.T("sftp.rename_success", filepath.Base(oldLocal), newName))
 			}
-			m.localFiles = m.listLocalFiles()
-			m.updateLocalTableRows()
+			m.refreshLocal()
+			m.updateLocalRows()
+			m.clampActiveCursor()
 			return m, nil
 		}
 		m.mode = sftpBrowse
@@ -870,6 +1366,7 @@ func (m *sftpFormModel) handleRenameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		oldName := m.selectedEntry.Name
 		m.selectedEntry = nil
+		m.loading = true
 		return m, m.renameCmd(oldName, path.Join(m.cwd, oldName), path.Join(m.cwd, newName))
 
 	case "backspace":
@@ -886,45 +1383,6 @@ func (m *sftpFormModel) handleRenameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m *sftpFormModel) renameCmd(oldName, oldPath, newPath string) tea.Cmd {
-	return func() tea.Msg {
-		err := m.client.Rename(oldPath, newPath)
-		return sftpRenameResultMsg{oldName: oldName, newName: filepath.Base(newPath), success: err == nil, err: err}
-	}
-}
-
-func (m *sftpFormModel) focusedEntryInfo() *sftpEntryInfo {
-	if m.mode == sftpUploadSelect {
-		idx := m.table.Cursor()
-		if idx < 0 || idx >= len(m.localFiles) || m.localShowingDrives {
-			return nil
-		}
-		full := m.localFiles[idx]
-		info := &sftpEntryInfo{name: filepath.Base(full), path: full}
-		if st, err := os.Stat(full); err == nil {
-			info.isDir = st.IsDir()
-			info.size = st.Size()
-			info.modTime = st.ModTime()
-		}
-		return info
-	}
-	row := m.table.SelectedRow()
-	if len(row) == 0 {
-		return nil
-	}
-	entry := m.findEntry(row[0])
-	if entry == nil {
-		return nil
-	}
-	return &sftpEntryInfo{
-		name:    entry.Name,
-		isDir:   entry.IsDir,
-		size:    entry.Size,
-		modTime: entry.ModTime,
-		path:    path.Join(m.cwd, entry.Name),
-	}
-}
-
 func (m *sftpFormModel) handlePasswordInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
@@ -934,6 +1392,7 @@ func (m *sftpFormModel) handlePasswordInput(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 
 	case "enter":
 		password := m.inputBuffer
+		m.password = password
 		m.inputBuffer = ""
 		m.loading = true
 		m.mode = sftpBrowse
@@ -968,10 +1427,16 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 
 	switch key {
 	case "esc":
-		m.mode = sftpBrowse
+		upload := m.localOp
 		m.selectedEntry = nil
 		m.localOp = false
 		m.pendingLocalPath = ""
+		m.mode = sftpBrowse
+		m.setFocusLocal(false)
+		if upload {
+			m.mode = sftpLocalBrowse
+			m.setFocusLocal(true)
+		}
 		return m, nil
 
 	case "enter", "y":
@@ -980,21 +1445,24 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 			target := m.pendingLocalPath
 			m.pendingLocalPath = ""
 			m.selectedEntry = nil
-			m.mode = sftpUploadSelect
+			m.mode = sftpLocalBrowse
+			m.setFocusLocal(true)
 			if target == "" {
 				return m, nil
 			}
-			if err := os.Remove(target); err != nil {
+			if err := os.RemoveAll(target); err != nil {
 				m.setStatus(i18n.T("sftp.delete_failed", err.Error()))
 			} else {
 				m.setStatus(i18n.T("sftp.delete_success", filepath.Base(target)))
 			}
-			m.localFiles = m.listLocalFiles()
-			m.updateLocalTableRows()
+			m.refreshLocal()
+			m.updateLocalRows()
+			m.clampActiveCursor()
 			return m, nil
 		}
 		if m.selectedEntry == nil {
 			m.mode = sftpBrowse
+			m.setFocusLocal(false)
 			m.localOp = false
 			m.pendingLocalPath = ""
 			return m, nil
@@ -1004,6 +1472,7 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 
 		if m.mode == sftpDownloadConfirm {
 			m.mode = sftpBrowse
+			m.setFocusLocal(false)
 			job := sftpTransferJob{
 				filename:   m.selectedEntry.Name,
 				localPath:  m.localDownloadPath(m.selectedEntry.Name),
@@ -1015,229 +1484,33 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		}
 
 		if m.mode == sftpDeleteConfirm {
-			name := m.selectedEntry.Name
+			entry := *m.selectedEntry
 			m.mode = sftpBrowse
+			m.setFocusLocal(false)
 			m.selectedEntry = nil
 			m.loading = true
-			m.statusMsg = i18n.T("sftp.deleting", name)
+			m.statusMsg = i18n.T("sftp.deleting", entry.Name)
 			m.statusExpiry = time.Now().Add(10 * time.Second)
-			return m, m.deleteCmd(remotePath)
+			return m, m.deleteCmd(entry, remotePath)
 		}
 
 		return m, nil
 
 	case "n":
-		m.mode = sftpBrowse
+		upload := m.localOp
 		m.selectedEntry = nil
 		m.localOp = false
 		m.pendingLocalPath = ""
-		return m, nil
-	}
-
-	return m, nil
-}
-
-func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Handle search mode in upload view
-	if m.searchMode {
-		return m.handleUploadSearchKeys(msg)
-	}
-
-	key := msg.String()
-
-	switch key {
-	case "esc", "tab", "shift+tab":
-		if m.transferring {
-			m.cancelTransfer()
-			m.loading = false
-			m.transferring = false
-			m.progressGen++
-			m.queue.clear()
-			m.setStatus(fmt.Sprintf("Cancelled: %s", m.progressFile))
-			return m, nil
-		}
-		m.localShowingDrives = false
 		m.mode = sftpBrowse
-		m.updateTableRows()
-		return m, nil
-
-	case "/", "ctrl+f":
-		m.searchMode = true
-		m.searchInput.Focus()
-		m.table.Blur()
-		return m, textinput.Blink
-
-	case "enter":
-		idx := m.table.Cursor()
-		if idx >= 0 && idx < len(m.localFiles) {
-			localPath := m.localFiles[idx]
-			if m.localShowingDrives {
-				if m.transferring {
-					return m, nil
-				}
-				m.localShowingDrives = false
-				m.localCwd = localPath
-				m.localFiles = m.listLocalFiles()
-				m.updateLocalTableRows()
-				m.table.SetCursor(0)
-				return m, nil
-			}
-			info, err := os.Stat(localPath)
-			if err != nil {
-				return m, nil
-			}
-			if info.IsDir() {
-				if m.transferring {
-					return m, nil
-				}
-				m.localCwd = localPath
-				m.localFiles = m.listLocalFiles()
-				m.updateLocalTableRows()
-				m.table.SetCursor(0)
-				return m, nil
-			}
-			remotePath := path.Join(m.cwd, filepath.Base(localPath))
-			return m, m.requestTransfer(sftpTransferJob{
-				filename:   filepath.Base(localPath),
-				localPath:  localPath,
-				remotePath: remotePath,
-				isUpload:   true,
-			})
+		m.setFocusLocal(false)
+		if upload {
+			m.mode = sftpLocalBrowse
+			m.setFocusLocal(true)
 		}
-		return m, nil
-
-	case "right", "l":
-		if m.transferring {
-			return m, nil
-		}
-		idx := m.table.Cursor()
-		if idx >= 0 && idx < len(m.localFiles) {
-			localPath := m.localFiles[idx]
-			if m.localShowingDrives {
-				m.localShowingDrives = false
-				m.localCwd = localPath
-				m.localFiles = m.listLocalFiles()
-				m.updateLocalTableRows()
-				m.table.SetCursor(0)
-				return m, nil
-			}
-			info, err := os.Stat(localPath)
-			if err == nil && info.IsDir() {
-				m.localCwd = localPath
-				m.localFiles = m.listLocalFiles()
-				m.updateLocalTableRows()
-				m.table.SetCursor(0)
-			}
-		}
-		return m, nil
-
-	case "left", "h", "backspace":
-		if m.transferring {
-			return m, nil
-		}
-		// Drive list: Left stays here; Tab/Esc return to remote.
-		if m.localShowingDrives {
-			return m, nil
-		}
-		// Volume / filesystem root: on Windows open drive picker; never jump to remote.
-		if isLocalFilesystemRoot(m.localCwd) {
-			if drives := listLocalDrives(); len(drives) > 0 {
-				m.localShowingDrives = true
-				m.localFiles = drives
-				m.updateLocalTableRows()
-				m.table.SetCursor(0)
-			}
-			return m, nil
-		}
-		parent := filepath.Dir(m.localCwd)
-		if parent == m.localCwd || parent == "." {
-			return m, nil
-		}
-		m.localCwd = parent
-		m.localFiles = m.listLocalFiles()
-		m.updateLocalTableRows()
-		m.table.SetCursor(0)
-		return m, nil
-
-	case "n":
-		if m.transferring || m.localShowingDrives {
-			return m, nil
-		}
-		m.localOp = true
-		m.mode = sftpMkdirInput
-		m.inputBuffer = ""
-		m.inputPrompt = i18n.T("sftp.mkdir_prompt")
-		return m, nil
-
-	case "d":
-		if m.transferring {
-			return m, nil
-		}
-		idx := m.table.Cursor()
-		if idx < 0 || idx >= len(m.localFiles) || m.localShowingDrives {
-			return m, nil
-		}
-		m.localOp = true
-		m.pendingLocalPath = m.localFiles[idx]
-		m.selectedEntry = nil
-		m.mode = sftpDeleteConfirm
-		return m, nil
-
-	case "R":
-		if m.transferring {
-			return m, nil
-		}
-		idx := m.table.Cursor()
-		if idx < 0 || idx >= len(m.localFiles) || m.localShowingDrives {
-			return m, nil
-		}
-		full := m.localFiles[idx]
-		m.localOp = true
-		m.pendingLocalPath = full
-		m.selectedEntry = nil
-		m.mode = sftpRenameInput
-		m.inputBuffer = filepath.Base(full)
-		m.inputPrompt = i18n.T("sftp.rename_prompt")
-		return m, nil
-
-	case "i":
-		if info := m.focusedEntryInfo(); info != nil {
-			m.entryInfo = info
-			m.showInfo = true
-		}
-		return m, nil
-
-	case "up", "down", "k", "j", "pgup", "pgdown", "home", "end", "g", "G":
-		m.table, _ = m.table.Update(msg)
 		return m, nil
 	}
 
 	return m, nil
-}
-
-func (m *sftpFormModel) handleUploadSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		m.searchMode = false
-		m.searchInput.Blur()
-		m.table.Focus()
-		// Restore full local file list
-		m.localFiles = m.listLocalFiles()
-		m.updateLocalTableRows()
-		return m, nil
-	case "enter", "tab":
-		m.searchMode = false
-		m.searchInput.Blur()
-		m.table.Focus()
-		return m, nil
-	}
-	var cmd tea.Cmd
-	oldValue := m.searchInput.Value()
-	m.searchInput, cmd = m.searchInput.Update(msg)
-	if m.searchInput.Value() != oldValue {
-		m.filterLocalFiles()
-	}
-	return m, cmd
 }
 
 // View renders the SFTP browser
@@ -1265,94 +1538,109 @@ func (m *sftpFormModel) View() string {
 		return m.renderInfoView()
 	}
 
-	// Build the view
-	var components []string
+	localStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	remoteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
+	if m.focusLocal {
+		localStyle = localStyle.Bold(true)
+	} else {
+		remoteStyle = remoteStyle.Bold(true)
+	}
 
-	// Title bar
-	if m.height < 20 {
-		if m.mode == sftpUploadSelect {
-			components = append(components, m.styles.Header.Render(i18n.T("sftp.title_local")+" [LOCAL] "+truncatePath(localBrowseLabel(m.localCwd, m.localShowingDrives), m.width-25)))
+	header := m.styles.Header.Render(i18n.T("sftp.title_remote", m.hostName))
+
+	var paths string
+	var panes string
+	pw := m.paneWidth()
+	if m.singlePane() {
+		tableStyle := m.styles.TableFocused
+		if m.searchMode {
+			tableStyle = m.styles.TableUnfocused
+		}
+		paths = localStyle.Render(fmt.Sprintf("%s  %s", m.focusLabel(true), truncatePath(localBrowseLabel(m.localCwd, m.localShowingDrives), pw-4))) + "\n" +
+			remoteStyle.Render(fmt.Sprintf("%s %s", m.focusLabel(false), truncatePath(m.cwd, pw-4)))
+		if m.focusLocal {
+			panes = tableStyle.Width(pw).Render(m.localTbl.View())
 		} else {
-			title := i18n.T("sftp.title_remote", m.hostName)
-			components = append(components, m.styles.Header.Render(title+" "+truncatePath(m.cwd, m.width-len(title)-10)))
+			panes = tableStyle.Width(pw).Render(m.remoteTbl.View())
 		}
 	} else {
-		if m.mode == sftpUploadSelect {
-			components = append(components, m.styles.Header.Render(i18n.T("sftp.title_local")))
-			localStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-			remoteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
-			components = append(components, localStyle.Render(" [LOCAL]  "+truncatePath(localBrowseLabel(m.localCwd, m.localShowingDrives), m.width-12)))
-			components = append(components, remoteStyle.Render(" [REMOTE] "+truncatePath(m.cwd, m.width-12)))
-		} else {
-			components = append(components, m.styles.Header.Render(i18n.T("sftp.title_remote", m.hostName)))
-			pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(SecondaryColor))
-			components = append(components, pathStyle.Render(" "+truncatePath(m.cwd, m.width-10)))
+		paths = localStyle.Render(fmt.Sprintf("%s  %s", m.focusLabel(true), truncatePath(localBrowseLabel(m.localCwd, m.localShowingDrives), pw-4))) + "\n" +
+			remoteStyle.Render(fmt.Sprintf("%s %s", m.focusLabel(false), truncatePath(m.cwd, pw-4)))
+		localBoxStyle := m.styles.TableUnfocused
+		remoteBoxStyle := m.styles.TableUnfocused
+		if !m.searchMode {
+			if m.focusLocal {
+				localBoxStyle = m.styles.TableFocused
+			} else {
+				remoteBoxStyle = m.styles.TableFocused
+			}
 		}
+		localBox := localBoxStyle.Width(pw).Render(m.localTbl.View())
+		remoteBox := remoteBoxStyle.Width(pw).Render(m.remoteTbl.View())
+		panes = lipgloss.JoinHorizontal(lipgloss.Top, localBox, "  ", remoteBox)
 	}
 
-	// Search bar (only in browse mode, not upload mode)
-	if m.mode == sftpBrowse || m.mode == sftpUploadSelect {
-		searchPrompt := i18n.T("search.prompt")
-		components = append(components, renderSearchBar(m.styles, m.searchMode, searchPrompt, m.searchInput.View(), m.width))
-	}
-
-	// Table
-	components = append(components, m.styles.TableFocused.Render(m.table.View()))
-
-	// Status / progress / input line (below table)
+	var extras []string
 	if m.loading && m.client != nil {
 		progressStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
-		components = append(components, progressStyle.Render(fmt.Sprintf("  ⏳ %s...", m.statusMsg)))
+		extras = append(extras, progressStyle.Render(fmt.Sprintf("  ⏳ %s...", m.statusMsg)))
 	} else if m.statusActive() {
 		statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
-		components = append(components, statusStyle.Render(" ✓ "+m.statusMsg))
-	} else if m.mode == sftpMkdirInput || m.mode == sftpRenameInput {
-		components = append(components, m.renderInputLine())
+		extras = append(extras, statusStyle.Render(" ✓ "+m.statusMsg))
+	}
+	if m.mode == sftpMkdirInput || m.mode == sftpRenameInput {
+		extras = append(extras, m.renderInputLine())
 	}
 
-	// Confirm dialogs
 	if m.mode == sftpDownloadConfirm {
-		components = append(components, m.renderDownloadConfirm())
+		extras = append(extras, m.renderDownloadConfirm())
 	} else if m.mode == sftpDeleteConfirm {
-		components = append(components, m.renderDeleteConfirm())
+		extras = append(extras, m.renderDeleteConfirm())
 	}
 
-	// Help text — compact on small heights (< 20 lines)
+	var helpParts []string
 	if m.height < 20 {
-		var helpLine string
 		if m.searchMode {
-			helpLine = i18n.T("sftp.help_search_1")
-		} else if m.mode == sftpUploadSelect {
-			helpLine = i18n.T("sftp.help_upload_1")
+			helpParts = append(helpParts, i18n.T("sftp.help_search_1"))
+		} else if m.focusLocal {
+			helpParts = append(helpParts, i18n.T("sftp.help_local_1"))
 		} else {
-			helpLine = i18n.T("sftp.help_browse_1")
+			helpParts = append(helpParts, i18n.T("sftp.help_remote_1"))
 		}
-		components = append(components, renderHelpText(m.styles, helpLine, m.width))
 	} else {
-		var helpLine1, helpLine2 string
 		if m.searchMode {
-			helpLine1 = i18n.T("sftp.help_search_1")
-			helpLine2 = i18n.T("sftp.help_search_2")
-		} else if m.mode == sftpUploadSelect {
-			helpLine1 = i18n.T("sftp.help_upload_1")
-			helpLine2 = i18n.T("sftp.help_upload_2")
+			helpParts = append(helpParts, i18n.T("sftp.help_search_1"), i18n.T("sftp.help_search_2"))
+		} else if m.focusLocal {
+			helpParts = append(helpParts, i18n.T("sftp.help_local_1"), i18n.T("sftp.help_local_2"), i18n.T("sftp.help_local_3"))
 		} else {
-			helpLine1 = i18n.T("sftp.help_browse_1")
-			helpLine2 = i18n.T("sftp.help_browse_2")
-		}
-		components = append(components, renderHelpText(m.styles, helpLine1, m.width))
-		components = append(components, renderHelpText(m.styles, helpLine2, m.width))
-		if m.mode == sftpUploadSelect {
-			components = append(components, renderHelpText(m.styles, i18n.T("sftp.help_upload_3"), m.width))
+			helpParts = append(helpParts, i18n.T("sftp.help_remote_1"), i18n.T("sftp.help_remote_2"), i18n.T("sftp.help_remote_3"))
 		}
 	}
+	helpParts = dedupeStrings(helpParts)
 
-	return m.styles.App.Render(
-		lipgloss.JoinVertical(
-			lipgloss.Left,
-			components...,
-		),
-	)
+	parts := []string{header, paths, renderSearchBar(m.styles, m.searchMode, i18n.T("search.prompt"), m.searchInput.View(), m.width)}
+	parts = append(parts, panes)
+	parts = append(parts, extras...)
+	if help := strings.Join(helpParts, "\n"); help != "" {
+		parts = append(parts, renderHelpText(m.styles, help, m.width))
+	}
+	return m.styles.App.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+}
+
+func (m *sftpFormModel) renderErrorView() string {
+	inner := formPageInnerWidth(m.width)
+	errStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("9")).
+		Bold(true).
+		Padding(1, 2).
+		Width(inner)
+
+	detail := m.loadError
+	if detail == "" {
+		detail = "(no details)"
+	}
+	content := i18n.T("sftp.err_session", detail)
+	return renderFormPage(m.styles, m.width, errStyle.Render(content))
 }
 
 func (m *sftpFormModel) renderInfoView() string {
@@ -1392,22 +1680,6 @@ func (m *sftpFormModel) renderInfoView() string {
 	return renderFormPage(m.styles, m.width, b.String())
 }
 
-func (m *sftpFormModel) renderErrorView() string {
-	inner := formPageInnerWidth(m.width)
-	errStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("9")).
-		Bold(true).
-		Padding(1, 2).
-		Width(inner)
-
-	detail := m.loadError
-	if detail == "" {
-		detail = "(no details)"
-	}
-	content := i18n.T("sftp.err_session", detail)
-	return renderFormPage(m.styles, m.width, errStyle.Render(content))
-}
-
 func (m *sftpFormModel) renderInputLine() string {
 	inputStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(PrimaryColor))
 	return inputStyle.Render(fmt.Sprintf("  %s %s_", m.inputPrompt, m.inputBuffer))
@@ -1423,260 +1695,36 @@ func (m *sftpFormModel) renderDownloadConfirm() string {
 }
 
 func (m *sftpFormModel) renderDeleteConfirm() string {
-	name := ""
+	name, isDir := "", false
 	if m.selectedEntry != nil {
-		name = m.selectedEntry.Name
+		name, isDir = m.selectedEntry.Name, m.selectedEntry.IsDir
 	} else if m.pendingLocalPath != "" {
 		name = filepath.Base(m.pendingLocalPath)
+		if st, err := os.Stat(m.pendingLocalPath); err == nil {
+			isDir = st.IsDir()
+		}
 	}
 	if name == "" {
 		return ""
 	}
-	msg := i18n.T("sftp.delete_confirm", name)
+	confirmKey := "sftp.delete_confirm"
+	if isDir {
+		confirmKey = "sftp.delete_dir_confirm"
+	}
+	msg := i18n.T(confirmKey, name)
 	style := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	return style.Render(msg)
-}
-
-func (m *sftpFormModel) renderLocalFileList() string {
-	var rows []string
-	header := fmt.Sprintf("  %-40s %10s", "Local Files", "Size")
-	rows = append(rows, header)
-	rows = append(rows, strings.Repeat("-", 52))
-
-	for i, f := range m.localFiles {
-		info, err := os.Stat(f)
-		if err != nil {
-			continue
-		}
-		name := filepath.Base(f)
-		size := formatSize(info.Size())
-		cursor := "  "
-		if i == m.table.Cursor() {
-			cursor = "→ "
-		}
-		rows = append(rows, fmt.Sprintf("%s%-40s %10s", cursor, name, size))
-	}
-
-	return strings.Join(rows, "\n")
-}
-
-func (m *sftpFormModel) getColumns(isLocal bool) []table.Column {
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-
-	titleKey := "sftp.col_name"
-	if isLocal {
-		titleKey = "sftp.col_local_file"
-	}
-
-	// Bubbles table renders each cell with Padding(0,1) = 2 extra cols per cell.
-	// TableFocused style adds border(2). App style adds padding(2).
-	// So: rendered = colWidths + numCols*2 + 4 = tw
-	//   colWidths = tw - 4 - numCols*2
-	if w < 55 {
-		sizeW := 8
-		if w < 30 {
-			sizeW = 6
-		}
-		nameW := w - 4 - 2*2 - sizeW
-		if nameW < 8 {
-			nameW = 8
-		}
-		return []table.Column{
-			{Title: i18n.T(titleKey), Width: nameW},
-			{Title: i18n.T("sftp.col_size"), Width: sizeW},
-		}
-	} else if w < 75 {
-		nameW := w - 4 - 3*2 - 10 - 6
-		if nameW < 12 {
-			nameW = 12
-		}
-		return []table.Column{
-			{Title: i18n.T(titleKey), Width: nameW},
-			{Title: i18n.T("sftp.col_size"), Width: 10},
-			{Title: i18n.T("sftp.col_type"), Width: 6},
-		}
-	}
-
-	nameW := w - 4 - 4*2 - 10 - 16 - 6
-	if nameW < 20 {
-		nameW = 20
-	}
-	return []table.Column{
-		{Title: i18n.T(titleKey), Width: nameW},
-		{Title: i18n.T("sftp.col_size"), Width: 10},
-		{Title: i18n.T("sftp.col_modified"), Width: 16},
-		{Title: i18n.T("sftp.col_type"), Width: 6},
-	}
-}
-
-func (m *sftpFormModel) updateTableRows() {
-	// Sort: directories first, then by name
-	sort.Slice(m.entries, func(i, j int) bool {
-		if m.entries[i].IsDir != m.entries[j].IsDir {
-			return m.entries[i].IsDir
-		}
-		return m.entries[i].Name < m.entries[j].Name
-	})
-
-	cols := m.getColumns(false)
-	var rows []table.Row
-	for _, entry := range m.entries {
-		name := entry.Name
-		if entry.IsDir {
-			name = "📁 " + name
-		} else {
-			name = "📄 " + name
-		}
-		size := formatSize(entry.Size)
-		modTime := entry.ModTime.Format("Jan 02 15:04")
-		entryType := i18n.T("sftp.type_file")
-		if entry.IsDir {
-			entryType = i18n.T("sftp.type_dir")
-		}
-
-		if len(cols) == 2 {
-			rows = append(rows, table.Row{name, size})
-		} else if len(cols) == 3 {
-			rows = append(rows, table.Row{name, size, entryType})
-		} else {
-			rows = append(rows, table.Row{name, size, modTime, entryType})
-		}
-	}
-	s := table.DefaultStyles()
-	s.Selected = m.styles.Selected
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(PrimaryColor)).
-		BorderBottom(true).
-		Bold(false)
-
-	cursor := m.table.Cursor()
-	h := m.calculateTableHeight()
-	m.table = table.New(
-		table.WithColumns(cols),
-		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(h),
-		table.WithStyles(s),
-	)
-	m.table.SetCursor(cursor)
-}
-
-// updateLocalTableRows populates the table with local files for upload.
-func (m *sftpFormModel) updateLocalTableRows() {
-	sort.Slice(m.localFiles, func(i, j int) bool {
-		ii, ei := os.Stat(m.localFiles[i])
-		ij, ej := os.Stat(m.localFiles[j])
-		if ei != nil || ej != nil {
-			return m.localFiles[i] < m.localFiles[j]
-		}
-		if ii.IsDir() != ij.IsDir() {
-			return ii.IsDir()
-		}
-		return filepath.Base(m.localFiles[i]) < filepath.Base(m.localFiles[j])
-	})
-
-	cols := m.getColumns(true)
-	var rows []table.Row
-	for _, f := range m.localFiles {
-		info, err := os.Stat(f)
-		if err != nil {
-			continue
-		}
-		name := filepath.Base(f)
-		if m.localShowingDrives || name == "" || name == string(filepath.Separator) || name == "\\" {
-			name = f
-		}
-		entryType := i18n.T("sftp.type_file")
-		if info.IsDir() {
-			name = "📁 " + name
-			entryType = i18n.T("sftp.type_dir")
-		} else {
-			name = "📄 " + name
-		}
-		size := formatSize(info.Size())
-		modTime := info.ModTime().Format("Jan 02 15:04")
-
-		if len(cols) == 2 {
-			rows = append(rows, table.Row{name, size})
-		} else if len(cols) == 3 {
-			rows = append(rows, table.Row{name, size, entryType})
-		} else {
-			rows = append(rows, table.Row{name, size, modTime, entryType})
-		}
-	}
-	if len(rows) == 0 {
-		emptyRow := make(table.Row, len(cols))
-		emptyRow[0] = i18n.T("sftp.empty_dir")
-		rows = append(rows, emptyRow)
-	}
-
-	s := table.DefaultStyles()
-	s.Selected = m.styles.Selected
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(PrimaryColor)).
-		BorderBottom(true).
-		Bold(false)
-
-	cursor := m.table.Cursor()
-	h := m.calculateTableHeight()
-	m.table = table.New(
-		table.WithColumns(cols),
-		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(h),
-		table.WithStyles(s),
-	)
-	m.table.SetCursor(cursor)
-}
-
-// findEntry finds an entry by name (stripping the emoji prefix)
-func (m *sftpFormModel) findEntry(name string) *sftpconfig.RemoteEntry {
-	// Strip emoji prefix
-	cleanName := strings.TrimPrefix(name, "📁 ")
-	cleanName = strings.TrimPrefix(cleanName, "📄 ")
-
-	for i := range m.entries {
-		if m.entries[i].Name == cleanName {
-			return &m.entries[i]
-		}
-	}
-	return nil
-}
-
-// listLocalFiles returns all entries (files and dirs) in localCwd.
-func (m *sftpFormModel) listLocalFiles() []string {
-	if m.localShowingDrives {
-		return listLocalDrives()
-	}
-	if m.localCwd == "" {
-		m.localCwd = defaultLocalUploadDir()
-	}
-	entries, err := os.ReadDir(m.localCwd)
-	if err != nil {
-		return nil
-	}
-	var files []string
-	for _, entry := range entries {
-		// Skip hidden files
-		if strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		fullPath := filepath.Join(m.localCwd, entry.Name())
-		files = append(files, fullPath)
-	}
-	sort.Strings(files)
-	return files
 }
 
 // localDownloadPath returns the local path for a downloaded file
 func (m *sftpFormModel) localDownloadPath(filename string) string {
 	homeDir, _ := os.UserHomeDir()
 	return filepath.Join(homeDir, "Downloads", filename)
+}
+
+func (m *sftpFormModel) busyStatus() tea.Cmd {
+	m.setStatus(i18n.T("ftp.busy"))
+	return nil
 }
 
 // setStatus sets a status message that expires after 3 seconds

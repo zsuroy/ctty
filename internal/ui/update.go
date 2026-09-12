@@ -1009,7 +1009,11 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			selected := m.table.SelectedRow()
 			if len(selected) > 0 {
 				hostName := extractHostNameFromTableRow(selected[0])
-				m.sftpForm = NewSFTPForm(m.styles, m.width, m.height, hostName, m.configFile)
+				layout := config.SFTPLayoutDual
+				if m.appConfig != nil {
+					layout = config.NormalizeSFTPLayout(m.appConfig.SFTPLayout)
+				}
+				m.sftpForm = NewSFTPFormWithLayout(m.styles, m.width, m.height, hostName, m.configFile, layout)
 				m.viewMode = ViewSFTP
 				return m, m.sftpForm.Init()
 			}
