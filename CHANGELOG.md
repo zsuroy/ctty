@@ -5,15 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.7.0] - 2026-09-12
 
 ### Added
 
-- **FTP support (first slice)** — Separate FTP transport (github.com/jlaffaye/ftp), not SFTP/SSH:
-  - Site inventory in `~/.config/ctty/ftp.json` (0600); passwords encrypted in the shared `credentials.json` vault under `ftp:` names.
-  - Agent CLI: `ctty ftp list|search|info --format json` (non-interactive).
-  - Human TUI: `ctty ftp` site manager; `ctty ftp <name>` dual-pane local|remote browser (list/chdir/upload/download). FTPS/TLS follow-up.
-  - Agent skill updated: agents use JSON CLI only; never open FTP TUI; warn cleartext traffic.
+- **FTP support** — Separate FTP transport (github.com/jlaffaye/ftp), not SFTP/SSH:
+  - Site inventory in `~/.config/ctty/ftp.json` (0600) with tags; passwords encrypted in the shared `credentials.json` vault under `ftp:` names.
+  - Agent CLI: `ctty ftp list|search|info --format json` (non-interactive); `ctty ftp` site manager, `ctty ftp <name>` browser.
+  - Human TUI: `ctty ftp` site manager (add/edit/delete/search/info, tags with SSH-style colors); dual-pane local|remote browser (list/chdir/upload/download, refresh status).
+  - SFTP-aligned keybindings: `Enter` download confirm, `d` delete, `n` mkdir, `R` rename, `i` file details — in both panes; `v` toggles single/dual layout (persisted, narrow terminals force single).
+  - Frame height fits the terminal so the header is never scrolled away; bilingual help and footer.
+  - Agent skill updated: agents use JSON CLI only; never open FTP TUI; warn cleartext traffic. FTPS/TLS follow-up.
 
 ## [0.6.4] - 2026-09-11
 
