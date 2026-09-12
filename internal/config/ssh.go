@@ -30,6 +30,7 @@ type SSHHost struct {
 	User          string
 	Port          string
 	Identity      string
+	IdentityAgent string
 	ProxyJump     string
 	ProxyCommand  string
 	Options       string
@@ -224,6 +225,7 @@ func parseSSHConfigFileWithProcessedFiles(configPath string, processedFiles map[
 	var hosts []SSHHost
 	var currentHost *SSHHost
 	var pendingTags []string
+	var globalIdentityAgent string
 	scanner := bufio.NewScanner(file)
 	lineNumber := 0
 
@@ -319,11 +321,12 @@ func parseSSHConfigFileWithProcessedFiles(configPath string, processedFiles map[
 			// For multiple hosts, we create the first one normally
 			// and will duplicate it for others after parsing the block
 			currentHost = &SSHHost{
-				Name:       validHostNames[0], // First name as reference
-				Port:       "22",              // Default port
-				Tags:       pendingTags,       // Assign pending tags to this host
-				SourceFile: absPath,           // Track which file this host comes from
-				LineNumber: lineNumber,        // Track the line number where Host declaration starts
+				Name:          validHostNames[0], // First name as reference
+				Port:          "22",              // Default port
+				IdentityAgent: globalIdentityAgent,
+				Tags:          pendingTags, // Assign pending tags to this host
+				SourceFile:    absPath,     // Track which file this host comes from
+				LineNumber:    lineNumber,  // Track the line number where Host declaration starts
 			}
 
 			// Store additional host names for later processing
@@ -348,6 +351,12 @@ func parseSSHConfigFileWithProcessedFiles(configPath string, processedFiles map[
 		case "identityfile":
 			if currentHost != nil {
 				currentHost.Identity = value
+			}
+		case "identityagent":
+			if currentHost != nil {
+				currentHost.IdentityAgent = value
+			} else {
+				globalIdentityAgent = value
 			}
 		case "proxyjump":
 			if currentHost != nil {
@@ -397,6 +406,14 @@ func parseSSHConfigFileWithProcessedFiles(configPath string, processedFiles map[
 		}
 		// Clear the temporary field from the original
 		currentHost.aliasNames = nil
+	}
+
+	if globalIdentityAgent != "" {
+		for i := range hosts {
+			if hosts[i].IdentityAgent == "" {
+				hosts[i].IdentityAgent = globalIdentityAgent
+			}
+		}
 	}
 
 	return hosts, scanner.Err()

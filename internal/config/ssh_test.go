@@ -378,6 +378,51 @@ Host another-real-server
 	}
 }
 
+func TestParseSSHConfigWithIdentityAgent(t *testing.T) {
+	tempDir := t.TempDir()
+	configFile := filepath.Join(tempDir, "config")
+	agentSocket := filepath.Join(tempDir, "agent.sock")
+	customAgentSocket := filepath.Join(tempDir, "custom agent.sock")
+	configContent := "Host *\n" +
+		"  ServerAliveInterval 60\n" +
+		"  IdentityAgent \"" + agentSocket + "\"\n\n" +
+		"Host pve-DevServer\n" +
+		"    HostName example.com\n" +
+		"    User pver\n\n" +
+		"Host custom-agent-server\n" +
+		"    HostName example.org\n" +
+		"    IdentityAgent \"" + customAgentSocket + "\"\n"
+
+	err := os.WriteFile(configFile, []byte(configContent), 0600)
+	if err != nil {
+		t.Fatalf("Failed to create config: %v", err)
+	}
+
+	hosts, err := ParseSSHConfigFile(configFile)
+	if err != nil {
+		t.Fatalf("ParseSSHConfigFile() error = %v", err)
+	}
+
+	if len(hosts) != 2 {
+		t.Fatalf("Expected 2 hosts, got %d", len(hosts))
+	}
+
+	for _, host := range hosts {
+		switch host.Name {
+		case "pve-DevServer":
+			expected := `"` + agentSocket + `"`
+			if host.IdentityAgent != expected {
+				t.Errorf("pve-DevServer IdentityAgent = %q, want %q", host.IdentityAgent, expected)
+			}
+		case "custom-agent-server":
+			expected := `"` + customAgentSocket + `"`
+			if host.IdentityAgent != expected {
+				t.Errorf("custom-agent-server IdentityAgent = %q, want %q", host.IdentityAgent, expected)
+			}
+		}
+	}
+}
+
 func TestParseSSHConfigExcludesBackupFiles(t *testing.T) {
 	// Create temporary directory for test files
 	tempDir := t.TempDir()

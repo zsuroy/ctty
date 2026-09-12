@@ -159,3 +159,20 @@ func TestSFTPListErrorKeepsCurrentDirectory(t *testing.T) {
 type errSFTPTest struct{}
 
 func (errSFTPTest) Error() string { return "sftp boom" }
+
+func TestSFTPStandaloneModeInitTriggersConnect(t *testing.T) {
+	m := NewModel(nil, "", false, "0.6.3", true)
+	m.sftpForm = NewSFTPForm(m.styles, 80, 24, "dev-host", "")
+	m.viewMode = ViewSFTP
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("expected non-nil Init command when starting in ViewSFTP mode")
+	}
+
+	// Executing the batch should trigger sftp connection (returning sftpErrorMsg or sftpPasswordPromptMsg)
+	msg := cmd()
+	if msg == nil {
+		t.Fatal("Init command produced nil message")
+	}
+}
