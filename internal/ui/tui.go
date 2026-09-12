@@ -219,3 +219,33 @@ func RunSFTPMode(hostName, configFile, currentVersion string, noUpdateCheck bool
 	}
 	return nil
 }
+
+// RunFTPMode starts the TUI directly in the FTP site manager view.
+func RunFTPMode(currentVersion string, noUpdateCheck bool) error {
+	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
+	m.ftpSitesForm = NewFTPSitesForm(m.styles, m.width, m.height)
+	m.viewMode = ViewFTP
+	m.ftpOnly = true
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	_, err := p.Run()
+	if err != nil {
+		return fmt.Errorf("error running FTP mode: %w", err)
+	}
+	return nil
+}
+
+// RunFTPBrowserMode opens the FTP browser for a saved site.
+func RunFTPBrowserMode(siteName, currentVersion string, noUpdateCheck bool) error {
+	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
+	m.ftpForm = NewFTPFormWithLayout(m.styles, m.width, m.height, siteName, m.appConfig.FTPLayout)
+	m.viewMode = ViewFTPBrowse
+	m.ftpOnly = true
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	_, err := p.Run()
+	if err != nil {
+		return fmt.Errorf("error running FTP browser: %w", err)
+	}
+	return nil
+}

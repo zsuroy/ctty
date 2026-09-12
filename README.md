@@ -13,13 +13,13 @@
 [![License](https://img.shields.io/github/license/zsuroy/ctty?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)](https://github.com/zsuroy/ctty/releases)
 
-> **A lightweight, all-in-one connection manager — SSH, serial, telnet, and SFTP in a single TUI** 🔥
+> **A lightweight, all-in-one connection manager — SSH, serial, telnet, SFTP, and FTP in a single TUI** 🔥
 
-ctty is a fast, native terminal tool for managing all your connections — SSH hosts, serial devices, telnet endpoints, and SFTP file transfers — without the overhead of Electron apps. Built with Go and featuring an intuitive TUI interface, it brings the convenience of GUI connection managers like Tabby to the terminal, with zero bloat.
+ctty is a fast, native terminal tool for managing all your connections — SSH hosts, serial devices, telnet endpoints, SFTP file transfers, and FTP sites — without the overhead of Electron apps. Built with Go and featuring an intuitive TUI interface, it brings the convenience of GUI connection managers like Tabby to the terminal, with zero bloat.
 
 **Why ctty?**
 - **Tabby too heavy?** ctty is a single ~5MB binary, no Electron, no browser engine — just pure Go
-- **Need serial + SSH + SFTP in one tool?** Most terminal emulators only do SSH; ctty covers all three
+- **Need serial + SSH + SFTP + FTP in one tool?** Most terminal emulators only do SSH; ctty covers them all
 - **Native telnet client built in** — no system `telnet` binary required (macOS dropped it, Windows and Termux need extras); IAC-aware with conservative negotiation
 - **Want to stay in the terminal?** No context switching between apps — everything is keyboard-driven
 
@@ -43,6 +43,8 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 - **📝 Real-time Status** - Live SSH connectivity indicators with asynchronous ping checks and color-coded status
 - **🔌 Serial Connections** - Manage and connect to serial devices (console, switch, router) with configurable baud rate, data bits, parity, and stop bits; auto-detected ports appear in the list instantly
 - **📡 Telnet Connections** - Native RFC 854 telnet client (no system telnet needed): save and manage lab equipment, console servers, and legacy devices; reachability probe with one keypress
+- **📂 SFTP File Transfer** - Full-featured SFTP browser (`o` key) with remote browsing, upload/download queue with progress and cancel, search, mkdir/delete, plus headless CLI transfers (`put`/`get`/`scp`)
+- **📁 FTP Site Manager** - Plain-FTP support (`F` key) for hosts without SSH: tagged site inventory, dual-pane local|remote browser, mkdir/delete/rename in both panes, single/dual layout toggle, passwords in the encrypted vault
 - **🔑 Password Storage & Zero-Touch Auto-Login** - Save SSH passwords securely in a local AES-256-GCM encrypted vault (`~/.config/ctty/credentials.json`, `0600` permissions) with native OpenSSH `SSH_ASKPASS` protocol bridge (zero third-party dependencies, works on macOS, Linux, Windows, and Termux)
 - **🖥️ Split-Pane & Small Terminal Friendly** - All forms and dialogs (Add/Edit Host, Port Forwarding, Host Info, Help Menu) feature focus-following dynamic viewport scrolling with fixed headers/footers. Works flawlessly in tmux/Zellij splits, VS Code/JetBrains embedded terminals, and tiling WMs (i3/Sway) down to 8~12 lines with zero height blocking or truncation
 - **🌐 Bilingual i18n & Settings UI** - Full English and Simplified Chinese support with automatic OS detection (macOS, Windows, Linux, Termux) and interactive in-TUI Settings menu (`S` key) to configure language, updates, and keybindings
@@ -163,6 +165,7 @@ ctty
 - `t` - Open serial device manager
 - `T` - Open telnet device manager
 - `o` - Open SFTP file browser for selected host
+- `F` - Open FTP site manager
 - `x` - Remote Command Execution (snippets supported)
 - `S` - Open Settings & Preferences (Language, Updates, ESC behavior)
 - `U` - Open self-update modal (when an update is available)
@@ -312,6 +315,46 @@ While selected an SSH host, press `o` to open the SFTP file browser. The SFTP in
 You can also launch the SFTP file browser directly from the command line:
 ```bash
 ctty sftp prod-server    # Open SFTP browser directly for a host
+```
+
+
+### FTP File Transfer
+
+Press `F` (Shift+F) from the main TUI to open the FTP site manager — for plain-FTP hosts that don't speak SSH/SFTP (lab NAS boxes, legacy file servers, appliance uploads).
+
+> ⚠️ **Cleartext protocol** — FTP transmits everything, including passwords, unencrypted. Prefer SFTP wherever the server supports it.
+
+**FTP site manager:**
+- `Enter` - Open the dual-pane browser for the selected site
+- `a`/`e` - Add / edit a site (name, host, port, user, password, tags)
+- `d` - Delete the selected site (also removes its saved password)
+- `i` - Show site details (`e`/`Enter` jumps to edit)
+- `/` - Search/filter sites
+- `r` - Refresh the list
+- `Esc` - Back
+
+Saved sites live in `~/.config/ctty/ftp.json` (0600). Passwords are encrypted in the shared credentials vault (`~/.config/ctty/credentials.json`, FTP entries under `ftp:` names) — the same AES-256-GCM vault SSH passwords use.
+
+**FTP browser (dual-pane local | remote):**
+- `Tab`/`u` - Switch focus between local and remote panes
+- `↑/↓` or `j/k` - Navigate files
+- `→/l` or `Enter` - Enter directory / download file (remote downloads confirm first)
+- `←/h` or `Backspace` - Go to parent directory
+- `d` - Delete selected file (with confirm)
+- `n` - Create new directory
+- `R` - Rename selected file/directory
+- `i` - Show details of the selected file/directory
+- `v` - Toggle single/dual pane layout (persisted)
+- `r` - Refresh current directory
+- `/` - Search/filter files
+- `Esc` - Cancel transfer / go back
+
+File management (`n`/`d`/`R`) works in both panes and mirrors SFTP keybindings. The pane layout can also be set persistently via `S` Settings → FTP browser layout. Narrow terminals (under 80 columns) always use the single pane.
+
+You can also open the site manager or a site browser directly:
+```bash
+ctty ftp            # FTP site manager TUI
+ctty ftp lab-nas    # Open browser directly for a saved site
 ```
 
 
@@ -477,6 +520,10 @@ ctty search "#web"
 
 # Open SFTP file browser directly for a host
 ctty sftp prod-server
+
+# Open FTP site manager, or a site browser directly
+ctty ftp
+ctty ftp lab-nas
 
 # Open Serial device manager directly
 ctty serial
@@ -1027,6 +1074,7 @@ ctty/
 │   ├── serial.go       # Serial device manager command
 │   ├── telnet.go       # Telnet manager / direct-connect command
 │   ├── sftp.go         # SFTP file browser command
+│   ├── ftp.go          # FTP site manager / browser command
 │   ├── info.go         # Machine-readable JSON host info
 │   └── completion.go   # Shell tab completion script generator
 ├── internal/
@@ -1057,6 +1105,9 @@ ctty/
 │   │   ├── telnet.go   # IAC state machine, negotiation, interactive bridge
 │   ├── sftpconfig/     # SFTP client engine & file transfer
 │   │   └── client.go   # SFTP session, upload, download, and listing
+│   ├── ftpconfig/      # FTP site inventory (~/.config/ctty/ftp.json)
+│   ├── ftpclient/      # Plain-FTP transport (list, download, upload, mkdir, delete, rename)
+│   ├── ftpcred/        # FTP passwords in the encrypted vault (ftp: names)
 │   ├── version/        # Version checking and updates
 │   │   ├── version.go  # GitHub release checking and version comparison
 │   │   └── version_test.go # Version parsing and comparison tests
@@ -1079,6 +1130,8 @@ ctty/
 │   │   ├── serial_add_form.go     # Add serial device form
 │   │   ├── serial_connect_form.go # Edit serial parameters form
 │   │   ├── telnet_form.go         # Telnet device list UI with reachability probe
+│   │   ├── ftp_sites.go           # FTP site manager UI
+│   │   ├── ftp_view.go            # FTP dual-pane local|remote browser UI
 │   │   └── sftp_view.go           # SFTP remote & local browser UI
 │   └── validation/     # Input validation
 │       └── ssh.go      # SSH config validation

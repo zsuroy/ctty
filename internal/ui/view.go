@@ -56,6 +56,14 @@ func (m Model) View() string {
 		if m.sftpForm != nil {
 			return m.sftpForm.View()
 		}
+	case ViewFTP:
+		if m.ftpSitesForm != nil {
+			return m.ftpSitesForm.View()
+		}
+	case ViewFTPBrowse:
+		if m.ftpForm != nil {
+			return m.ftpForm.View()
+		}
 	case ViewSettings:
 		if m.settingsForm != nil {
 			return m.settingsForm.View()
@@ -280,6 +288,21 @@ func renderSearchBar(styles Styles, searchMode bool, prompt string, searchView s
 		return styles.SearchFocused.Render(content)
 	}
 	return styles.SearchUnfocused.Render(content)
+}
+
+// dedupeStrings drops empty and consecutive duplicate strings (stable order).
+func dedupeStrings(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s == "" {
+			continue
+		}
+		if len(out) > 0 && out[len(out)-1] == s {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // renderHelpText is a shared helper for rendering help text truncated to terminal width.

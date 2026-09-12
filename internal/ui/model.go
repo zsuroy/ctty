@@ -58,6 +58,8 @@ const (
 	ViewSnippet
 	ViewUpdate
 	ViewTelnet
+	ViewFTP
+	ViewFTPBrowse
 )
 
 // PortForwardType defines the type of port forwarding
@@ -117,6 +119,8 @@ type Model struct {
 	serialForm       *serialFormModel
 	telnetForm       *telnetFormModel
 	sftpForm         *sftpFormModel
+	ftpSitesForm     *ftpSitesModel
+	ftpForm          *ftpFormModel
 	settingsForm     *settingsFormModel
 	snippetForm      *snippetFormModel
 	updateForm       *updateFormModel
@@ -128,6 +132,8 @@ type Model struct {
 	ready      bool
 	serialOnly bool // true when launched via 'ctty serial' — Esc exits instead of returning to host list
 	telnetOnly bool // true when launched via 'ctty telnet' — same exit semantics
+	ftpOnly      bool // true when launched via 'ctty ftp'
+	ftpFromSites bool // browser opened from site manager (Esc returns to list)
 
 	// Error handling
 	errorMessage string

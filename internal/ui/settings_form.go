@@ -16,6 +16,7 @@ const (
 	settingsFieldLang settingsField = iota
 	settingsFieldUpdate
 	settingsFieldEscQuit
+	settingsFieldFTPLayout
 	numSettingsFields
 )
 
@@ -31,6 +32,7 @@ type settingsFormModel struct {
 	langIndex       int // 0=auto, 1=zh_CN, 2=en
 	updateIndex     int // 0=enabled, 1=disabled
 	disableEscIndex int // 0=enabled (quit on esc), 1=disabled (vim mode)
+	ftpLayoutIndex  int // 0=dual, 1=single
 
 	saved     bool
 	cancelled bool
@@ -72,6 +74,12 @@ func NewSettingsForm(styles Styles, width, height int, appConfig *config.AppConf
 		escIdx = 1
 	}
 
+	ftpLayout := config.NormalizeFTPLayout(cfg.FTPLayout)
+	ftpLayoutIdx := 0
+	if ftpLayout == config.FTPLayoutSingle {
+		ftpLayoutIdx = 1
+	}
+
 	return &settingsFormModel{
 		styles:          styles,
 		width:           width,
@@ -81,6 +89,7 @@ func NewSettingsForm(styles Styles, width, height int, appConfig *config.AppConf
 		langIndex:       langIdx,
 		updateIndex:     updateIdx,
 		disableEscIndex: escIdx,
+		ftpLayoutIndex:  ftpLayoutIdx,
 	}
 }
 
@@ -137,6 +146,8 @@ func (m *settingsFormModel) adjustField(dir int) {
 		m.updateIndex = (m.updateIndex + dir + 2) % 2
 	case settingsFieldEscQuit:
 		m.disableEscIndex = (m.disableEscIndex + dir + 2) % 2
+	case settingsFieldFTPLayout:
+		m.ftpLayoutIndex = (m.ftpLayoutIndex + dir + 2) % 2
 	}
 }
 
@@ -147,6 +158,11 @@ func (m *settingsFormModel) saveSettings() tea.Cmd {
 		enableUpdates := (m.updateIndex == 0)
 		m.appConfig.CheckForUpdates = &enableUpdates
 		m.appConfig.KeyBindings.DisableEscQuit = (m.disableEscIndex == 1)
+		if m.ftpLayoutIndex == 0 {
+			m.appConfig.FTPLayout = config.FTPLayoutDual
+		} else {
+			m.appConfig.FTPLayout = config.FTPLayoutSingle
+		}
 
 		// Persist to disk
 		_ = config.SaveAppConfig(&m.appConfig)
@@ -195,6 +211,15 @@ func (m *settingsFormModel) View() string {
 		escDisplay = []string{"Quit on ESC (Default)", "Disable ESC Quit (Vim mode)"}
 	}
 	m.renderRow(&b, settingsFieldEscQuit, i18n.T("settings.esc_quit_label"), escDisplay[m.disableEscIndex])
+
+	// 4. FTP layout
+	var ftpLayoutDisplay []string
+	if i18n.CurrentLang() == i18n.LangZHCN {
+		ftpLayoutDisplay = []string{"双栏 (Dual pane)", "单栏 (Single pane)"}
+	} else {
+		ftpLayoutDisplay = []string{"Dual pane", "Single pane"}
+	}
+	m.renderRow(&b, settingsFieldFTPLayout, i18n.T("settings.ftp_layout_label"), ftpLayoutDisplay[m.ftpLayoutIndex])
 
 	b.WriteString("\n")
 	b.WriteString(m.styles.HelpText.Render(i18n.T("settings.help")))

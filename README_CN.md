@@ -11,13 +11,13 @@
 [![License](https://img.shields.io/github/license/zsuroy/ctty?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)](https://github.com/zsuroy/ctty/releases)
 
-> **一个轻量级的一体化终端连接管理器 —— SSH、串口、Telnet、SFTP 尽在一个 TUI** 🔥
+> **一个轻量级的一体化终端连接管理器 —— SSH、串口、Telnet、SFTP、FTP 尽在一个 TUI** 🔥
 
-ctty 是一个快速、原生的终端工具，用于管理你的所有连接 —— SSH 主机、串口设备、Telnet 端点、SFTP 文件传输 —— 无需 Electron 的开销。使用 Go 编写，拥有直观的 TUI 界面，将 Tabby 等图形化连接管理器的便利性带到终端中，零臃肿。
+ctty 是一个快速、原生的终端工具，用于管理你的所有连接 —— SSH 主机、串口设备、Telnet 端点、SFTP 文件传输、FTP 站点 —— 无需 Electron 的开销。使用 Go 编写，拥有直观的 TUI 界面，将 Tabby 等图形化连接管理器的便利性带到终端中，零臃肿。
 
 **为什么选择 ctty？**
 - **嫌 Tabby 太重？** ctty 是单个约 5MB 的二进制文件，没有 Electron，没有浏览器引擎 —— 纯 Go
-- **需要一个工具同时搞定串口 + SSH + SFTP？** 大多数终端模拟器只做 SSH；ctty 三者全覆盖
+- **需要一个工具同时搞定串口 + SSH + SFTP + FTP？** 大多数终端模拟器只做 SSH；ctty 全覆盖
 - **想留在终端里？** 不用在多个应用间切换 —— 一切都由键盘驱动
 
 <p align="center">
@@ -40,6 +40,8 @@ ctty 是一个快速、原生的终端工具，用于管理你的所有连接 �
 - **📝 实时状态** - 异步 ping 检查和颜色编码的 SSH 连接状态指示
 - **🔌 串口连接** - 管理和连接串口设备（控制台、交换机、路由器），可配置波特率、数据位、校验、停止位；自动检测端口即时出现在列表中
 - **📡 Telnet 连接** - 原生 RFC 854 telnet 客户端（无需系统 telnet）：保存并管理实验室设备、控制台服务器和传统设备；一键探测可达性
+- **📂 SFTP 文件传输** - 功能完整的 SFTP 浏览器（`o` 键）：远程浏览、带进度和取消的上传/下载队列、搜索、新建/删除，以及无头 CLI 传输（`put`/`get`/`scp`）
+- **📁 FTP 站点管理** - 纯 FTP 支持（`F` 键），覆盖没有 SSH 的主机：带标签的站点清单、本地|远端双栏浏览器、双窗格新建/删除/重命名、单双栏切换、密码进加密保险库
 - **🔑 密码存储与免密自动登录** - 支持在本地 AES-256-GCM 加密保险库（`~/.config/ctty/credentials.json`，`0600` 权限）中安全保存密码，基于 OpenSSH 原生 `SSH_ASKPASS` 协议实现一键免密直连（零第三方依赖，完美兼容 macOS、Linux、Windows 和 Termux）
 - **🖥️ 分屏与极小窗口完美适配** - 所有表单与弹窗（添加/编辑主机、端口转发、帮助菜单、主机详情）均采用焦点跟随的动态视口滚动，固定头部与底部导航；在 tmux/Zellij 分屏、VS Code/JetBrains 下方终端、i3/Sway 平铺窗口（即使只有 8~12 行）下均可丝滑操作，绝无高度拦截与内容裁切
 - **🌐 多语言国际化与偏好设置** - 全界面支持中英双语，全平台自动检测系统语言（macOS / Windows / Linux / Termux），并内置交互式设置面板（按 `S` 键）实时切换与保存配置
@@ -160,6 +162,7 @@ ctty
 - `t` - 打开串口设备管理器
 - `T` - 打开 Telnet 设备管理器
 - `o` - 打开选中主机的 SFTP 文件浏览器
+- `F` - 打开 FTP 站点管理器
 - `x` - 远程命令执行（支持代码片段）
 - `S` - 打开系统设置与偏好配置（语言、自动更新、ESC 行为）
 - `U` - 打开自更新弹窗（有可用更新时）
@@ -308,6 +311,45 @@ ctty telnet 10.0.0.5:2001    # 指定端口直接连接
 你也可以直接从命令行启动指定主机的 SFTP 文件浏览器：
 ```bash
 ctty sftp prod-server    # 直接打开指定主机的 SFTP 文件浏览器
+```
+
+### FTP 文件传输
+
+在主界面按 `F`（Shift+F）打开 FTP 站点管理器——适用于不支持 SSH/SFTP 的纯 FTP 主机（实验室 NAS、老旧文件服务器、设备上传口）。
+
+> ⚠️ **明文协议** —— FTP 传输的所有内容（含密码）都不加密。只要服务器支持，优先用 SFTP。
+
+**FTP 站点管理器：**
+- `Enter` - 打开选中站点的双栏浏览器
+- `a`/`e` - 添加 / 编辑站点（名称、地址、端口、用户、密码、标签）
+- `d` - 删除选中站点（同时删除已保存的密码）
+- `i` - 查看站点详情（`e`/回车直接进入编辑）
+- `/` - 搜索/过滤站点
+- `r` - 刷新列表
+- `Esc` - 返回
+
+站点保存在 `~/.config/ctty/ftp.json`（0600）。密码加密存放在共享凭据保险库（`~/.config/ctty/credentials.json`，FTP 条目以 `ftp:` 开头）——跟 SSH 密码是同一个 AES-256-GCM 保险库。
+
+**FTP 浏览器（本地 | 远端双栏）：**
+- `Tab`/`u` - 在本地和远端窗格间切换焦点
+- `↑/↓` 或 `j/k` - 浏览文件
+- `→/l` 或 `Enter` - 进入目录 / 下载文件（远端下载先确认）
+- `←/h` 或 `Backspace` - 返回上级目录
+- `d` - 删除选中文件（需确认）
+- `n` - 新建目录
+- `R` - 重命名选中的文件/目录
+- `i` - 查看选中文件/目录的详情
+- `v` - 切换单栏/双栏布局（持久保存）
+- `r` - 刷新当前目录
+- `/` - 搜索/过滤文件
+- `Esc` - 取消传输 / 返回
+
+文件管理（`n`/`d`/`R`）在两个窗格都可用，按键与 SFTP 对齐。布局也可以在 `S` 设置 → FTP 浏览器布局里持久配置。窄终端（不足 80 列）始终使用单栏。
+
+你也可以直接打开站点管理器或指定站点的浏览器：
+```bash
+ctty ftp            # FTP 站点管理器 TUI
+ctty ftp lab-nas    # 直接打开指定站点的浏览器
 ```
 
 ### 端口转发
@@ -472,6 +514,10 @@ ctty search "#web"
 
 # 直接打开指定主机的 SFTP 文件浏览器
 ctty sftp prod-server
+
+# 打开 FTP 站点管理器，或直接打开指定站点的浏览器
+ctty ftp
+ctty ftp lab-nas
 
 # 直接打开串口设备管理器
 ctty serial
@@ -1022,6 +1068,7 @@ ctty/
 │   ├── serial.go       # 串口管理命令
 │   ├── telnet.go       # Telnet 管理 / 直连命令
 │   ├── sftp.go         # SFTP 文件传输命令
+│   ├── ftp.go          # FTP 站点管理 / 浏览器命令
 │   ├── info.go         # 机器可读 JSON 主机信息
 │   └── completion.go   # Shell 补全脚本生成
 ├── internal/
@@ -1052,6 +1099,9 @@ ctty/
 │   │   └── telnet.go   # IAC 状态机、协商与交互桥接
 │   ├── sftpconfig/     # SFTP 客户端引擎与文件传输
 │   │   └── client.go   # SFTP 会话、上传、下载与目录遍历
+│   ├── ftpconfig/      # FTP 站点清单 (~/.config/ctty/ftp.json)
+│   ├── ftpclient/      # 纯 FTP 传输层（列表、下载、上传、新建、删除、重命名）
+│   ├── ftpcred/        # FTP 密码的加密保险库存储（ftp: 前缀）
 │   ├── version/        # 版本检查和更新
 │   │   ├── version.go  # GitHub 发布检查和版本比较
 │   │   └── version_test.go # 版本解析和比较测试
@@ -1075,6 +1125,8 @@ ctty/
 │   │   ├── serial_add_form.go     # 添加串口设备表单
 │   │   ├── serial_connect_form.go # 连接前参数编辑表单
 │   │   ├── telnet_form.go         # Telnet 设备列表 UI（含可达性探测）
+│   │   ├── ftp_sites.go           # FTP 站点管理器 UI
+│   │   ├── ftp_view.go            # FTP 本地|远端双栏浏览器 UI
 │   │   └── sftp_view.go           # SFTP 远程与本地双模文件浏览器
 │   └── validation/     # 输入验证
 │       └── ssh.go      # SSH 配置验证
