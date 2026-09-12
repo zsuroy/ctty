@@ -27,6 +27,16 @@ jobs:
           go-version: '1.23'
           cache: true
 
+      # NDK provides the clang toolchain for the cgo Android builds
+      # (bionic DNS resolver). Pinned so the toolchain path is stable.
+      - name: Set up Android NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned NDK and add toolchain to PATH
+        run: |
+          sdkmanager "ndk;27.1.12297006"
+          echo "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:

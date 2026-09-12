@@ -15,6 +15,13 @@ build:
 build-local: VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 build-local: build
 
+# Android (Termux) build with cgo so DNS goes through bionic.
+# Requires NDK clang as CC, e.g.:
+#   CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android28-clang make build-android
+build-android:
+	@mkdir -p dist
+	CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o dist/ctty-android-arm64 .
+
 # Run tests
 test:
 	go test ./...

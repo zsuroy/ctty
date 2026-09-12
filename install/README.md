@@ -2,7 +2,7 @@
 
 This directory contains installation scripts for ctty.
 
-## Unix/Linux/macOS Installation
+## Unix/Linux/macOS/Android (Via Termux) Installation
 
 ### Quick Install (Recommended)
 
@@ -32,7 +32,7 @@ iex "& { $(irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/wind
 iex "& { $(irm https://raw.githubusercontent.com/zsuroy/ctty/master/install/windows.ps1) } -InstallDir 'C:\tools'"
 ```
 
-## Unix/Linux/macOS Advanced Options
+## Unix/Linux/macOS/Android Advanced Options
 
 **Force install without prompts:**
 ```bash
@@ -73,6 +73,7 @@ chmod +x unix.sh
 
 - **Linux**: AMD64, ARM64
 - **macOS**: AMD64 (Intel), ARM64 (Apple Silicon)
+- **Android (Termux)**: ARM64, ARMv7 (cgo build with working Android DNS; falls back to the Linux binary on releases without Android assets)
 
 ## Requirements
 

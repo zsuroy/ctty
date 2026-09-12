@@ -36,6 +36,43 @@ builds:
   flags:
   - -trimpath
 
+# Android builds use cgo so DNS goes through bionic (pure-Go resolver
+# breaks on devices with Private DNS / stub resolvers). NDK toolchain
+# must be on PATH (see release workflow); one entry per arch because
+# each needs its own CC.
+- id: ctty-android-arm64
+  main: ./main.go
+  binary: ctty
+  goos:
+  - android
+  goarch:
+  - arm64
+  env:
+  - CGO_ENABLED=1
+  - CC=aarch64-linux-android24-clang
+  ldflags:
+  - -s -w
+  - -X github.com/zsuroy/ctty/cmd.AppVersion={{.Version}}
+  flags:
+  - -trimpath
+- id: ctty-android-arm
+  main: ./main.go
+  binary: ctty
+  goos:
+  - android
+  goarch:
+  - arm
+  goarm:
+  - "7"
+  env:
+  - CGO_ENABLED=1
+  - CC=armv7a-linux-androideabi24-clang
+  ldflags:
+  - -s -w
+  - -X github.com/zsuroy/ctty/cmd.AppVersion={{.Version}}
+  flags:
+  - -trimpath
+
 archives:
 - id: ctty
   formats: [ "tar.gz" ]
@@ -77,6 +114,8 @@ changelog:
 # Homebrew tap configuration (Formula pour CLI)
 brews:
 - name: ctty
+  ids:
+  - ctty
   repository:
     owner: zsuroy
     name: homebrew-ctty
