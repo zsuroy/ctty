@@ -147,15 +147,22 @@ getLatestVersion() {
 }
 
 downloadBinary() {
-    # Map OS names to match GoReleaser format
+    # Map OS names to match GoReleaser format.
+    # Termux takes the cgo Android build (bionic DNS resolver); older
+    # releases without Android assets fall back to the Linux build.
     local GORELEASER_OS="$OS"
     case $OS in
         "darwin") GORELEASER_OS="Darwin" ;;
-        "linux") GORELEASER_OS="Linux" ;;
+        "linux")
+            if [ "$IS_TERMUX" = "true" ]; then
+                GORELEASER_OS="Android"
+            else
+                GORELEASER_OS="Linux"
+            fi ;;
         "windows") GORELEASER_OS="Windows" ;;
     esac
-    
-    # Map architecture names to match GoReleaser format  
+
+    # Map architecture names to match GoReleaser format
     local GORELEASER_ARCH="$ARCH"
     case $ARCH in
         "amd64") GORELEASER_ARCH="x86_64" ;;
@@ -164,42 +171,54 @@ downloadBinary() {
         "armv6") GORELEASER_ARCH="armv6" ;;
         "armv7") GORELEASER_ARCH="armv7" ;;
     esac
-    
-    # GoReleaser format: ctty_Linux_armv7.tar.gz
-    GITHUB_FILE="ctty_${GORELEASER_OS}_${GORELEASER_ARCH}.tar.gz"
-    GITHUB_URL="https://github.com/zsuroy/ctty/releases/download/$LATEST_VERSION/$GITHUB_FILE"
-    CHECKSUMS_URL="https://github.com/zsuroy/ctty/releases/download/$LATEST_VERSION/checksums.txt"
-    ARCHIVE_PATH="$TEMP_DIR/$GITHUB_FILE"
-    CHECKSUMS_PATH="$TEMP_DIR/checksums.txt"
-    
-    printf "${YELLOW}Downloading $GITHUB_FILE...${NC}\n"
-    if ! curl --fail --location --proto '=https' --tlsv1.2 "$GITHUB_URL" --progress-bar --output "$ARCHIVE_PATH"; then
-        printf "${RED}Failed to download binary${NC}\n"
-        exit 1
+
+    local OS_CANDIDATES="$GORELEASER_OS"
+    if [ "$GORELEASER_OS" = "Android" ]; then
+        OS_CANDIDATES="Android Linux"
     fi
+
+    CHECKSUMS_URL="https://github.com/zsuroy/ctty/releases/download/$LATEST_VERSION/checksums.txt"
+    CHECKSUMS_PATH="$TEMP_DIR/checksums.txt"
 
     printf "${YELLOW}Downloading release checksums...${NC}\n"
     if ! curl --fail --location --proto '=https' --tlsv1.2 "$CHECKSUMS_URL" --silent --show-error --output "$CHECKSUMS_PATH"; then
         printf "${RED}Failed to download release checksums${NC}\n"
         exit 1
     fi
-    if ! verifyChecksum "$ARCHIVE_PATH" "$CHECKSUMS_PATH" "$GITHUB_FILE"; then
-        exit 1
-    fi
-    
-    # Extract the binary
-    if ! tar -xzf "$ARCHIVE_PATH" -C "$TEMP_DIR"; then
-        printf "${RED}Failed to extract binary${NC}\n"
-        exit 1
-    fi
-    
-    # GoReleaser extracts the binary as just "ctty", not with the platform suffix
-    EXTRACTED_BINARY="$TEMP_DIR/ctty"
-    if [ ! -f "$EXTRACTED_BINARY" ]; then
-        printf "${RED}Could not find extracted binary: $EXTRACTED_BINARY${NC}\n"
-        exit 1
-    fi
-    DOWNLOADED_BINARY="$EXTRACTED_BINARY"
+
+    for candidate in $OS_CANDIDATES; do
+        # GoReleaser format: ctty_Linux_armv7.tar.gz
+        GITHUB_FILE="ctty_${candidate}_${GORELEASER_ARCH}.tar.gz"
+        GITHUB_URL="https://github.com/zsuroy/ctty/releases/download/$LATEST_VERSION/$GITHUB_FILE"
+        ARCHIVE_PATH="$TEMP_DIR/$GITHUB_FILE"
+
+        printf "${YELLOW}Downloading $GITHUB_FILE...${NC}\n"
+        if ! curl --fail --location --proto '=https' --tlsv1.2 "$GITHUB_URL" --progress-bar --output "$ARCHIVE_PATH"; then
+            printf "${YELLOW}Asset $GITHUB_FILE not found, trying next...${NC}\n"
+            continue
+        fi
+        if ! verifyChecksum "$ARCHIVE_PATH" "$CHECKSUMS_PATH" "$GITHUB_FILE"; then
+            exit 1
+        fi
+
+        # Extract the binary
+        if ! tar -xzf "$ARCHIVE_PATH" -C "$TEMP_DIR"; then
+            printf "${RED}Failed to extract binary${NC}\n"
+            exit 1
+        fi
+
+        # GoReleaser extracts the binary as just "ctty", not with the platform suffix
+        EXTRACTED_BINARY="$TEMP_DIR/ctty"
+        if [ ! -f "$EXTRACTED_BINARY" ]; then
+            printf "${RED}Could not find extracted binary: $EXTRACTED_BINARY${NC}\n"
+            exit 1
+        fi
+        DOWNLOADED_BINARY="$EXTRACTED_BINARY"
+        return 0
+    done
+
+    printf "${RED}Failed to download binary${NC}\n"
+    exit 1
 }
 
 install() {

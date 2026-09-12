@@ -107,7 +107,7 @@ curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh |
 ```bash
 curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh | bash
 ```
-The installer auto-detects Termux (via `$PREFIX`/`$TERMUX_VERSION`) and installs to `$PREFIX/bin` without `sudo`.
+The installer auto-detects Termux (via `$PREFIX`/`$TERMUX_VERSION`) and installs to `$PREFIX/bin` without `sudo`. On Termux it picks the cgo Android build, whose DNS goes through the system resolver (pure-Go builds fail on devices with Private DNS or stub resolvers); releases without Android assets fall back to the Linux build.
 
 **Windows (PowerShell):**
 ```powershell
@@ -866,7 +866,7 @@ ctty remembers your port forwarding configurations for easy reuse:
 - Detected automatically by the `install/unix.sh` installer
 - Installs to `$PREFIX/bin` (e.g. `~/termux/files/usr/bin`), not `/usr/local/bin`
 - No `sudo` — runs with the Termux user permissions
-- Architecture detection (`aarch64 → arm64`, `armv7* → armv7`) works unchanged, so the standard release artifacts install correctly
+- Architecture detection (`aarch64 → arm64`, `armv7* → armv7`) picks the cgo `ctty_Android_*` release asset, which uses Android system DNS (the pure-Go resolver breaks on some devices, e.g. `[::1]:53 connection refused`); the saved-password vault is shared with the Linux build
 
 ## 🏗️ Configuration
 

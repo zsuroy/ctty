@@ -104,7 +104,7 @@ curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh |
 ```bash
 curl -sSL https://raw.githubusercontent.com/zsuroy/ctty/master/install/unix.sh | bash
 ```
-安装器自动检测 Termux（通过 `$PREFIX`/`$TERMUX_VERSION`），安装到 `$PREFIX/bin` 且不使用 `sudo`。
+安装器自动检测 Termux（通过 `$PREFIX`/`$TERMUX_VERSION`），安装到 `$PREFIX/bin` 且不使用 `sudo`。在 Termux 上会自动选择 cgo 编译的 Android 包，其 DNS 走系统解析（纯 Go 包在 Private DNS 或 stub 解析的机器上会失败）；没有 Android 产物的老版本回退到 Linux 包。
 
 **Windows（PowerShell）：**
 ```powershell
@@ -860,7 +860,7 @@ ctty 记住你的端口转发配置以便快速复用：
 - 由 `install/unix.sh` 安装器自动检测
 - 安装到 `$PREFIX/bin`（如 `~/termux/files/usr/bin`），而非 `/usr/local/bin`
 - 无需 `sudo`，以 Termux 用户权限运行
-- 架构检测（`aarch64 → arm64`、`armv7* → armv7`）保持不变，标准发布产物可直接安装
+- 架构检测（`aarch64 → arm64`、`armv7* → armv7`）选择 cgo 编译的 `ctty_Android_*` 发布包，走 Android 系统 DNS（纯 Go 解析在部分机器上会挂，如 `[::1]:53 connection refused`）；已存密码保险库与 Linux 包共用
 
 ## 🏗️ 配置
 

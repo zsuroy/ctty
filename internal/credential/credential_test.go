@@ -156,3 +156,14 @@ func TestCredentialStoreFailsClosedAndRetriesAfterRepair(t *testing.T) {
 		t.Fatalf("GetPassword = %q, %v; want repaired credential", password, ok)
 	}
 }
+
+func TestNormalizeVaultGOOS(t *testing.T) {
+	if got := normalizeVaultGOOS("android"); got != "linux" {
+		t.Fatalf("normalizeVaultGOOS(android) = %q, want linux", got)
+	}
+	for _, p := range []string{"linux", "darwin", "windows", ""} {
+		if got := normalizeVaultGOOS(p); got != p {
+			t.Fatalf("normalizeVaultGOOS(%q) = %q, want unchanged", p, got)
+		}
+	}
+}

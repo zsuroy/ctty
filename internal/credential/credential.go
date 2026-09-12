@@ -76,11 +76,22 @@ func deriveMachineKey() []byte {
 		user = os.Getenv("USERNAME")
 	}
 	hostname, _ := os.Hostname()
-	goos := runtime.GOOS
+	goos := normalizeVaultGOOS(runtime.GOOS)
 
 	seed := "ctty-secret-key-" + user + "@" + hostname + "-" + goos
 	hash := sha256.Sum256([]byte(seed))
 	return hash[:]
+}
+
+// normalizeVaultGOOS maps platform names for vault key derivation.
+// Android shares the Linux vault so Termux users can switch between
+// the linux and android builds on one device without re-entering
+// saved passwords. All other platforms keep their own key.
+func normalizeVaultGOOS(goos string) string {
+	if goos == "android" {
+		return "linux"
+	}
+	return goos
 }
 
 // encrypt encrypts plaintext using AES-256-GCM.

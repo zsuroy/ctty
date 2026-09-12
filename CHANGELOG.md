@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.2] - 2026-09-12
+
+### Added
+
+- **Android (Termux) release builds** — cgo `ctty_Android_arm64`/`ctty_Android_armv7` artifacts (NDK, API 24+): DNS goes through the bionic resolver, fixing `connection refused` on devices where the pure-Go resolver picks a dead stub (e.g. `[::1]:53`). The installer picks the Android asset on Termux with Linux fallback; the password vault is shared with the Linux build.
+
 ## [0.7.1] - 2026-09-12
 
 ### Fixed
