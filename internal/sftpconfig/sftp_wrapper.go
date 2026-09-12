@@ -126,6 +126,14 @@ func (w *sftpWrapper) Remove(path string) error {
 	return w.client.Remove(path)
 }
 
+func (w *sftpWrapper) RemoveAll(path string) error {
+	return w.client.RemoveAll(path)
+}
+
+func (w *sftpWrapper) Rename(oldPath, newPath string) error {
+	return w.client.Rename(oldPath, newPath)
+}
+
 func (w *sftpWrapper) RealPath(path string) (string, error) {
 	return w.client.RealPath(path)
 }

@@ -698,6 +698,20 @@ func (c *SFTPClient) Remove(path string) error {
 	})
 }
 
+// RemoveAll deletes a remote file or directory recursively.
+func (c *SFTPClient) RemoveAll(path string) error {
+	return c.withSession(func(sc *sftpWrapper) error {
+		return sc.RemoveAll(path)
+	})
+}
+
+// Rename moves a remote file or directory to a new path.
+func (c *SFTPClient) Rename(oldPath, newPath string) error {
+	return c.withSession(func(sc *sftpWrapper) error {
+		return sc.Rename(oldPath, newPath)
+	})
+}
+
 // RealPath returns the canonical absolute path.
 func (c *SFTPClient) RealPath(path string) (string, error) {
 	var resolved string

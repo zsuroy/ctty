@@ -25,6 +25,24 @@ func NormalizeFTPLayout(layout FTPLayout) FTPLayout {
 	return FTPLayoutDual
 }
 
+type SFTPLayout string
+
+const (
+	SFTPLayoutDual   SFTPLayout = "dual"
+	SFTPLayoutSingle SFTPLayout = "single"
+)
+
+func (l SFTPLayout) Valid() bool {
+	return l == SFTPLayoutDual || l == SFTPLayoutSingle
+}
+
+func NormalizeSFTPLayout(layout SFTPLayout) SFTPLayout {
+	if layout.Valid() {
+		return layout
+	}
+	return SFTPLayoutDual
+}
+
 // KeyBindings represents configurable key bindings for the application
 type KeyBindings struct {
 	// Quit keys - keys that will quit the application
@@ -41,6 +59,7 @@ type AppConfig struct {
 	TagColors       map[string]string `json:"tag_colors,omitempty"`
 	Language        string            `json:"language,omitempty"`
 	FTPLayout       FTPLayout         `json:"ftp_layout,omitempty"`
+	SFTPLayout      SFTPLayout        `json:"sftp_layout,omitempty"`
 }
 
 // IsUpdateCheckEnabled returns true if the update check is enabled (default: true)
@@ -64,6 +83,7 @@ func GetDefaultAppConfig() AppConfig {
 	return AppConfig{
 		KeyBindings: GetDefaultKeyBindings(),
 		FTPLayout:   FTPLayoutDual,
+		SFTPLayout:  SFTPLayoutDual,
 	}
 }
 
@@ -128,6 +148,7 @@ func SaveAppConfig(config *AppConfig) error {
 		return errors.New("config cannot be nil")
 	}
 	config.FTPLayout = NormalizeFTPLayout(config.FTPLayout)
+	config.SFTPLayout = NormalizeSFTPLayout(config.SFTPLayout)
 
 	configPath, err := GetAppConfigPath()
 	if err != nil {
@@ -157,6 +178,7 @@ func mergeWithDefaults(config AppConfig) AppConfig {
 		config.KeyBindings.QuitKeys = defaults.KeyBindings.QuitKeys
 	}
 	config.FTPLayout = NormalizeFTPLayout(config.FTPLayout)
+	config.SFTPLayout = NormalizeSFTPLayout(config.SFTPLayout)
 
 	return config
 }

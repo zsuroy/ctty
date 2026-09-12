@@ -28,7 +28,7 @@ func TestResizeStress(t *testing.T) {
 		{Name: "file1.txt", Size: 1024, ModTime: time.Now(), IsDir: false},
 		{Name: "folder1", Size: 4096, ModTime: time.Now(), IsDir: true},
 	}
-	sftp.updateTableRows()
+	sftp.updateRemoteRows()
 
 	// 4. Test Telnet Form
 	tn := NewTelnetForm(styles, 80, 24)

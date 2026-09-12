@@ -294,9 +294,11 @@ func (m *ftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleTransferResult(msg.gen, msg.filename, msg.success, msg.err, true)
 
 	case ftpMkdirResultMsg:
-		m.mode = ftpBrowse
-		m.inputBuffer = ""
 		m.loading = false
+		if !m.inInput() {
+			m.mode = ftpBrowse
+			m.inputBuffer = ""
+		}
 		if msg.success {
 			statusCmd := m.setStatus(i18n.T("ftp.dir_created", msg.name))
 			return m, tea.Batch(statusCmd, m.loadDirCmd(m.cwd))
@@ -304,9 +306,11 @@ func (m *ftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.setStatus(i18n.T("ftp.mkdir_failed", msg.err))
 
 	case ftpDeleteResultMsg:
-		m.mode = ftpBrowse
-		m.selected = nil
 		m.loading = false
+		m.selected = nil
+		if !m.inInput() {
+			m.mode = ftpBrowse
+		}
 		if msg.success {
 			statusCmd := m.setStatus(i18n.T("ftp.delete_success", msg.filename))
 			return m, tea.Batch(statusCmd, m.loadDirCmd(m.cwd))
@@ -314,10 +318,12 @@ func (m *ftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.setStatus(i18n.T("ftp.delete_failed", msg.err))
 
 	case ftpRenameResultMsg:
-		m.mode = ftpBrowse
-		m.selected = nil
-		m.inputBuffer = ""
 		m.loading = false
+		m.selected = nil
+		if !m.inInput() {
+			m.mode = ftpBrowse
+			m.inputBuffer = ""
+		}
 		if msg.success {
 			statusCmd := m.setStatus(i18n.T("ftp.rename_success", msg.oldName, msg.newName))
 			return m, tea.Batch(statusCmd, m.loadDirCmd(m.cwd))
@@ -523,7 +529,7 @@ func (m *ftpFormModel) handleDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			if target == "" {
 				return m, nil
 			}
-			if err := os.Remove(target); err != nil {
+			if err := os.RemoveAll(target); err != nil {
 				return m, m.setStatus(i18n.T("ftp.delete_failed", err))
 			}
 			m.refreshLocal()
@@ -533,11 +539,11 @@ func (m *ftpFormModel) handleDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		if m.selected == nil {
 			return m, nil
 		}
-		name := m.selected.Name
-		remote := path.Join(m.cwd, name)
+		entry := *m.selected
+		remote := path.Join(m.cwd, entry.Name)
 		m.selected = nil
 		m.loading = true
-		return m, m.deleteCmd(name, remote)
+		return m, m.deleteCmd(entry, remote)
 	case "n", "N", "esc":
 		m.mode = ftpBrowse
 		m.selected = nil
@@ -546,6 +552,12 @@ func (m *ftpFormModel) handleDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		return m, nil
 	}
 	return m, nil
+}
+
+// inInput reports whether the user is typing in mkdir/rename input:
+// late results must not clobber the open input session.
+func (m *ftpFormModel) inInput() bool {
+	return m.mode == ftpMkdirInput || m.mode == ftpRenameInput
 }
 
 func (m *ftpFormModel) setFocusLocal(local bool) {
@@ -565,7 +577,10 @@ func (m *ftpFormModel) setFocusLocal(local bool) {
 }
 
 // toggleLayout flips dual/single pane layout and persists it to app config.
-func (m *ftpFormModel) toggleLayout() tea.Cmd {
+func (m *ftpFormModel) toggleLayout() (tea.Model, tea.Cmd) {
+	if m.layout == config.FTPLayoutSingle && m.narrow() {
+		return m, m.setStatus(i18n.T("ftp.too_narrow"))
+	}
 	if m.layout == config.FTPLayoutSingle {
 		m.layout = config.FTPLayoutDual
 	} else {
@@ -579,7 +594,7 @@ func (m *ftpFormModel) toggleLayout() tea.Cmd {
 	if m.layout == config.FTPLayoutSingle {
 		name = i18n.T("ftp.layout_single")
 	}
-	return m.setStatus(i18n.T("ftp.layout_status", name))
+	return m, m.setStatus(i18n.T("ftp.layout_status", name))
 }
 
 // persistFTPLayout writes the chosen layout to ~/.config/ctty/config.json.
@@ -635,6 +650,10 @@ func (m *ftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cancelTransfer()
 			return m, nil
 		}
+		if key == "esc" && m.focusLocal {
+			m.setFocusLocal(false)
+			return m, nil
+		}
 		if m.client != nil {
 			_ = m.client.Close()
 			m.client = nil
@@ -670,12 +689,12 @@ func (m *ftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleRemoteEnter()
 	case "d":
 		if m.transferring {
-			return m, nil
+			return m, m.busyStatus()
 		}
 		return m.startDeleteConfirm()
 	case "n":
 		if m.transferring {
-			return m, nil
+			return m, m.busyStatus()
 		}
 		m.localOp = m.focusLocal
 		m.mode = ftpMkdirInput
@@ -684,11 +703,11 @@ func (m *ftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "R":
 		if m.transferring {
-			return m, nil
+			return m, m.busyStatus()
 		}
 		return m.startRenameInput()
 	case "v", "V":
-		return m, m.toggleLayout()
+		return m.toggleLayout()
 	case "i":
 		if info := m.focusedEntryInfo(); info != nil {
 			m.entryInfo = info
@@ -697,7 +716,7 @@ func (m *ftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "r":
 		if m.transferring {
-			return m, nil
+			return m, m.busyStatus()
 		}
 		if m.focusLocal {
 			m.refreshLocal()
@@ -826,7 +845,7 @@ func (m *ftpFormModel) startDeleteConfirm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	e := m.selectedRemote()
-	if e == nil || e.IsDir {
+	if e == nil {
 		return m, nil
 	}
 	m.selected = e
@@ -1173,10 +1192,15 @@ func (m *ftpFormModel) mkdirCmd(name, remotePath string) tea.Cmd {
 	}
 }
 
-func (m *ftpFormModel) deleteCmd(name, remotePath string) tea.Cmd {
+func (m *ftpFormModel) deleteCmd(entry ftpclient.RemoteEntry, remotePath string) tea.Cmd {
 	return func() tea.Msg {
-		err := m.client.Delete(remotePath)
-		return ftpDeleteResultMsg{filename: name, success: err == nil, err: err}
+		var err error
+		if entry.IsDir {
+			err = m.client.RemoveDirRecur(remotePath)
+		} else {
+			err = m.client.Delete(remotePath)
+		}
+		return ftpDeleteResultMsg{filename: entry.Name, success: err == nil, err: err}
 	}
 }
 
@@ -1232,6 +1256,10 @@ func (m *ftpFormModel) cancelTransfer() {
 	// cannot race a still-finishing Read (SFTP-style wait-for-result cancel).
 	m.queue.clear()
 	m.setStatus(fmt.Sprintf("Cancelling: %s", m.progressFile))
+}
+
+func (m *ftpFormModel) busyStatus() tea.Cmd {
+	return m.setStatus(i18n.T("ftp.busy"))
 }
 
 func (m *ftpFormModel) setStatus(s string) tea.Cmd {
@@ -1421,15 +1449,22 @@ func (m *ftpFormModel) View() string {
 			i18n.T("ftp.download_confirm", m.selected.Name, filepath.Join(m.localCwd, m.selected.Name))))
 	}
 	if m.mode == ftpDeleteConfirm {
-		name := ""
+		name, isDir := "", false
 		if m.selected != nil {
-			name = m.selected.Name
+			name, isDir = m.selected.Name, m.selected.IsDir
 		} else if m.pendingLocalPath != "" {
 			name = filepath.Base(m.pendingLocalPath)
+			if st, err := os.Stat(m.pendingLocalPath); err == nil {
+				isDir = st.IsDir()
+			}
 		}
 		if name != "" {
+			confirmKey := "ftp.delete_confirm"
+			if isDir {
+				confirmKey = "ftp.delete_dir_confirm"
+			}
 			extras = append(extras, lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(
-				i18n.T("ftp.delete_confirm", name)))
+				i18n.T(confirmKey, name)))
 		}
 	}
 	if m.mode == ftpMkdirInput || m.mode == ftpRenameInput {

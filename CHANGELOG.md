@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.3] - 2026-09-12
+
+### Added
+
+- **SFTP aligned with FTP interactions** — `R` renames remote files/directories (new `Rename` passthrough to pkg/sftp); `i` shows file details (name/type/size/modified/path) in both remote and upload views; the upload selector gains local `n` mkdir, `d` delete with confirm, and `R` rename via os calls; footer help grouped and bilingual, help menu synced.
+- **SFTP dual-pane browser** — The modal upload selector is replaced by persistent remote/local panes with `Tab`/`u` focus switching (same as FTP); `v` toggles single/dual layout persisted as `sftp_layout` (narrow terminals force single); per-pane search filtering; frame height fits the terminal so the header is never scrolled away.
+
+### Fixed
+
+- **Recursive directory delete (FTP+SFTP)** — `d` on a directory now deletes it with all contents after an explicit confirm dialog (`Delete 'x' and everything inside?`); files keep the plain confirm. Applies to remote and local panes.
+
 ## [0.7.2] - 2026-09-12
 
 ### Added

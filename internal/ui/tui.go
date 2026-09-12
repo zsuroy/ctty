@@ -209,7 +209,7 @@ func RunTelnetMode(currentVersion string, noUpdateCheck bool) error {
 // RunSFTPMode starts the TUI directly in the SFTP file browser for a host.
 func RunSFTPMode(hostName, configFile, currentVersion string, noUpdateCheck bool) error {
 	m := NewModel(nil, configFile, false, currentVersion, noUpdateCheck)
-	m.sftpForm = NewSFTPForm(m.styles, m.width, m.height, hostName, configFile)
+	m.sftpForm = NewSFTPFormWithLayout(m.styles, m.width, m.height, hostName, configFile, m.appConfig.SFTPLayout)
 	m.viewMode = ViewSFTP
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
