@@ -60,3 +60,18 @@ func TestHelpFormShowsRepoURL(t *testing.T) {
 		t.Errorf("help form missing repo URL %q:\n%s", version.RepoURL(), view)
 	}
 }
+
+func TestUpdateRunningProgressTruncatesToWidth(t *testing.T) {
+	i18n.SetLang("en")
+	for _, w := range []int{30, 40, 60, 100} {
+		form := NewUpdateForm(NewStyles(w), w, 24, "v0.6.0", "v0.7.0", "https://example.com")
+		form.phase = updateRunning
+		form.percent = 8
+		form.progress = "Downloading ctty_Android_arm64.tar.gz ... 1.2 MB / 14.5 MB (8%)"
+		for _, line := range strings.Split(form.View(), "\n") {
+			if got := lineDisplayWidth(line); got > w {
+				t.Fatalf("width=%d: line %d cols exceeds terminal: %q", w, got, line)
+			}
+		}
+	}
+}

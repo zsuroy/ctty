@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -199,6 +201,21 @@ func humanBytes(n int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
+// currentExecutablePath resolves the running binary without minio's
+// internal osext lookup, which errors with "ExecPath not implemented
+// for android". Falls back to PATH lookup when os.Executable fails.
+func currentExecutablePath() (string, error) {
+	if exe, err := os.Executable(); err == nil && exe != "" {
+		return exe, nil
+	}
+	if len(os.Args) > 0 {
+		if abs, err := exec.LookPath(os.Args[0]); err == nil {
+			return abs, nil
+		}
+	}
+	return "", fmt.Errorf("cannot locate running binary (os.Executable failed)")
+}
+
 // Apply downloads the latest release archive, verifies its sha256 against the
 // published checksums.txt, extracts the binary, and atomically replaces the
 // running executable. The process must be restarted afterwards to run the new
@@ -254,7 +271,11 @@ func Apply(ctx context.Context, cb Progress) error {
 	}
 
 	cb("applying", "Replacing binary ...")
-	if err := selfupdate.Apply(bytes.NewReader(bin), selfupdate.Options{}); err != nil {
+	target, err := currentExecutablePath()
+	if err != nil {
+		return fmt.Errorf("apply update: %s", err)
+	}
+	if err := selfupdate.Apply(bytes.NewReader(bin), selfupdate.Options{TargetPath: target}); err != nil {
 		msg := err.Error()
 		if strings.Contains(msg, "permission denied") || strings.Contains(msg, "access is denied") {
 			msg += " (hint: insufficient permissions to replace the binary)"
