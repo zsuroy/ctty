@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] - 2026-09-12
+
+### Fixed
+
+- **FTP site list panic on narrow terminals** — Switching between 3-column (narrow) and 4-column (wide) layouts on a populated table panicked (`index out of range`) because bubbles `renderRow` indexes columns by row length. Rows are now drained before the column swap. Affected e.g. phones in portrait (`ctty ftp` crashed on launch).
+
 ## [0.7.0] - 2026-09-12
 
 ### Added
