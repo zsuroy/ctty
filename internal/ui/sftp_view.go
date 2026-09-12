@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // SFTP view modes
@@ -28,6 +29,7 @@ const (
 	sftpUploadSelect
 	sftpDeleteConfirm
 	sftpMkdirInput
+	sftpRenameInput
 	sftpPasswordInput
 	sftpError
 )
@@ -63,6 +65,16 @@ type sftpFormModel struct {
 	inputBuffer string
 	inputPrompt string
 
+	// Local-target management for the upload selector: when true, the
+	// active mkdir/rename input or delete confirm operates on
+	// pendingLocalPath via os calls instead of the remote host.
+	localOp          bool
+	pendingLocalPath string
+
+	// Entry snapshot for the info overlay.
+	showInfo  bool
+	entryInfo *sftpEntryInfo
+
 	// For confirm dialogs
 	selectedEntry *sftpconfig.RemoteEntry
 
@@ -79,6 +91,15 @@ type sftpFormModel struct {
 	searchMode      bool
 	filteredEntries []sftpconfig.RemoteEntry
 	localCwd        string
+}
+
+// sftpEntryInfo is a snapshot of the file or directory shown in the info overlay.
+type sftpEntryInfo struct {
+	name    string
+	isDir   bool
+	size    int64
+	modTime time.Time
+	path    string
 }
 
 // Messages for async SFTP operations
@@ -126,6 +147,13 @@ type sftpDeleteResultMsg struct {
 }
 
 type sftpMkdirResultMsg struct {
+	success bool
+	err     error
+}
+
+type sftpRenameResultMsg struct {
+	oldName string
+	newName string
 	success bool
 	err     error
 }
@@ -431,6 +459,21 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.mode = sftpBrowse
 		m.inputBuffer = ""
+		m.localOp = false
+		return m, m.loadDirCmd(m.cwd)
+
+	case sftpRenameResultMsg:
+		m.mode = sftpBrowse
+		m.selectedEntry = nil
+		m.inputBuffer = ""
+		m.localOp = false
+		m.pendingLocalPath = ""
+		m.loading = false
+		if msg.success {
+			m.setStatus(i18n.T("sftp.rename_success", msg.oldName, msg.newName))
+			return m, m.loadDirCmd(m.cwd)
+		}
+		m.setStatus(i18n.T("sftp.rename_failed", msg.err))
 		return m, m.loadDirCmd(m.cwd)
 
 	case tea.WindowSizeMsg:
@@ -458,6 +501,22 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle input modes (mkdir)
 		if m.mode == sftpMkdirInput {
 			return m.handleMkdirInput(msg)
+		}
+
+		// Handle rename input (remote or local upload selector)
+		if m.mode == sftpRenameInput {
+			return m.handleRenameInput(msg)
+		}
+
+		// Info overlay sits above browse and upload-select views.
+		if m.showInfo {
+			switch msg.String() {
+			case "esc", "i", "enter", "q":
+				m.showInfo = false
+				m.entryInfo = nil
+				return m, nil
+			}
+			return m, nil
 		}
 
 		// Handle password input mode
@@ -620,6 +679,32 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Refresh
 		return m, m.loadDirCmd(m.cwd)
 
+	case "R":
+		if m.transferring {
+			return m, nil
+		}
+		selected := m.table.SelectedRow()
+		if len(selected) == 0 {
+			return m, nil
+		}
+		entry := m.findEntry(selected[0])
+		if entry == nil {
+			return m, nil
+		}
+		m.selectedEntry = entry
+		m.localOp = false
+		m.mode = sftpRenameInput
+		m.inputBuffer = entry.Name
+		m.inputPrompt = i18n.T("sftp.rename_prompt")
+		return m, nil
+
+	case "i":
+		if info := m.focusedEntryInfo(); info != nil {
+			m.entryInfo = info
+			m.showInfo = true
+		}
+		return m, nil
+
 	case "up", "down", "k", "j", "pgup", "pgdown", "home", "end", "g", "G":
 		m.table, cmd = m.table.Update(msg)
 		return m, cmd
@@ -694,16 +779,38 @@ func (m *sftpFormModel) handleMkdirInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "esc":
-		m.mode = sftpBrowse
 		m.inputBuffer = ""
+		m.mode = sftpBrowse
+		if m.localOp {
+			m.mode = sftpUploadSelect
+		}
+		m.localOp = false
 		return m, nil
 
 	case "enter":
 		dirName := strings.TrimSpace(m.inputBuffer)
+		m.inputBuffer = ""
+		upload := m.localOp
+		m.localOp = false
 		if dirName == "" {
 			m.mode = sftpBrowse
+			if upload {
+				m.mode = sftpUploadSelect
+			}
 			return m, nil
 		}
+		if upload {
+			m.mode = sftpUploadSelect
+			if err := os.Mkdir(filepath.Join(m.localCwd, dirName), 0755); err != nil {
+				m.setStatus(i18n.T("sftp.mkdir_failed", err))
+			} else {
+				m.setStatus(i18n.T("sftp.mkdir_success", dirName))
+			}
+			m.localFiles = m.listLocalFiles()
+			m.updateLocalTableRows()
+			return m, nil
+		}
+		m.mode = sftpBrowse
 		newPath := path.Join(m.cwd, dirName)
 		return m, m.mkdirCmd(newPath)
 
@@ -719,6 +826,102 @@ func (m *sftpFormModel) handleMkdirInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputBuffer += key
 		}
 		return m, nil
+	}
+}
+
+func (m *sftpFormModel) handleRenameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.inputBuffer = ""
+		m.mode = sftpBrowse
+		if m.localOp {
+			m.mode = sftpUploadSelect
+		}
+		m.localOp = false
+		m.pendingLocalPath = ""
+		m.selectedEntry = nil
+		return m, nil
+
+	case "enter":
+		newName := strings.TrimSpace(m.inputBuffer)
+		m.inputBuffer = ""
+		upload := m.localOp
+		m.localOp = false
+		oldLocal := m.pendingLocalPath
+		m.pendingLocalPath = ""
+		if upload {
+			m.mode = sftpUploadSelect
+			if newName == "" || oldLocal == "" || newName == filepath.Base(oldLocal) {
+				return m, nil
+			}
+			if err := os.Rename(oldLocal, filepath.Join(filepath.Dir(oldLocal), newName)); err != nil {
+				m.setStatus(i18n.T("sftp.rename_failed", err))
+			} else {
+				m.setStatus(i18n.T("sftp.rename_success", filepath.Base(oldLocal), newName))
+			}
+			m.localFiles = m.listLocalFiles()
+			m.updateLocalTableRows()
+			return m, nil
+		}
+		m.mode = sftpBrowse
+		if newName == "" || m.selectedEntry == nil || newName == m.selectedEntry.Name {
+			m.selectedEntry = nil
+			return m, nil
+		}
+		oldName := m.selectedEntry.Name
+		m.selectedEntry = nil
+		return m, m.renameCmd(oldName, path.Join(m.cwd, oldName), path.Join(m.cwd, newName))
+
+	case "backspace":
+		if r := []rune(m.inputBuffer); len(r) > 0 {
+			m.inputBuffer = string(r[:len(r)-1])
+		}
+		return m, nil
+
+	default:
+		if len(msg.Runes) == 1 && msg.Type == tea.KeyRunes {
+			m.inputBuffer += string(msg.Runes)
+		}
+		return m, nil
+	}
+}
+
+func (m *sftpFormModel) renameCmd(oldName, oldPath, newPath string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.Rename(oldPath, newPath)
+		return sftpRenameResultMsg{oldName: oldName, newName: filepath.Base(newPath), success: err == nil, err: err}
+	}
+}
+
+func (m *sftpFormModel) focusedEntryInfo() *sftpEntryInfo {
+	if m.mode == sftpUploadSelect {
+		idx := m.table.Cursor()
+		if idx < 0 || idx >= len(m.localFiles) || m.localShowingDrives {
+			return nil
+		}
+		full := m.localFiles[idx]
+		info := &sftpEntryInfo{name: filepath.Base(full), path: full}
+		if st, err := os.Stat(full); err == nil {
+			info.isDir = st.IsDir()
+			info.size = st.Size()
+			info.modTime = st.ModTime()
+		}
+		return info
+	}
+	row := m.table.SelectedRow()
+	if len(row) == 0 {
+		return nil
+	}
+	entry := m.findEntry(row[0])
+	if entry == nil {
+		return nil
+	}
+	return &sftpEntryInfo{
+		name:    entry.Name,
+		isDir:   entry.IsDir,
+		size:    entry.Size,
+		modTime: entry.ModTime,
+		path:    path.Join(m.cwd, entry.Name),
 	}
 }
 
@@ -767,46 +970,38 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	case "esc":
 		m.mode = sftpBrowse
 		m.selectedEntry = nil
+		m.localOp = false
+		m.pendingLocalPath = ""
 		return m, nil
 
-	case "enter":
-		if m.selectedEntry == nil {
-			m.mode = sftpBrowse
-			return m, nil
-		}
-
-		remotePath := path.Join(m.cwd, m.selectedEntry.Name)
-
-		if m.mode == sftpDownloadConfirm {
-			m.mode = sftpBrowse
-			job := sftpTransferJob{
-				filename:   m.selectedEntry.Name,
-				localPath:  m.localDownloadPath(m.selectedEntry.Name),
-				remotePath: remotePath,
-				isUpload:   false,
+	case "enter", "y":
+		if m.mode == sftpDeleteConfirm && m.localOp {
+			m.localOp = false
+			target := m.pendingLocalPath
+			m.pendingLocalPath = ""
+			m.selectedEntry = nil
+			m.mode = sftpUploadSelect
+			if target == "" {
+				return m, nil
 			}
-			m.selectedEntry = nil
-			return m, m.requestTransfer(job)
-		}
-
-		if m.mode == sftpDeleteConfirm {
-			name := m.selectedEntry.Name
-			m.mode = sftpBrowse
-			m.selectedEntry = nil
-			m.loading = true
-			m.statusMsg = i18n.T("sftp.deleting", name)
-			m.statusExpiry = time.Now().Add(10 * time.Second)
-			return m, m.deleteCmd(remotePath)
-		}
-
-		return m, nil
-
-	case "y":
-		if m.selectedEntry == nil {
-			m.mode = sftpBrowse
+			if err := os.Remove(target); err != nil {
+				m.setStatus(i18n.T("sftp.delete_failed", err.Error()))
+			} else {
+				m.setStatus(i18n.T("sftp.delete_success", filepath.Base(target)))
+			}
+			m.localFiles = m.listLocalFiles()
+			m.updateLocalTableRows()
 			return m, nil
 		}
+		if m.selectedEntry == nil {
+			m.mode = sftpBrowse
+			m.localOp = false
+			m.pendingLocalPath = ""
+			return m, nil
+		}
+
 		remotePath := path.Join(m.cwd, m.selectedEntry.Name)
+
 		if m.mode == sftpDownloadConfirm {
 			m.mode = sftpBrowse
 			job := sftpTransferJob{
@@ -834,6 +1029,8 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	case "n":
 		m.mode = sftpBrowse
 		m.selectedEntry = nil
+		m.localOp = false
+		m.pendingLocalPath = ""
 		return m, nil
 	}
 
@@ -962,6 +1159,54 @@ func (m *sftpFormModel) handleUploadSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.table.SetCursor(0)
 		return m, nil
 
+	case "n":
+		if m.transferring || m.localShowingDrives {
+			return m, nil
+		}
+		m.localOp = true
+		m.mode = sftpMkdirInput
+		m.inputBuffer = ""
+		m.inputPrompt = i18n.T("sftp.mkdir_prompt")
+		return m, nil
+
+	case "d":
+		if m.transferring {
+			return m, nil
+		}
+		idx := m.table.Cursor()
+		if idx < 0 || idx >= len(m.localFiles) || m.localShowingDrives {
+			return m, nil
+		}
+		m.localOp = true
+		m.pendingLocalPath = m.localFiles[idx]
+		m.selectedEntry = nil
+		m.mode = sftpDeleteConfirm
+		return m, nil
+
+	case "R":
+		if m.transferring {
+			return m, nil
+		}
+		idx := m.table.Cursor()
+		if idx < 0 || idx >= len(m.localFiles) || m.localShowingDrives {
+			return m, nil
+		}
+		full := m.localFiles[idx]
+		m.localOp = true
+		m.pendingLocalPath = full
+		m.selectedEntry = nil
+		m.mode = sftpRenameInput
+		m.inputBuffer = filepath.Base(full)
+		m.inputPrompt = i18n.T("sftp.rename_prompt")
+		return m, nil
+
+	case "i":
+		if info := m.focusedEntryInfo(); info != nil {
+			m.entryInfo = info
+			m.showInfo = true
+		}
+		return m, nil
+
 	case "up", "down", "k", "j", "pgup", "pgdown", "home", "end", "g", "G":
 		m.table, _ = m.table.Update(msg)
 		return m, nil
@@ -1016,6 +1261,10 @@ func (m *sftpFormModel) View() string {
 		return m.renderErrorView()
 	}
 
+	if m.showInfo && m.entryInfo != nil {
+		return m.renderInfoView()
+	}
+
 	// Build the view
 	var components []string
 
@@ -1057,7 +1306,7 @@ func (m *sftpFormModel) View() string {
 	} else if m.statusActive() {
 		statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
 		components = append(components, statusStyle.Render(" ✓ "+m.statusMsg))
-	} else if m.mode == sftpMkdirInput {
+	} else if m.mode == sftpMkdirInput || m.mode == sftpRenameInput {
 		components = append(components, m.renderInputLine())
 	}
 
@@ -1093,6 +1342,9 @@ func (m *sftpFormModel) View() string {
 		}
 		components = append(components, renderHelpText(m.styles, helpLine1, m.width))
 		components = append(components, renderHelpText(m.styles, helpLine2, m.width))
+		if m.mode == sftpUploadSelect {
+			components = append(components, renderHelpText(m.styles, i18n.T("sftp.help_upload_3"), m.width))
+		}
 	}
 
 	return m.styles.App.Render(
@@ -1101,6 +1353,43 @@ func (m *sftpFormModel) View() string {
 			components...,
 		),
 	)
+}
+
+func (m *sftpFormModel) renderInfoView() string {
+	info := m.entryInfo
+	if info == nil {
+		return ""
+	}
+	kind := i18n.T("sftp.type_file")
+	if info.isDir {
+		kind = i18n.T("sftp.type_dir")
+	}
+	size := formatSize(info.size)
+	mod := info.modTime.Format("Jan 02 15:04")
+	if info.isDir {
+		size = i18n.T("info.not_set")
+	}
+	if info.modTime.IsZero() {
+		mod = i18n.T("info.not_set")
+	}
+	var b strings.Builder
+	b.WriteString(m.styles.FormTitle.Render(" "+i18n.T("sftp.entry_info_title", info.name)+" ") + "\n\n")
+	rows := [][2]string{
+		{i18n.T("sftp.col_name"), info.name},
+		{i18n.T("sftp.col_type"), kind},
+		{i18n.T("sftp.col_size"), size},
+		{i18n.T("sftp.col_modified"), mod},
+		{i18n.T("sftp.info_path"), info.path},
+	}
+	for _, r := range rows {
+		label := "  " + r[0] + ":"
+		if w := ansi.StringWidth(label); w < 16 {
+			label += strings.Repeat(" ", 16-w)
+		}
+		b.WriteString(m.styles.FormField.Render(label) + " " + r[1] + "\n")
+	}
+	b.WriteString("\n" + m.styles.HelpText.Render("  "+i18n.T("sftp.info_help")))
+	return renderFormPage(m.styles, m.width, b.String())
 }
 
 func (m *sftpFormModel) renderErrorView() string {
@@ -1134,10 +1423,16 @@ func (m *sftpFormModel) renderDownloadConfirm() string {
 }
 
 func (m *sftpFormModel) renderDeleteConfirm() string {
-	if m.selectedEntry == nil {
+	name := ""
+	if m.selectedEntry != nil {
+		name = m.selectedEntry.Name
+	} else if m.pendingLocalPath != "" {
+		name = filepath.Base(m.pendingLocalPath)
+	}
+	if name == "" {
 		return ""
 	}
-	msg := i18n.T("sftp.delete_confirm", m.selectedEntry.Name)
+	msg := i18n.T("sftp.delete_confirm", name)
 	style := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	return style.Render(msg)
 }

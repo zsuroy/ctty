@@ -139,6 +139,8 @@ func (m *helpModel) View() string {
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("u   "), m.styles.HelpText.Render(i18n.T("help.sftp_upload"))),
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("d   "), m.styles.HelpText.Render(i18n.T("help.sftp_delete"))),
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("n   "), m.styles.HelpText.Render(i18n.T("help.sftp_mkdir"))),
+		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("R   "), m.styles.HelpText.Render(i18n.T("help.sftp_rename"))),
+		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("i   "), m.styles.HelpText.Render(i18n.T("help.sftp_info"))),
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("r   "), m.styles.HelpText.Render(i18n.T("help.sftp_refresh"))),
 		"",
 		m.styles.FocusedLabel.Render(i18n.T("help.cat_ftp")),
