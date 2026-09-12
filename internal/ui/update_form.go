@@ -228,14 +228,16 @@ func (m *updateFormModel) View() string {
 		body = m.renderConfirm()
 	case updateRunning:
 		spinner := updateSpinnerFrames[m.frame]
-		bar := progressBar(m.percent, 32)
+		bar := progressBar(m.percent, max(10, min(32, m.width-13)))
+		progressLine := ansi.Truncate(spinner+" "+m.progress, max(10, m.width-8), "…")
+		hint := ansi.Wrap(i18n.T("update.running_hint"), max(10, m.width-8), " ")
 		body = lipgloss.JoinVertical(lipgloss.Center,
 			m.styles.FormTitle.Render(i18n.T("update.modal_title")),
 			"",
-			spinner+" "+m.progress,
+			progressLine,
 			bar,
 			"",
-			m.styles.HelpText.Faint(true).Render(i18n.T("update.running_hint")),
+			m.styles.HelpText.Faint(true).Render(hint),
 		)
 	case updateDone:
 		body = lipgloss.JoinVertical(lipgloss.Center,

@@ -158,3 +158,13 @@ func TestExtractBinaryMissingEntry(t *testing.T) {
 		t.Fatal("expected error when binary entry absent")
 	}
 }
+
+func TestCurrentExecutablePath(t *testing.T) {
+	p, err := currentExecutablePath()
+	if err != nil {
+		t.Fatalf("currentExecutablePath: %v", err)
+	}
+	if p == "" {
+		t.Fatal("expected non-empty executable path")
+	}
+}

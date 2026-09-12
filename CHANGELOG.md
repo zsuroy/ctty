@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **Standalone local file browser (`ctty browse [path]`)** — Single-pane local filesystem manager: navigate, search, mkdir/delete with confirm (recursive)/rename, file details, open-with-default-app; bilingual help.
 
+### Fixed
+
+- **Self-update on Android (`ExecPath not implemented for android`)** — minio's internal executable lookup doesn't handle GOOS=android, so `ctty update` failed on Termux. ctty now resolves its own binary path (`os.Executable` with PATH fallback) and passes it explicitly.
+
 ## [0.7.3] - 2026-09-12
 
 ### Added
