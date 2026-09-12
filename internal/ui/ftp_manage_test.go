@@ -141,12 +141,33 @@ func TestFTPDeleteCancelAndDirGuard(t *testing.T) {
 	if fm.mode != ftpBrowse || fm.selected != nil {
 		t.Fatal("esc must cancel delete confirm")
 	}
+}
 
+func TestFTPDeleteDirectoryFlows(t *testing.T) {
+	m := newManageTestForm(t)
 	m.remoteTbl.SetCursor(1) // docs directory
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	fm := updated.(*ftpFormModel)
+	if fm.mode != ftpDeleteConfirm {
+		t.Fatal("d on a directory must open delete confirm")
+	}
+	if !strings.Contains(fm.View(), "everything inside") {
+		t.Fatal("directory confirm must warn about recursive delete")
+	}
+
+	updated, cmd := fm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	fm = updated.(*ftpFormModel)
-	if fm.mode != ftpBrowse {
-		t.Fatal("d on a directory must not open delete confirm")
+	if cmd == nil {
+		t.Fatal("expected delete cmd after confirm")
+	}
+	updated, cmd = fm.Update(ftpDeleteResultMsg{filename: "docs", success: true})
+	fm = updated.(*ftpFormModel)
+	if cmd == nil {
+		t.Fatal("expected refresh cmd after delete success")
+	}
+	if !strings.Contains(fm.statusMsg, "docs") {
+		t.Fatalf("status = %q, want docs", fm.statusMsg)
 	}
 }
 
@@ -599,5 +620,39 @@ func TestFTPEscFromLocalReturnsToRemote(t *testing.T) {
 	_, cmd = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if cmd == nil {
 		t.Fatal("q must quit from anywhere")
+	}
+}
+
+func TestFTPBusyKeysShowHintWhileTransferring(t *testing.T) {
+	i18n.SetLang("zh")
+	m := newManageTestForm(t)
+	m.transferring = true
+	for _, key := range []rune{'n', 'd', 'R', 'r'} {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+		fm := updated.(*ftpFormModel)
+		if fm.mode == ftpMkdirInput || fm.mode == ftpRenameInput || fm.mode == ftpDeleteConfirm {
+			t.Fatalf("key %q must not open input while transferring", key)
+		}
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	fm := updated.(*ftpFormModel)
+	if !strings.Contains(fm.statusMsg, i18n.T("ftp.busy")) {
+		t.Fatalf("status = %q, want busy hint", fm.statusMsg)
+	}
+}
+
+func TestFTPStaleResultPreservesOpenInput(t *testing.T) {
+	m := newManageTestForm(t)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	fm := updated.(*ftpFormModel)
+	fm = typeRunes(t, fm, "sec")
+	updated, _ = fm.Update(ftpMkdirResultMsg{name: "first", success: true})
+	fm = updated.(*ftpFormModel)
+	if fm.mode != ftpMkdirInput {
+		t.Fatalf("mode = %v, stale result must not close open input", fm.mode)
+	}
+	if fm.inputBuffer != "sec" {
+		t.Fatalf("inputBuffer = %q, typed text must survive stale result", fm.inputBuffer)
 	}
 }

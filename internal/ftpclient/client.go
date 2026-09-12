@@ -457,6 +457,16 @@ func (c *Client) Delete(path string) error {
 	return c.conn.Delete(path)
 }
 
+// RemoveDirRecur removes a remote directory and all its contents.
+func (c *Client) RemoveDirRecur(dir string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.xferActive {
+		return fmt.Errorf("ftp: transfer in progress")
+	}
+	return c.conn.RemoveDirRecur(dir)
+}
+
 // Rename moves a remote file or directory to a new path (RNFR/RNTO).
 func (c *Client) Rename(oldPath, newPath string) error {
 	c.mu.Lock()
