@@ -126,12 +126,12 @@ type Model struct {
 	updateForm       *updateFormModel
 
 	// Terminal size and styles
-	width      int
-	height     int
-	styles     Styles
-	ready      bool
-	serialOnly bool // true when launched via 'ctty serial' — Esc exits instead of returning to host list
-	telnetOnly bool // true when launched via 'ctty telnet' — same exit semantics
+	width        int
+	height       int
+	styles       Styles
+	ready        bool
+	serialOnly   bool // true when launched via 'ctty serial' — Esc exits instead of returning to host list
+	telnetOnly   bool // true when launched via 'ctty telnet' — same exit semantics
 	ftpOnly      bool // true when launched via 'ctty ftp'
 	ftpFromSites bool // browser opened from site manager (Esc returns to list)
 

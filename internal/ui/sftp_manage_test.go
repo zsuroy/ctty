@@ -502,3 +502,20 @@ func TestSFTPInputVisibleWhileLoading(t *testing.T) {
 		t.Fatal("input line must render on top of progress while loading")
 	}
 }
+
+func TestSFTPLayoutToggleRefusedWhenNarrow(t *testing.T) {
+	i18n.SetLang("en")
+	m := NewSFTPFormWithLayout(NewStyles(60), 60, 30, "host", "", config.SFTPLayoutSingle)
+	m.client = &sftpconfig.SFTPClient{}
+	m.loading = false
+	m.mode = sftpBrowse
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	fm := updated.(*sftpFormModel)
+	if fm.layout != config.SFTPLayoutSingle {
+		t.Fatalf("layout = %q, narrow terminal must refuse dual pane", fm.layout)
+	}
+	if !strings.Contains(fm.statusMsg, i18n.T("sftp.too_narrow")) {
+		t.Fatalf("status = %q, want too-narrow hint", fm.statusMsg)
+	}
+}

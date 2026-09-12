@@ -577,7 +577,10 @@ func (m *ftpFormModel) setFocusLocal(local bool) {
 }
 
 // toggleLayout flips dual/single pane layout and persists it to app config.
-func (m *ftpFormModel) toggleLayout() tea.Cmd {
+func (m *ftpFormModel) toggleLayout() (tea.Model, tea.Cmd) {
+	if m.layout == config.FTPLayoutSingle && m.narrow() {
+		return m, m.setStatus(i18n.T("ftp.too_narrow"))
+	}
 	if m.layout == config.FTPLayoutSingle {
 		m.layout = config.FTPLayoutDual
 	} else {
@@ -591,7 +594,7 @@ func (m *ftpFormModel) toggleLayout() tea.Cmd {
 	if m.layout == config.FTPLayoutSingle {
 		name = i18n.T("ftp.layout_single")
 	}
-	return m.setStatus(i18n.T("ftp.layout_status", name))
+	return m, m.setStatus(i18n.T("ftp.layout_status", name))
 }
 
 // persistFTPLayout writes the chosen layout to ~/.config/ctty/config.json.
@@ -704,7 +707,7 @@ func (m *ftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.startRenameInput()
 	case "v", "V":
-		return m, m.toggleLayout()
+		return m.toggleLayout()
 	case "i":
 		if info := m.focusedEntryInfo(); info != nil {
 			m.entryInfo = info

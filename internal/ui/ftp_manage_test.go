@@ -656,3 +656,20 @@ func TestFTPStaleResultPreservesOpenInput(t *testing.T) {
 		t.Fatalf("inputBuffer = %q, typed text must survive stale result", fm.inputBuffer)
 	}
 }
+
+func TestFTPLayoutToggleRefusedWhenNarrow(t *testing.T) {
+	i18n.SetLang("en")
+	m := NewFTPFormWithLayout(NewStyles(60), 60, 30, "site", config.FTPLayoutSingle)
+	m.client = &ftpclient.Client{}
+	m.loading = false
+	m.mode = ftpBrowse
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	fm := updated.(*ftpFormModel)
+	if fm.layout != config.FTPLayoutSingle {
+		t.Fatalf("layout = %q, narrow terminal must refuse dual pane", fm.layout)
+	}
+	if !strings.Contains(fm.statusMsg, i18n.T("ftp.too_narrow")) {
+		t.Fatalf("status = %q, want too-narrow hint", fm.statusMsg)
+	}
+}

@@ -1228,6 +1228,10 @@ func (m *sftpFormModel) localColumns() []table.Column {
 
 // toggleLayout flips dual/single pane layout and persists it to app config.
 func (m *sftpFormModel) toggleLayout() (tea.Model, tea.Cmd) {
+	if m.layout == config.SFTPLayoutSingle && m.narrow() {
+		m.setStatus(i18n.T("sftp.too_narrow"))
+		return m, nil
+	}
 	if m.layout == config.SFTPLayoutSingle {
 		m.layout = config.SFTPLayoutDual
 	} else {
