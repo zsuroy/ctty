@@ -231,8 +231,17 @@ func getUser(host *config.SSHHost) string {
 func getAuthMethods(host *config.SSHHost) ([]ssh.AuthMethod, error) {
 	var methods []ssh.AuthMethod
 
-	// Try SSH agent first
-	if socket := os.Getenv("SSH_AUTH_SOCK"); socket != "" {
+	// Try SSH agent (host.IdentityAgent takes precedence over SSH_AUTH_SOCK per OpenSSH spec)
+	socket := host.IdentityAgent
+	if socket == "" || socket == "SSH_AUTH_SOCK" {
+		socket = os.Getenv("SSH_AUTH_SOCK")
+	} else if socket == "none" {
+		socket = ""
+	} else {
+		socket = expandPath(socket)
+	}
+
+	if socket != "" {
 		conn, err := net.Dial("unix", socket)
 		if err == nil {
 			agentClient := agent.NewClient(conn)
@@ -453,6 +462,7 @@ func isUnknownHostKey(err error) bool {
 }
 
 func expandPath(path string) string {
+	path = strings.Trim(path, `"'`)
 	if strings.HasPrefix(path, "~/") {
 		homeDir, _ := os.UserHomeDir()
 		return filepath.Join(homeDir, path[2:])

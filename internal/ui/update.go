@@ -88,6 +88,11 @@ func (m Model) Init() tea.Cmd {
 		cmds = append(cmds, checkVersionCmd(m.currentVersion))
 	}
 
+	// Trigger async connection for standalone SFTP mode (`ctty sftp <host>`)
+	if m.viewMode == ViewSFTP && m.sftpForm != nil {
+		cmds = append(cmds, m.sftpForm.Init())
+	}
+
 	return tea.Batch(cmds...)
 }
 

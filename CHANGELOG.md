@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.4] - 2026-09-11
+
+### Added
+
+- **SSH `IdentityAgent` Support** — Full support for `IdentityAgent` directives in `~/.ssh/config` (including global inheritance from `Host *` and per-host declarations). Supports custom UNIX domain socket paths with `~` tilde expansion and quoted path handling (e.g. 1Password SSH Agent at `~/Library/Group Containers/XXXXX.com.1password/t/agent.sock`), `none` to disable the agent, and `SSH_AUTH_SOCK` fallback per OpenSSH specification.
+
+### Fixed
+
+- **SFTP standalone CLI hang (`ctty sftp <host>`)** — Fixed an issue where running `ctty sftp <host>` directly from the command line would hang indefinitely on `"正在建立 SFTP 连接..."`. `Model.Init()` now properly dispatches `sftpForm.Init()` when started in `ViewSFTP` mode, scheduling the asynchronous SSH/SFTP connection immediately (#20).
+
 ## [0.6.3] - 2026-09-07
 
 ### Fixed
