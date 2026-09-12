@@ -258,6 +258,11 @@ func (m *ftpSitesModel) rebuildTable() {
 		if m.table.Columns() == nil || len(m.table.Columns()) == 0 {
 			m.table = table.New(table.WithColumns(cols), table.WithHeight(h), table.WithFocused(true))
 		} else {
+			// Drain rows first: bubbles renderRow indexes columns by row
+			// length, so swapping 3/4-column layouts on a populated
+			// table panics. SetRows(nil) renders nothing, making the
+			// column swap safe in both directions.
+			m.table.SetRows(nil)
 			m.table.SetColumns(cols)
 			m.table.SetHeight(h)
 		}
@@ -296,6 +301,7 @@ func (m *ftpSitesModel) rebuildTable() {
 	if m.table.Columns() == nil || len(m.table.Columns()) == 0 {
 		m.table = table.New(table.WithColumns(cols), table.WithHeight(h), table.WithFocused(true))
 	} else {
+		m.table.SetRows(nil)
 		m.table.SetColumns(cols)
 		m.table.SetHeight(h)
 	}

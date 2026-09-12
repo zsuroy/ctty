@@ -548,3 +548,29 @@ func TestColorizeSiteTagsLongestFirst(t *testing.T) {
 		t.Fatalf("overlapping tags corrupted: %q", got)
 	}
 }
+
+func TestFTPSitesNarrowWideSwitchNoPanic(t *testing.T) {
+	i18n.SetLang("en")
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+
+	m := NewFTPSitesForm(NewStyles(100), 100, 30)
+	m.sites = []ftpconfig.FTPSite{
+		{Name: "lab", Host: "10.0.0.1", Port: 21, User: "admin", Tags: []string{"ops"}},
+	}
+	m.applyFilter()
+	m.rebuildTable()
+
+	for _, w := range []int{60, 100, 60, 140, 40} {
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 30})
+		m = updated.(*ftpSitesModel)
+		if w < 74 && len(m.table.Columns()) != 3 {
+			t.Fatalf("width %d: want 3 columns, got %d", w, len(m.table.Columns()))
+		}
+		if w >= 74 && len(m.table.Columns()) != 4 {
+			t.Fatalf("width %d: want 4 columns, got %d", w, len(m.table.Columns()))
+		}
+		_ = m.View()
+	}
+}
