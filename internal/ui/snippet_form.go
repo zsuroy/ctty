@@ -33,6 +33,7 @@ const (
 // execute on the selected host.
 type snippetFormModel struct {
 	hostName   string
+	hostNames  []string
 	configFile string
 	input      textinput.Model
 	styles     Styles
@@ -52,8 +53,9 @@ type snippetFormModel struct {
 
 // snippetSubmitMsg is sent when the user submits a command.
 type snippetSubmitMsg struct {
-	hostName string
-	command  string
+	hostName  string
+	hostNames []string
+	command   string
 }
 
 // snippetCloseMsg is sent when the user cancels.
@@ -116,6 +118,11 @@ func saveSnippets(snippets []Snippet) error {
 
 // NewSnippetForm creates a new snippet execution form for the given host.
 func NewSnippetForm(styles Styles, width, height int, hostName, configFile string) *snippetFormModel {
+	return NewSnippetFormForHosts(styles, width, height, []string{hostName}, configFile)
+}
+
+// NewSnippetFormForHosts creates a snippet execution form for one or more hosts.
+func NewSnippetFormForHosts(styles Styles, width, height int, hostNames []string, configFile string) *snippetFormModel {
 	ti := textinput.New()
 	ti.Placeholder = i18n.T("snippet.placeholder")
 	ti.CharLimit = 500
@@ -126,8 +133,14 @@ func NewSnippetForm(styles Styles, width, height int, hostName, configFile strin
 	all := append([]Snippet{}, builtinSnippets...)
 	all = append(all, userSnippets...)
 
+	primaryName := ""
+	if len(hostNames) > 0 {
+		primaryName = hostNames[0]
+	}
+
 	return &snippetFormModel{
-		hostName:   hostName,
+		hostName:   primaryName,
+		hostNames:  hostNames,
 		configFile: configFile,
 		input:      ti,
 		styles:     styles,
@@ -185,7 +198,7 @@ func (m *snippetFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 			return m, nil
 		}
 		return m, func() tea.Msg {
-			return snippetSubmitMsg{hostName: m.hostName, command: cmd}
+			return snippetSubmitMsg{hostName: m.hostName, hostNames: m.hostNames, command: cmd}
 		}
 
 	case "up", "k":
@@ -326,7 +339,7 @@ func (m *snippetFormModel) View() string {
 	case snippetAdd:
 		return m.viewAdd()
 	case snippetDeleteConfirm:
-		return m.viewDeleteConfirm()
+		return renderConfirmModal(m.width, m.height, m.viewDeleteConfirm())
 	default:
 		return m.viewBrowse()
 	}
@@ -339,14 +352,20 @@ func (m *snippetFormModel) viewBrowse() string {
 		innerWidth = 10
 	}
 	// FormTitle has Padding(0,1)=2, truncate to fit
-	titleText := ansi.Truncate(i18n.T("snippet.title", m.hostName), innerWidth-2, "…")
-	title := m.styles.FormTitle.Render(titleText)
+	var rawTitle string
+	if len(m.hostNames) > 1 {
+		rawTitle = fmt.Sprintf(i18n.T("snippet.title_batch"), len(m.hostNames))
+	} else {
+		rawTitle = fmt.Sprintf(i18n.T("snippet.title"), m.hostName)
+	}
+	titleText := ansi.Truncate(rawTitle, innerWidth-2, "…")
+	title := m.styles.Header.Render(titleText)
 	searchPrompt := i18n.T("snippet.prompt")
 	inputLine := renderSearchBar(m.styles, true, searchPrompt, m.input.View(), innerWidth)
 
 	var listLines []string
 	listHeader := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(SecondaryColor)).
+		Foreground(m.styles.Theme.Secondary).
 		Render(i18n.T("snippet.list_header"))
 	listLines = append(listLines, listHeader)
 
@@ -356,7 +375,21 @@ func (m *snippetFormModel) viewBrowse() string {
 		listMaxW = 10
 	}
 
-	for i, s := range m.snippets {
+	availH := m.height - 11
+	if availH < 3 {
+		availH = 3
+	}
+	start := 0
+	if m.cursor >= availH {
+		start = m.cursor - availH + 1
+	}
+	end := start + availH
+	if end > len(m.snippets) {
+		end = len(m.snippets)
+	}
+
+	for i := start; i < end; i++ {
+		s := m.snippets[i]
 		marker := "  "
 		if i >= m.userIdx {
 			marker = "★ "
@@ -374,25 +407,18 @@ func (m *snippetFormModel) viewBrowse() string {
 
 	var errLine string
 	if m.err != "" {
-		errLine = "\n" + lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ErrorColor)).
-			Render("✗ "+m.err)
+		errLine = "\n" + m.styles.ErrorText.Render("✗ "+m.err)
 	}
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		"",
-		inputLine,
-		"",
-		strings.Join(listLines, "\n"),
-		"",
-		helpLine,
-		errLine,
-	)
+	parts := []string{title, "", inputLine, "", strings.Join(listLines, "\n"), "", helpLine}
+	if m.err != "" {
+		// The empty errLine still cost a JoinVertical row: the frame ran
+		// one line over the terminal and the card's bottom border was
+		// clipped by RenderCanvas.
+		parts = append(parts, "", errLine)
+	}
 
-	return m.styles.App.Render(
-		m.styles.FormContainer.Render(content),
-	)
+	return m.renderCard(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
 func (m *snippetFormModel) viewAdd() string {
@@ -401,7 +427,7 @@ func (m *snippetFormModel) viewAdd() string {
 		innerWidth = 10
 	}
 	titleText := ansi.Truncate(i18n.T("snippet.add_title"), innerWidth-2, "…")
-	title := m.styles.FormTitle.Render(titleText)
+	title := m.styles.Header.Render(titleText)
 	nameLabel := m.styles.Label.Render(i18n.T("snippet.add_name_label"))
 	nameInput := renderSearchBar(m.styles, m.addFocus == 0, i18n.T("snippet.add_name_label")+" ", m.addName.View(), innerWidth)
 	cmdLabel := m.styles.Label.Render(i18n.T("snippet.add_cmd_label"))
@@ -409,54 +435,66 @@ func (m *snippetFormModel) viewAdd() string {
 
 	helpLine := renderHelpText(m.styles, i18n.T("snippet.add_help"), innerWidth)
 
-	var errLine string
+	var errParts []string
 	if m.err != "" {
-		errLine = "\n" + lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ErrorColor)).
-			Render("✗ "+m.err)
+		errParts = []string{"", m.styles.ErrorText.Render("✗ " + m.err)}
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		"",
-		nameLabel,
-		nameInput,
-		"",
-		cmdLabel,
-		cmdInput,
-		"",
-		helpLine,
-		errLine,
+		append([]string{
+			title,
+			"",
+			nameLabel,
+			nameInput,
+			"",
+			cmdLabel,
+			cmdInput,
+			"",
+			helpLine,
+		}, errParts...)...,
 	)
 
-	return m.styles.App.Render(
-		m.styles.FormContainer.Render(content),
-	)
+	return m.renderCard(content)
 }
 
+// viewDeleteConfirm builds the delete confirmation card, shown as a
+// full-screen modal.
 func (m *snippetFormModel) viewDeleteConfirm() string {
 	if m.cursor < 0 || m.cursor >= len(m.snippets) {
 		m.mode = snippetBrowse
-		return m.viewBrowse()
+		return ""
 	}
 	s := m.snippets[m.cursor]
-	msg := i18n.T("snippet.delete_confirm", s.Name)
+	return renderConfirmBox(m.styles, m.width,
+		m.styles.ErrorText.Render(i18n.T("delete.title")),
+		i18n.T("snippet.delete_confirm", s.Name),
+		i18n.T("delete.warning"),
+		m.styles.HelpText.Render(i18n.T("delete.help")),
+	)
+}
 
-	innerWidthDel := m.width - 8
-	if innerWidthDel < 10 {
-		innerWidthDel = 10
+func (m *snippetFormModel) renderCard(content string) string {
+	boxWidth := m.width - 4
+	if boxWidth < 20 {
+		boxWidth = 20
 	}
-	titleTextDel := ansi.Truncate(i18n.T("snippet.title", m.hostName), innerWidthDel-2, "…")
-
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		m.styles.FormTitle.Render(titleTextDel),
-		"",
-		m.styles.Error.Render(msg),
-		"",
-		renderHelpText(m.styles, i18n.T("snippet.delete_help"), m.width-6),
-	)
-
-	return m.styles.App.Render(
-		m.styles.FormContainer.Render(content),
-	)
+	container := m.styles.FormContainer
+	if m.height < 24 {
+		container = container.Padding(0, 1)
+	}
+	// On short terminals the fixed-layout card (borders + 2 inputs + help)
+	// can outgrow the screen and lose its bottom border to clipping; shed
+	// the interior spacer rows to reclaim height.
+	if h := m.height; h > 0 && lipgloss.Height(content) > h-2 {
+		var kept []string
+		for _, ln := range strings.Split(content, "\n") {
+			if strings.TrimSpace(ln) == "" {
+				continue
+			}
+			kept = append(kept, ln)
+		}
+		content = strings.Join(kept, "\n")
+	}
+	box := container.Width(boxWidth).Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }

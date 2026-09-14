@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/zsuroy/ctty/internal/config"
@@ -14,6 +16,7 @@ import (
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
 	"github.com/zsuroy/ctty/internal/telnetclient"
+	"github.com/zsuroy/ctty/internal/ui/theme"
 	"github.com/zsuroy/ctty/internal/version"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -152,9 +155,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.infoForm.styles = m.styles
 		}
 		if m.portForwardForm != nil {
-			m.portForwardForm.width = m.width
-			m.portForwardForm.height = m.height
-			m.portForwardForm.styles = m.styles
+			newForm, _ := m.portForwardForm.Update(msg)
+			m.portForwardForm = newForm
 		}
 		if m.helpForm != nil {
 			m.helpForm.width = m.width
@@ -185,10 +187,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.localBrowserForm.Update(msg)
 		}
 		if m.settingsForm != nil {
-			m.settingsForm.Update(msg)
+			newForm, _ := m.settingsForm.Update(msg)
+			m.settingsForm = newForm
 		}
 		if m.snippetForm != nil {
 			m.snippetForm.Update(msg)
+		}
+		if m.updateForm != nil {
+			m.updateForm.Update(msg)
 		}
 		return m, nil
 
@@ -377,13 +383,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fileSelectorForm = nil
 			m.table.Focus()
 			return m, nil
-		} else {
-			// File selected: proceed to add form with selected file
-			m.addForm = NewAddForm("", m.styles, m.width, m.height, msg.selectedFile)
-			m.viewMode = ViewAdd
-			m.fileSelectorForm = nil
-			return m, textinput.Blink
 		}
+		// File selected: proceed to add form with selected file
+		initialName := m.searchInput.Value()
+		m.addForm = NewAddForm(initialName, m.styles, m.width, m.height, msg.selectedFile)
+		m.viewMode = ViewAdd
+		m.fileSelectorForm = nil
+		return m, m.addForm.Init()
 
 	case infoFormEditMsg:
 		// Switch from info to edit mode
@@ -398,7 +404,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.editForm = editForm
 		m.infoForm = nil
 		m.viewMode = ViewEdit
-		return m, textinput.Blink
+		return m, m.editForm.Init()
 
 	case portForwardSubmitMsg:
 		if msg.err != nil {
@@ -460,6 +466,58 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Exec(serialconfig.NewExecCommand(msg.device), func(err error) tea.Msg {
 			return tea.Quit()
 		})
+
+	case switchProtocolMsg:
+		if m.serialOnly || m.telnetOnly || m.ftpOnly {
+			return m, nil
+		}
+		// Clean up any active sub-forms or connections
+		if m.viewMode == ViewFTPBrowse && m.ftpForm != nil && m.ftpForm.client != nil {
+			_ = m.ftpForm.client.Close()
+		}
+		if m.viewMode == ViewSFTP && m.sftpForm != nil && m.sftpForm.client != nil {
+			_ = m.sftpForm.client.Close()
+		}
+		m.serialForm = nil
+		m.telnetForm = nil
+		m.ftpSitesForm = nil
+		m.ftpForm = nil
+		m.localBrowserForm = nil
+
+		switch msg.target {
+		case ViewSerial:
+			m.serialForm = NewSerialForm(m.styles, m.width, m.height)
+			m.viewMode = ViewSerial
+			return m, nil
+		case ViewTelnet:
+			m.telnetForm = NewTelnetForm(m.styles, m.width, m.height)
+			m.viewMode = ViewTelnet
+			return m, nil
+		case ViewFTP:
+			m.ftpSitesForm = NewFTPSitesForm(m.styles, m.width, m.height)
+			m.viewMode = ViewFTP
+			return m, nil
+		case ViewLocalBrowser:
+			cwd, err := os.Getwd()
+			if err != nil {
+				cwd = ""
+			}
+			m.localBrowserForm = NewLocalBrowserForm(m.styles, m.width, m.height, cwd)
+			m.viewMode = ViewLocalBrowser
+			return m, nil
+		default: // ViewList
+			m.viewMode = ViewList
+			m.table.Focus()
+			return m, nil
+		}
+
+	case reloadConfigMsg:
+		if err := m.reloadHosts(); err == nil {
+			m.setStatus(i18n.T("main.config_reloaded"))
+		}
+		m.viewMode = ViewList
+		m.table.Focus()
+		return m, nil
 
 	case serialDoneMsg:
 		m.serialForm = nil
@@ -552,9 +610,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.Focus()
 		if msg.Saved && msg.AppConfig != nil {
 			m.appConfig = msg.AppConfig
+			if m.appConfig.Theme != "" {
+				th := theme.GetTheme(m.appConfig.Theme)
+				m.styles = ApplyTheme(th)
+				m.updateTableStyles()
+			}
 			m.searchInput.Placeholder = i18n.T("search.placeholder")
 			m.updateTableRows()
 			m.setStatus(i18n.T("settings.saved_toast"))
+		} else {
+			if m.appConfig != nil && m.appConfig.Theme != "" {
+				th := theme.GetTheme(m.appConfig.Theme)
+				m.styles = ApplyTheme(th)
+				m.updateTableStyles()
+			}
 		}
 		return m, nil
 
@@ -564,10 +633,50 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.Focus()
 		return m, nil
 
+	case hostStatsResultMsg:
+		if m.peekOpen && m.peekHost != nil && m.peekHost.Name == msg.hostName {
+			m.peekLoading = false
+			if msg.err != nil {
+				m.peekErr = msg.err.Error()
+				m.peekStats = nil
+			} else {
+				m.peekStats = msg.stats
+				m.peekErr = ""
+			}
+		}
+		return m, nil
+
+	case batchExecDoneMsg:
+		m.batchRunning = false
+		m.batchResults = msg.results
+		m.batchScroll = 0
+		return m, nil
+
 	case snippetSubmitMsg:
 		m.snippetForm = nil
 		m.viewMode = ViewList
 		m.table.Focus()
+		if len(msg.hostNames) > 1 {
+			m.batchResultOpen = true
+			m.batchRunning = true
+			m.batchCommand = msg.command
+			m.batchHostCount = len(msg.hostNames)
+			m.batchResults = nil
+			m.batchScroll = 0
+			hostMap := make(map[string]config.SSHHost)
+			for _, h := range m.allHosts {
+				hostMap[h.Name] = h
+			}
+			var targets []config.SSHHost
+			for _, name := range msg.hostNames {
+				if h, ok := hostMap[name]; ok {
+					targets = append(targets, h)
+				} else {
+					targets = append(targets, config.SSHHost{Name: name, Hostname: name})
+				}
+			}
+			return m, batchExecCmd(targets, m.configFile, msg.command)
+		}
 		// Execute the command via ssh and suspend TUI
 		var sshCmd *exec.Cmd
 		if m.configFile != "" {
@@ -710,22 +819,58 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Forward SFTP-specific messages to the sftp form (these are not tea.KeyMsg)
-	if m.sftpForm != nil && m.viewMode == ViewSFTP {
-		updatedModel, sftpCmd := m.sftpForm.Update(msg)
-		if sm, ok := updatedModel.(*sftpFormModel); ok {
-			m.sftpForm = sm
+	// Forward messages to the active view mode (for cursor blink, submodel async events, etc.)
+	switch m.viewMode {
+	case ViewPortForward:
+		if m.portForwardForm != nil {
+			newForm, pfCmd := m.portForwardForm.Update(msg)
+			m.portForwardForm = newForm
+			return m, pfCmd
 		}
-		return m, sftpCmd
-	}
-
-	// Forward FTP browser async messages
-	if m.ftpForm != nil && m.viewMode == ViewFTPBrowse {
-		updatedModel, ftpCmd := m.ftpForm.Update(msg)
-		if fm, ok := updatedModel.(*ftpFormModel); ok {
-			m.ftpForm = fm
+	case ViewEdit:
+		if m.editForm != nil {
+			updatedModel, editCmd := m.editForm.Update(msg)
+			if em, ok := updatedModel.(*editFormModel); ok {
+				m.editForm = em
+			}
+			return m, editCmd
 		}
-		return m, ftpCmd
+	case ViewAdd:
+		if m.addForm != nil {
+			newForm, addCmd := m.addForm.Update(msg)
+			m.addForm = newForm
+			return m, addCmd
+		}
+	case ViewSerial:
+		if m.serialForm != nil {
+			updatedModel, serialCmd := m.serialForm.Update(msg)
+			if sm, ok := updatedModel.(*serialFormModel); ok {
+				m.serialForm = sm
+			}
+			return m, serialCmd
+		}
+	case ViewSettings:
+		if m.settingsForm != nil {
+			newForm, setCmd := m.settingsForm.Update(msg)
+			m.settingsForm = newForm
+			return m, setCmd
+		}
+	case ViewSFTP:
+		if m.sftpForm != nil {
+			updatedModel, sftpCmd := m.sftpForm.Update(msg)
+			if sm, ok := updatedModel.(*sftpFormModel); ok {
+				m.sftpForm = sm
+			}
+			return m, sftpCmd
+		}
+	case ViewFTPBrowse:
+		if m.ftpForm != nil {
+			updatedModel, ftpCmd := m.ftpForm.Update(msg)
+			if fm, ok := updatedModel.(*ftpFormModel); ok {
+				m.ftpForm = fm
+			}
+			return m, ftpCmd
+		}
 	}
 
 	return m, cmd
@@ -735,8 +880,136 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	key := msg.String()
 
+	if m.tagPickerOpen {
+		tagItems := m.getTagCounts()
+		switch key {
+		case "esc", "q":
+			m.tagPickerOpen = false
+			return m, nil
+		case "up", "k":
+			if m.tagPickerCursor > 0 {
+				m.tagPickerCursor--
+			}
+			return m, nil
+		case "down", "j":
+			if m.tagPickerCursor < len(tagItems) {
+				m.tagPickerCursor++
+			}
+			return m, nil
+		case "c":
+			m.selectedTag = ""
+			m.tagPickerOpen = false
+			m.filteredHosts = m.filterHosts(m.searchInput.Value())
+			m.table.SetCursor(0)
+			m.updateTableRows()
+			m.setStatus(i18n.T("tags.cleared"))
+			return m, nil
+		case "enter":
+			if m.tagPickerCursor == 0 {
+				m.selectedTag = ""
+			} else if m.tagPickerCursor-1 < len(tagItems) {
+				m.selectedTag = tagItems[m.tagPickerCursor-1].tag
+			}
+			m.tagPickerOpen = false
+			m.filteredHosts = m.filterHosts(m.searchInput.Value())
+			m.table.SetCursor(0)
+			m.updateTableRows()
+			return m, nil
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			idx := int(key[0] - '1')
+			if idx < len(tagItems) {
+				m.selectedTag = tagItems[idx].tag
+				m.tagPickerOpen = false
+				m.filteredHosts = m.filterHosts(m.searchInput.Value())
+				m.table.SetCursor(0)
+				m.updateTableRows()
+				return m, nil
+			}
+		}
+		return m, nil
+	}
+
+	if m.peekOpen {
+		switch key {
+		case "esc", "q", "v":
+			m.peekOpen = false
+			m.peekHost = nil
+			m.peekLoading = false
+			m.peekStats = nil
+			m.peekErr = ""
+			return m, nil
+		case "r":
+			if m.peekHost != nil {
+				m.peekLoading = true
+				m.peekErr = ""
+				return m, fetchHostStatsCmd(*m.peekHost, m.configFile)
+			}
+			return m, nil
+		case "y":
+			if m.peekHost != nil {
+				cmdStr := FormatSSHCommand(*m.peekHost, m.configFile)
+				copyToClipboard(cmdStr)
+				m.setStatus(fmt.Sprintf(i18n.T("main.copied"), cmdStr))
+			}
+			return m, nil
+		case "enter":
+			if m.peekHost != nil {
+				targetHost := *m.peekHost
+				m.peekOpen = false
+				m.peekHost = nil
+				var sshCmd *exec.Cmd
+				if m.configFile != "" {
+					sshCmd = exec.Command("ssh", "-F", m.configFile, "-o", "StrictHostKeyChecking=accept-new", targetHost.Name)
+				} else {
+					sshCmd = exec.Command("ssh", "-o", "StrictHostKeyChecking=accept-new", targetHost.Name)
+				}
+				sshCmd.Env = buildSSHEnv(targetHost.Name)
+				return m, tea.ExecProcess(sshCmd, func(err error) tea.Msg {
+					return tea.Quit()
+				})
+			}
+			return m, nil
+		}
+		return m, nil
+	}
+
+	if m.batchResultOpen {
+		switch key {
+		case "esc", "q":
+			m.batchResultOpen = false
+			m.batchRunning = false
+			m.batchResults = nil
+			return m, nil
+		case "up", "k":
+			if m.batchScroll > 0 {
+				m.batchScroll--
+			}
+			return m, nil
+		case "down", "j":
+			m.batchScroll++
+			return m, nil
+		case "pgup":
+			if m.batchScroll > 5 {
+				m.batchScroll -= 5
+			} else {
+				m.batchScroll = 0
+			}
+			return m, nil
+		case "pgdown":
+			m.batchScroll += 5
+			return m, nil
+		}
+		return m, nil
+	}
+
 	switch key {
 	case "esc", "ctrl+c":
+		if len(m.selectedHosts) > 0 {
+			m.clearSelection()
+			m.updateTableRows()
+			m.setStatus(i18n.T("main.selection_cleared"))
+			return m, nil
+		}
 		if m.deleteMode {
 			// Exit delete mode
 			m.deleteMode = false
@@ -761,6 +1034,45 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Use configurable key bindings for quit
 			if m.appConfig != nil && m.appConfig.KeyBindings.ShouldQuitOnKey(key) {
 				return m, tea.Quit
+			}
+		}
+	case " ":
+		if !m.searchMode && !m.deleteMode {
+			hostsToShow := m.filteredHosts
+			if hostsToShow == nil {
+				hostsToShow = m.hosts
+			}
+			cursor := m.table.Cursor()
+			if cursor >= 0 && cursor < len(hostsToShow) {
+				m.toggleHostSelected(hostsToShow[cursor].Name)
+				if cursor < len(hostsToShow)-1 {
+					m.table.SetCursor(cursor + 1)
+				}
+				m.updateTableRows()
+				return m, nil
+			}
+		}
+	case "ctrl+a":
+		if !m.searchMode && !m.deleteMode {
+			m.toggleSelectAllVisible()
+			m.updateTableRows()
+			return m, nil
+		}
+	case "v", "P":
+		if !m.searchMode && !m.deleteMode {
+			hostsToShow := m.filteredHosts
+			if hostsToShow == nil {
+				hostsToShow = m.hosts
+			}
+			cursor := m.table.Cursor()
+			if cursor >= 0 && cursor < len(hostsToShow) {
+				target := hostsToShow[cursor]
+				m.peekOpen = true
+				m.peekHost = &target
+				m.peekLoading = true
+				m.peekStats = nil
+				m.peekErr = ""
+				return m, fetchHostStatsCmd(target, m.configFile)
 			}
 		}
 	case "/", "ctrl+f":
@@ -802,51 +1114,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.table.Focus()
 			return m, nil
 		} else if m.deleteMode {
-			// Confirm deletion
-			var err error
-			if m.deleteHost != nil {
-				_ = credential.DeletePassword(m.deleteHost.Name)
-				err = config.DeleteSSHHostWithLine(*m.deleteHost)
-			}
-			if err != nil {
-				// Could display an error message here
-				m.deleteMode = false
-				m.deleteHost = nil
-				m.table.Focus()
-				return m, nil
-			}
-			// Refresh the hosts list
-			var hosts []config.SSHHost
-			var parseErr error
-
-			if m.configFile != "" {
-				hosts, parseErr = config.ParseSSHConfigFile(m.configFile)
-			} else {
-				hosts, parseErr = config.ParseSSHConfig()
-			}
-
-			if parseErr != nil {
-				// Could display an error message here
-				m.deleteMode = false
-				m.deleteHost = nil
-				m.table.Focus()
-				return m, nil
-			}
-			m.allHosts = hosts
-			m.hosts = m.sortHosts(m.applyVisibilityFilter(hosts))
-
-			// Reapply search filter if there is one active
-			if m.searchInput.Value() != "" {
-				m.filteredHosts = m.filterHosts(m.searchInput.Value())
-			} else {
-				m.filteredHosts = m.hosts
-			}
-
-			m.updateTableRows()
-			m.deleteMode = false
-			m.deleteHost = nil
-			m.table.Focus()
-			return m, nil
+			return m.confirmDeleteHost()
 		} else {
 			// Connect to the selected host
 			selected := m.table.SelectedRow()
@@ -878,6 +1146,61 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				})
 			}
 		}
+	case "y", "Y":
+		if m.deleteMode {
+			return m.confirmDeleteHost()
+		}
+		if !m.searchMode {
+			if len(m.selectedHosts) > 0 {
+				var cmds []string
+				for _, h := range m.getSelectedHosts() {
+					cmds = append(cmds, FormatSSHCommand(h, m.configFile))
+				}
+				joined := strings.Join(cmds, "\n")
+				copyToClipboard(joined)
+				m.setStatus(fmt.Sprintf(i18n.T("main.copied"), fmt.Sprintf("%d hosts", len(cmds))))
+				return m, nil
+			}
+			cursor := m.table.Cursor()
+			hostsToShow := m.filteredHosts
+			if hostsToShow == nil {
+				hostsToShow = m.hosts
+			}
+			if cursor >= 0 && cursor < len(hostsToShow) {
+				cmdStr := FormatSSHCommand(hostsToShow[cursor], m.configFile)
+				copyToClipboard(cmdStr)
+				m.setStatus(fmt.Sprintf(i18n.T("main.copied"), cmdStr))
+				return m, nil
+			}
+		}
+	case "w":
+		if !m.searchMode && !m.deleteMode {
+			tagItems := m.getTagCounts()
+			if len(tagItems) == 0 {
+				m.setStatus(i18n.T("tags.none"))
+				return m, nil
+			}
+			m.tagPickerOpen = true
+			m.tagPickerCursor = 0
+			for i, it := range tagItems {
+				if it.tag == m.selectedTag {
+					m.tagPickerCursor = i + 1
+					break
+				}
+			}
+			return m, nil
+		}
+	case "c":
+		if !m.searchMode && !m.deleteMode {
+			if m.selectedTag != "" {
+				m.selectedTag = ""
+				m.filteredHosts = m.filterHosts(m.searchInput.Value())
+				m.table.SetCursor(0)
+				m.updateTableRows()
+				m.setStatus(i18n.T("tags.cleared"))
+				return m, nil
+			}
+		}
 	case "e":
 		if !m.searchMode && !m.deleteMode {
 			// Edit the selected host
@@ -891,7 +1214,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.editForm = editForm
 				m.viewMode = ViewEdit
-				return m, textinput.Blink
+				return m, m.editForm.Init()
 			}
 		}
 	case "m":
@@ -933,6 +1256,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "a":
 		if !m.searchMode && !m.deleteMode {
+			initialName := m.searchInput.Value()
 			// Check if there are multiple config files starting from the current base config
 			var configFiles []string
 			var err error
@@ -953,21 +1277,23 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				} else {
 					configFile = m.configFile
 				}
-				m.addForm = NewAddForm("", m.styles, m.width, m.height, configFile)
+				m.addForm = NewAddForm(initialName, m.styles, m.width, m.height, configFile)
 				m.viewMode = ViewAdd
+				return m, m.addForm.Init()
 			} else {
 				// Multiple config files, show file selector
 				fileSelectorForm, err := NewFileSelectorFromBase("Select config file to add host to:", m.styles, m.width, m.height, m.configFile)
 				if err != nil {
 					// Fallback to default behavior if file selector fails
-					m.addForm = NewAddForm("", m.styles, m.width, m.height, m.configFile)
+					m.addForm = NewAddForm(initialName, m.styles, m.width, m.height, m.configFile)
 					m.viewMode = ViewAdd
+					return m, m.addForm.Init()
 				} else {
 					m.fileSelectorForm = fileSelectorForm
 					m.viewMode = ViewFileSelector
+					return m, m.fileSelectorForm.Init()
 				}
 			}
-			return m, textinput.Blink
 		}
 	case "d":
 		if !m.searchMode && !m.deleteMode {
@@ -985,6 +1311,10 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "p":
 		if !m.searchMode && !m.deleteMode {
+			if len(m.selectedHosts) > 0 {
+				m.setStatus(fmt.Sprintf(i18n.T("main.ping_selected"), len(m.selectedHosts)))
+				return m, m.startPingSelectedCmd()
+			}
 			// Ping all hosts
 			return m, m.startPingAllCmd()
 		}
@@ -996,7 +1326,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				hostName := extractHostNameFromTableRow(selected[0]) // Extract hostname from first column
 				m.portForwardForm = NewPortForwardForm(hostName, m.styles, m.width, m.height, m.configFile, m.historyManager)
 				m.viewMode = ViewPortForward
-				return m, textinput.Blink
+				return m, m.portForwardForm.Init()
 			}
 		}
 	case "t":
@@ -1031,6 +1361,81 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewLocalBrowser
 			return m, nil
 		}
+	case "]":
+		if !m.searchMode && !m.deleteMode {
+			// Next protocol tab (Serial)
+			m.serialForm = NewSerialForm(m.styles, m.width, m.height)
+			m.viewMode = ViewSerial
+			return m, nil
+		}
+	case "[":
+		if !m.searchMode && !m.deleteMode {
+			// Previous protocol tab (Local Browser)
+			cwd, err := os.Getwd()
+			if err != nil {
+				cwd = ""
+			}
+			m.localBrowserForm = NewLocalBrowserForm(m.styles, m.width, m.height, cwd)
+			m.viewMode = ViewLocalBrowser
+			return m, nil
+		}
+	case "g", "home":
+		if !m.searchMode && !m.deleteMode {
+			m.table.SetCursor(0)
+			return m, nil
+		}
+	case "G", "end":
+		if !m.searchMode && !m.deleteMode {
+			hostsToShow := m.filteredHosts
+			if hostsToShow == nil {
+				hostsToShow = m.hosts
+			}
+			if len(hostsToShow) > 0 {
+				m.table.SetCursor(len(hostsToShow) - 1)
+			}
+			return m, nil
+		}
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		if !m.searchMode && !m.deleteMode {
+			idx := int(key[0] - '1')
+			hostsToShow := m.filteredHosts
+			if hostsToShow == nil {
+				hostsToShow = m.hosts
+			}
+			if idx < len(hostsToShow) {
+				m.table.SetCursor(idx)
+			}
+			return m, nil
+		}
+	case "E":
+		if !m.searchMode && !m.deleteMode {
+			cfgPath := m.configFile
+			if cfgPath == "" {
+				if def, err := config.GetDefaultSSHConfigPath(); err == nil {
+					cfgPath = def
+				}
+			}
+			if cfgPath != "" {
+				editor := os.Getenv("EDITOR")
+				if editor == "" {
+					editor = os.Getenv("VISUAL")
+				}
+				if editor == "" {
+					if runtime.GOOS == "windows" {
+						editor = "notepad"
+					} else {
+						editor = "vim"
+						if _, err := exec.LookPath("vim"); err != nil {
+							editor = "nano"
+						}
+					}
+				}
+				cmd := exec.Command(editor, cfgPath)
+				return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+					return reloadConfigMsg{}
+				})
+			}
+		}
 	case "o":
 		if !m.searchMode && !m.deleteMode {
 			// Open SFTP file browser for the selected host
@@ -1058,11 +1463,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Toggle visibility of hidden hosts
 			m.showHidden = !m.showHidden
 			m.hosts = m.sortHosts(m.applyVisibilityFilter(m.allHosts))
-			if m.searchInput.Value() != "" {
-				m.filteredHosts = m.filterHosts(m.searchInput.Value())
-			} else {
-				m.filteredHosts = m.hosts
-			}
+			m.filteredHosts = m.filterHosts(m.searchInput.Value())
 			m.updateTableRows()
 			return m, nil
 		}
@@ -1071,11 +1472,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Cycle through all sort modes (Name -> Hostname -> Tags -> Last Login)
 			m.sortMode = (m.sortMode + 1) % NumSortModes
 			// Re-apply the current filter with the new sort mode
-			if m.searchInput.Value() != "" {
-				m.filteredHosts = m.filterHosts(m.searchInput.Value())
-			} else {
-				m.filteredHosts = m.sortHosts(m.hosts)
-			}
+			m.filteredHosts = m.filterHosts(m.searchInput.Value())
 			m.updateTableRows()
 			return m, nil
 		}
@@ -1084,24 +1481,22 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Switch to sort by recent (last used)
 			m.sortMode = SortByLastUsed
 			// Re-apply the current filter with the new sort mode
-			if m.searchInput.Value() != "" {
-				m.filteredHosts = m.filterHosts(m.searchInput.Value())
-			} else {
-				m.filteredHosts = m.sortHosts(m.hosts)
-			}
+			m.filteredHosts = m.filterHosts(m.searchInput.Value())
 			m.updateTableRows()
 			return m, nil
 		}
-	case "n":
-		if !m.searchMode && !m.deleteMode {
+	case "n", "N":
+		if m.deleteMode {
+			m.deleteMode = false
+			m.deleteHost = nil
+			m.table.Focus()
+			return m, nil
+		}
+		if !m.searchMode {
 			// Switch to sort by name
 			m.sortMode = SortByName
 			// Re-apply the current filter with the new sort mode
-			if m.searchInput.Value() != "" {
-				m.filteredHosts = m.filterHosts(m.searchInput.Value())
-			} else {
-				m.filteredHosts = m.sortHosts(m.hosts)
-			}
+			m.filteredHosts = m.filterHosts(m.searchInput.Value())
 			m.updateTableRows()
 			return m, nil
 		}
@@ -1109,7 +1504,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.searchMode && !m.deleteMode {
 			m.settingsForm = NewSettingsForm(m.styles, m.width, m.height, m.appConfig)
 			m.viewMode = ViewSettings
-			return m, nil
+			return m, m.settingsForm.Init()
 		}
 	case "U":
 		if !m.searchMode && !m.deleteMode {
@@ -1124,11 +1519,19 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "x":
 		if !m.searchMode && !m.deleteMode {
-			// Execute a remote command on the selected host
-			selected := m.table.SelectedRow()
-			if len(selected) > 0 {
-				hostName := extractHostNameFromTableRow(selected[0])
-				m.snippetForm = NewSnippetForm(m.styles, m.width, m.height, hostName, m.configFile)
+			var targetNames []string
+			if len(m.selectedHosts) > 0 {
+				for _, h := range m.getSelectedHosts() {
+					targetNames = append(targetNames, h.Name)
+				}
+			} else {
+				selected := m.table.SelectedRow()
+				if len(selected) > 0 {
+					targetNames = append(targetNames, extractHostNameFromTableRow(selected[0]))
+				}
+			}
+			if len(targetNames) > 0 {
+				m.snippetForm = NewSnippetFormForHosts(m.styles, m.width, m.height, targetNames, m.configFile)
 				m.viewMode = ViewSnippet
 				return m, textinput.Blink
 			}
@@ -1142,11 +1545,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Update filtered hosts only if the search value has changed
 		if m.searchInput.Value() != oldValue {
 			currentCursor := m.table.Cursor()
-			if m.searchInput.Value() != "" {
-				m.filteredHosts = m.filterHosts(m.searchInput.Value())
-			} else {
-				m.filteredHosts = m.sortHosts(m.hosts)
-			}
+			m.filteredHosts = m.filterHosts(m.searchInput.Value())
 			m.updateTableRows()
 			// If the current cursor position is beyond the filtered results, reset to 0
 			if currentCursor >= len(m.filteredHosts) && len(m.filteredHosts) > 0 {
@@ -1170,6 +1569,55 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, cmd
+}
+
+// confirmDeleteHost performs the pending SSH host deletion and refreshes the
+// list. Shared by Enter and Y on the centered confirmation dialog.
+func (m Model) confirmDeleteHost() (tea.Model, tea.Cmd) {
+	var err error
+	if m.deleteHost != nil {
+		_ = credential.DeletePassword(m.deleteHost.Name)
+		err = config.DeleteSSHHostWithLine(*m.deleteHost)
+	}
+	if err != nil {
+		m.deleteMode = false
+		m.deleteHost = nil
+		m.table.Focus()
+		return m, nil
+	}
+
+	// Refresh the hosts list.
+	_ = m.reloadHosts()
+	m.deleteMode = false
+	m.deleteHost = nil
+	m.table.Focus()
+	return m, nil
+}
+
+// reloadHosts reloads SSH hosts from config, applies visibility filter and sorting, and updates table rows.
+func (m *Model) reloadHosts() error {
+	var hosts []config.SSHHost
+	var parseErr error
+	if m.configFile != "" {
+		hosts, parseErr = config.ParseSSHConfigFile(m.configFile)
+	} else {
+		hosts, parseErr = config.ParseSSHConfig()
+	}
+	if parseErr != nil {
+		return parseErr
+	}
+	m.allHosts = hosts
+	m.hosts = m.sortHosts(m.applyVisibilityFilter(hosts))
+
+	// Reapply search filter if there is one active.
+	if m.searchInput.Value() != "" {
+		m.filteredHosts = m.filterHosts(m.searchInput.Value())
+	} else {
+		m.filteredHosts = m.hosts
+	}
+
+	m.updateTableRows()
+	return nil
 }
 
 // buildSSHEnv constructs the environment for the SSH command, injecting

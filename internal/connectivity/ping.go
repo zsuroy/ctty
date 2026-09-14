@@ -96,6 +96,11 @@ func (pm *PingManager) updateStatus(hostName string, status PingStatus, err erro
 	}
 }
 
+// SetResultForTesting directly registers a test ping result.
+func (pm *PingManager) SetResultForTesting(hostName string, status PingStatus, duration time.Duration) {
+	pm.updateStatus(hostName, status, nil, duration)
+}
+
 // PingHost performs an SSH connectivity check for a single host
 func (pm *PingManager) PingHost(ctx context.Context, host config.SSHHost) *HostPingResult {
 	start := time.Now()

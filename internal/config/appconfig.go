@@ -58,6 +58,7 @@ type AppConfig struct {
 	KeyBindings     KeyBindings       `json:"key_bindings"`
 	TagColors       map[string]string `json:"tag_colors,omitempty"`
 	Language        string            `json:"language,omitempty"`
+	Theme           string            `json:"theme,omitempty"`
 	FTPLayout       FTPLayout         `json:"ftp_layout,omitempty"`
 	SFTPLayout      SFTPLayout        `json:"sftp_layout,omitempty"`
 }
@@ -82,6 +83,7 @@ func GetDefaultKeyBindings() KeyBindings {
 func GetDefaultAppConfig() AppConfig {
 	return AppConfig{
 		KeyBindings: GetDefaultKeyBindings(),
+		Theme:       "default",
 		FTPLayout:   FTPLayoutDual,
 		SFTPLayout:  SFTPLayoutDual,
 	}
@@ -176,6 +178,9 @@ func mergeWithDefaults(config AppConfig) AppConfig {
 	// If QuitKeys is empty, use defaults
 	if len(config.KeyBindings.QuitKeys) == 0 {
 		config.KeyBindings.QuitKeys = defaults.KeyBindings.QuitKeys
+	}
+	if config.Theme == "" {
+		config.Theme = defaults.Theme
 	}
 	config.FTPLayout = NormalizeFTPLayout(config.FTPLayout)
 	config.SFTPLayout = NormalizeSFTPLayout(config.SFTPLayout)

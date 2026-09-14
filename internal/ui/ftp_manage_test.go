@@ -274,6 +274,9 @@ func TestFTPSitesInfoOverlay(t *testing.T) {
 		t.Fatal("i must open site info")
 	}
 	view := fm.View()
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╰") {
+		t.Fatal("site info missing rounded border corners")
+	}
 	for _, needle := range []string{"lab", "10.0.0.1", "admin", "ops"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("info view missing %q", needle)
@@ -312,7 +315,7 @@ func TestFTPSitesInfoEditFromInfo(t *testing.T) {
 	if !fm.editMode {
 		t.Fatal("e from info must enter edit mode")
 	}
-	if got := fm.addFields[0].Value(); got != "lab" {
+	if got := fm.addForm.nameVal; got != "lab" {
 		t.Fatalf("edit name = %q, want lab", got)
 	}
 }
@@ -326,6 +329,9 @@ func TestFTPBrowserInfoOverlay(t *testing.T) {
 		t.Fatal("i must open entry info")
 	}
 	view := fm.View()
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╰") {
+		t.Fatal("info view missing rounded border corners")
+	}
 	for _, needle := range []string{"a.bin", "10B", "/pub/a.bin"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("info view missing %q", needle)
@@ -356,6 +362,9 @@ func TestFTPBrowserLocalInfoOverlay(t *testing.T) {
 		t.Fatal("i must open local entry info")
 	}
 	view := fm.View()
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╰") {
+		t.Fatal("local info view missing rounded border corners")
+	}
 	if !strings.Contains(view, "up.bin") {
 		t.Fatal("info view must show local filename")
 	}
@@ -498,15 +507,15 @@ func TestFTPSiteFormTagsRoundtrip(t *testing.T) {
 
 	m := NewFTPSitesForm(NewStyles(100), 100, 30)
 	m.startAdd()
-	m.addFields[0].SetValue("lab")
-	m.addFields[1].SetValue("10.0.0.1")
-	m.addFields[2].SetValue("21")
-	m.addFields[3].SetValue("admin")
-	m.addFields[5].SetValue("ops, backup , ,ops")
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.addForm.nameVal = "lab"
+	m.addForm.hostVal = "10.0.0.1"
+	m.addForm.portVal = "21"
+	m.addForm.userVal = "admin"
+	m.addForm.tagsVal = "ops, backup , ,ops"
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
 	fm := updated.(*ftpSitesModel)
-	if fm.addMode {
-		t.Fatalf("save failed: %q", fm.addErr)
+	if fm.addForm != nil {
+		t.Fatalf("save failed: %q", fm.addForm.err)
 	}
 	site, ok := ftpconfig.Find("lab")
 	if !ok {
@@ -521,7 +530,7 @@ func TestFTPSiteFormTagsRoundtrip(t *testing.T) {
 	}
 
 	fm.startEdit(site)
-	if got := fm.addFields[5].Value(); got != "ops, backup, ops" {
+	if got := fm.addForm.tagsVal; got != "ops, backup, ops" {
 		t.Fatalf("tags field = %q, want prefilled", got)
 	}
 }

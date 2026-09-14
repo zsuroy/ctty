@@ -58,8 +58,9 @@ type localBrowserModel struct {
 	inputPrompt string
 	pendingPath string
 
-	showInfo  bool
-	entryInfo *localEntryInfo
+	showInfo   bool
+	entryInfo  *localEntryInfo
+	infoScroll int
 
 	statusMsg    string
 	statusExpiry time.Time
@@ -128,14 +129,21 @@ func (m *localBrowserModel) tableHeight() int {
 	// Frame budget: header(1) + path(1) + search(3) + table(h+2) +
 	// help(2 tall, 1 compact). The frame must never exceed the terminal
 	// height: on overflow the alt-screen scrolls and the diff renderer
-	// never rewrites the unchanged header, losing it permanently.
+	// never rewrites the unchanged header, losing it permanently. A status
+	// toast or an open mkdir/rename input adds one extras row.
 	overhead := 9
 	if m.height < 20 {
-		overhead = 7
+		overhead = 8
+	}
+	if m.height >= 18 && m.width >= 64 {
+		overhead++
+	}
+	if m.mode == localMkdirInput || m.mode == localRenameInput || m.statusActive() {
+		overhead++
 	}
 	h := m.height - overhead
-	if h < 5 {
-		h = 5
+	if h < 3 {
+		h = 3
 	}
 	return h
 }
@@ -362,11 +370,15 @@ func (m *localBrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Info overlay sits above the browse view.
 		if m.showInfo {
 			switch msg.String() {
 			case "esc", "i", "enter", "q":
 				m.showInfo = false
 				m.entryInfo = nil
+				return m, nil
+			case "up", "k", "down", "j":
+				scrollInfoKey(msg.String(), &m.infoScroll)
 				return m, nil
 			}
 			return m, nil
@@ -394,6 +406,24 @@ func (m *localBrowserModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 	switch msg.String() {
 	case "esc", "q":
 		return m, func() tea.Msg { return localDoneMsg{} }
+	case "t":
+		return m, func() tea.Msg { return switchProtocolMsg{target: ViewSerial} }
+	case "T":
+		return m, func() tea.Msg { return switchProtocolMsg{target: ViewTelnet} }
+	case "F":
+		return m, func() tea.Msg { return switchProtocolMsg{target: ViewFTP} }
+	case "]":
+		return m, func() tea.Msg { return switchProtocolMsg{target: ViewList} }
+	case "[":
+		return m, func() tea.Msg { return switchProtocolMsg{target: ViewFTP} }
+	case "g":
+		m.table.SetCursor(0)
+		return m, nil
+	case "G":
+		if len(m.files) > 0 {
+			m.table.SetCursor(len(m.files) - 1)
+		}
+		return m, nil
 	case "/", "ctrl+f":
 		return m, m.enterSearch()
 	case "left", "h", "backspace":
@@ -445,6 +475,7 @@ func (m *localBrowserModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		}
 		m.entryInfo = info
 		m.showInfo = true
+		m.infoScroll = 0
 		return m, nil
 	case "r":
 		m.refresh()
@@ -640,27 +671,95 @@ func (m *localBrowserModel) renderInfoView() string {
 	if info.modTime.IsZero() {
 		mod = i18n.T("info.not_set")
 	}
-	var b strings.Builder
-	b.WriteString(m.styles.FormTitle.Render(" "+i18n.T("sftp.entry_info_title", info.name)+" ") + "\n\n")
+
+	titleText := m.styles.Header.Render(strings.TrimSpace(i18n.T("sftp.entry_info_title", info.name)))
+
 	rows := [][2]string{
-		{i18n.T("sftp.col_name"), info.name},
-		{i18n.T("sftp.col_type"), kind},
-		{i18n.T("sftp.col_size"), size},
-		{i18n.T("sftp.col_modified"), mod},
-		{i18n.T("sftp.info_path"), info.path},
+		{i18n.T("sftp.col_name") + ":", info.name},
+		{i18n.T("sftp.col_type") + ":", kind},
+		{i18n.T("sftp.col_size") + ":", size},
+		{i18n.T("sftp.col_modified") + ":", mod},
+		{i18n.T("sftp.info_path") + ":", info.path},
 	}
+
+	maxLabelW := 0
 	for _, r := range rows {
-		label := "  " + r[0] + ":"
-		if w := ansi.StringWidth(label); w < 16 {
-			label += strings.Repeat(" ", 16-w)
+		if w := ansi.StringWidth(r[0]); w > maxLabelW {
+			maxLabelW = w
 		}
-		b.WriteString(m.styles.FormField.Render(label) + " " + r[1] + "\n")
 	}
-	b.WriteString("\n" + m.styles.HelpText.Render("  "+i18n.T("sftp.info_help")))
-	return renderFormPage(m.styles, m.width, b.String())
+
+	labelStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(m.styles.Theme.Primary)
+
+	var bodyLines []string
+	for _, r := range rows {
+		line := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			labelStyle.Render("  "+padDisplay(r[0], maxLabelW)),
+			" ",
+			r[1],
+		)
+		bodyLines = append(bodyLines, line)
+	}
+
+	totalHeight := m.height
+	if totalHeight <= 0 {
+		totalHeight = 24
+	}
+
+	boxWidth := m.width - 4
+	if boxWidth < 20 {
+		boxWidth = 20
+	}
+
+	container := m.styles.FormContainer
+	if totalHeight < 24 {
+		container = container.Padding(0, 1)
+	}
+
+	innerW := boxWidth - container.GetHorizontalFrameSize()
+	if innerW < 10 {
+		innerW = 10
+	}
+
+	targetBoxH := totalHeight
+	if totalHeight >= 14 {
+		targetBoxH = totalHeight - 1
+	}
+
+	frameH := container.GetVerticalFrameSize()
+	headerH := lipgloss.Height(titleText)
+	helpText := m.styles.HelpText.Width(innerW).Render(i18n.T("sftp.info_help"))
+	helpH := lipgloss.Height(helpText)
+
+	overhead := frameH + headerH + helpH + 2
+	viewportHeight := targetBoxH - overhead
+	if viewportHeight < 3 {
+		viewportHeight = 3
+	}
+	bodyLines = wrapInfoLines(bodyLines, innerW)
+	visibleBody := scrollInfoWindow(bodyLines, viewportHeight, &m.infoScroll)
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		titleText,
+		"",
+		visibleBody,
+		"",
+		helpText,
+	)
+
+	box := container.Width(boxWidth).Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }
 
 func (m *localBrowserModel) View() string {
+	// Re-apply the frame budget every paint: mkdir/rename/status rows
+	// appear mid-session and a height only updated on resize overflows.
+	m.table.SetHeight(m.tableHeight())
+
 	if m.showInfo && m.entryInfo != nil {
 		return m.renderInfoView()
 	}
@@ -681,21 +780,11 @@ func (m *localBrowserModel) View() string {
 
 	var extras []string
 	if m.statusActive() {
-		statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
-		extras = append(extras, statusStyle.Render(" ✓ "+m.statusMsg))
+		extras = append(extras, renderStatusToast(m.statusMsg))
 	}
 	if m.mode == localMkdirInput || m.mode == localRenameInput {
 		inputStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(PrimaryColor))
 		extras = append(extras, inputStyle.Render(fmt.Sprintf("  %s %s_", m.inputPrompt, m.inputBuffer)))
-	}
-	if m.mode == localDeleteConfirm && m.pendingPath != "" {
-		name := filepath.Base(m.pendingPath)
-		confirmKey := "sftp.delete_confirm"
-		if st, err := os.Stat(m.pendingPath); err == nil && st.IsDir() {
-			confirmKey = "sftp.delete_dir_confirm"
-		}
-		extras = append(extras, lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(
-			i18n.T(confirmKey, name)))
 	}
 
 	var helpParts []string
@@ -706,11 +795,32 @@ func (m *localBrowserModel) View() string {
 	}
 	helpParts = dedupeStrings(helpParts)
 
-	parts := []string{header, paths, renderSearchBar(m.styles, m.searchMode, i18n.T("search.prompt"), m.searchInput.View(), m.width)}
+	parts := []string{header}
+	if m.height >= 18 {
+		if tabs := renderProtocolTabs(m.styles, "browser", len(m.files), m.width); tabs != "" {
+			parts = append(parts, tabs)
+		}
+	}
+	parts = append(parts, paths, renderSearchBar(m.styles, m.searchMode, i18n.T("search.prompt"), m.searchInput.View(), m.width))
 	parts = append(parts, panes)
 	parts = append(parts, extras...)
 	if help := strings.Join(helpParts, "\n"); help != "" {
 		parts = append(parts, renderHelpText(m.styles, help, m.width))
 	}
-	return m.styles.App.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	base := m.styles.App.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	if m.mode == localDeleteConfirm && m.pendingPath != "" {
+		name := filepath.Base(m.pendingPath)
+		confirmKey := "sftp.delete_confirm"
+		if st, err := os.Stat(m.pendingPath); err == nil && st.IsDir() {
+			confirmKey = "sftp.delete_dir_confirm"
+		}
+		box := renderConfirmBox(m.styles, m.width,
+			m.styles.ErrorText.Render(i18n.T("delete.title")),
+			i18n.T(confirmKey, name),
+			i18n.T("delete.warning"),
+			m.styles.HelpText.Render(i18n.T("delete.help")),
+		)
+		return renderConfirmModal(m.width, m.height, box)
+	}
+	return base
 }

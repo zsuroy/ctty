@@ -4,18 +4,15 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/credential"
 	"github.com/zsuroy/ctty/internal/i18n"
+	"github.com/zsuroy/ctty/internal/ui/theme"
 	"github.com/zsuroy/ctty/internal/validation"
-
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-)
-
-const (
-	focusAreaHosts = iota
-	focusAreaProperties
 )
 
 type editFormSubmitMsg struct {
@@ -26,26 +23,37 @@ type editFormSubmitMsg struct {
 type editFormCancelMsg struct{}
 
 type editFormModel struct {
-	hostInputs       []textinput.Model // Support for multiple hosts
-	inputs           []textinput.Model
-	focusArea        int // 0=hosts, 1=properties
-	focused          int
-	currentTab       int // 0=General, 1=Advanced (only applies when focusArea == focusAreaProperties)
-	err              string
+	form             *huh.Form
+	viewport         viewport.Model
 	styles           Styles
+	err              string
+	success          bool
 	originalName     string
-	originalHosts    []string        // Store original host names for multi-host detection
-	host             *config.SSHHost // Store the original host with SourceFile
-	configFile       string          // Configuration file path passed by user
-	actualConfigFile string          // Actual config file to use (either configFile or host.SourceFile)
+	originalHosts    []string
+	host             *config.SSHHost
+	configFile       string
+	actualConfigFile string
 	width            int
 	height           int
-	scrollOffset     int
+
+	// Form field values
+	hostNamesVal     string
+	hostnameVal      string
+	userVal          string
+	portVal          string
+	passwordVal      string
+	identityVal      string
+	tagsVal          string
+	proxyJumpVal     string
+	proxyCommandVal  string
+	optionsVal       string
+	remoteCommandVal string
+	requestTTYVal    string
+	confirmSave      bool
 }
 
-// NewEditForm creates a new edit form model that supports both single and multi-host editing
+// NewEditForm creates a new modern edit form model powered by charmbracelet/huh
 func NewEditForm(hostName string, styles Styles, width, height int, configFile string) (*editFormModel, error) {
-	// Get the existing host configuration
 	var host *config.SSHHost
 	var err error
 
@@ -59,10 +67,8 @@ func NewEditForm(hostName string, styles Styles, width, height int, configFile s
 		return nil, err
 	}
 
-	// Check if this host is part of a multi-host declaration
 	var actualConfigFile string
 	var hostNames []string
-	var isMulti bool
 
 	if configFile != "" {
 		actualConfigFile = configFile
@@ -71,611 +77,300 @@ func NewEditForm(hostName string, styles Styles, width, height int, configFile s
 	}
 
 	if actualConfigFile != "" {
-		isMulti, hostNames, err = config.IsPartOfMultiHostDeclaration(hostName, actualConfigFile)
-		if err != nil {
-			// If we can't determine multi-host status, treat as single host
-			isMulti = false
+		_, hostNames, err = config.IsPartOfMultiHostDeclaration(hostName, actualConfigFile)
+		if err != nil || len(hostNames) == 0 {
 			hostNames = []string{hostName}
 		}
-	}
-
-	if !isMulti {
+	} else {
 		hostNames = []string{hostName}
 	}
 
-	// Create host inputs
-	hostInputs := make([]textinput.Model, len(hostNames))
-	for i, name := range hostNames {
-		hostInputs[i] = textinput.New()
-		hostInputs[i].Placeholder = "host-name"
-		hostInputs[i].SetValue(name)
-		if i == 0 {
-			hostInputs[i].Focus()
-		}
-	}
-
-	inputs := make([]textinput.Model, 11)
-
-	// 0: Hostname input
-	inputs[0] = textinput.New()
-	inputs[0].Placeholder = "192.168.1.100 or example.com"
-	inputs[0].CharLimit = 100
-	inputs[0].Width = 30
-	inputs[0].SetValue(host.Hostname)
-
-	// 1: User input
-	inputs[1] = textinput.New()
-	inputs[1].Placeholder = "root"
-	inputs[1].CharLimit = 50
-	inputs[1].Width = 30
-	inputs[1].SetValue(host.User)
-
-	// 2: Port input
-	inputs[2] = textinput.New()
-	inputs[2].Placeholder = "22"
-	inputs[2].CharLimit = 5
-	inputs[2].Width = 30
-	inputs[2].SetValue(host.Port)
-
-	// 3: Password input
-	inputs[3] = textinput.New()
-	inputs[3].Placeholder = i18n.T("form.password_placeholder")
-	inputs[3].EchoMode = textinput.EchoPassword
-	inputs[3].EchoCharacter = '•'
-	inputs[3].CharLimit = 100
-	inputs[3].Width = 30
+	password := ""
 	if pass, ok := credential.GetPassword(hostName); ok {
-		inputs[3].SetValue(pass)
+		password = pass
 	}
 
-	// 4: Identity input
-	inputs[4] = textinput.New()
-	inputs[4].Placeholder = "~/.ssh/id_rsa"
-	inputs[4].CharLimit = 200
-	inputs[4].Width = 50
-	inputs[4].SetValue(host.Identity)
-
-	// 5: ProxyJump input
-	inputs[5] = textinput.New()
-	inputs[5].Placeholder = "jump-server"
-	inputs[5].CharLimit = 100
-	inputs[5].Width = 30
-	inputs[5].SetValue(host.ProxyJump)
-
-	// 6: ProxyCommand input
-	inputs[6] = textinput.New()
-	inputs[6].Placeholder = "ssh -W %h:%p Jumphost"
-	inputs[6].CharLimit = 200
-	inputs[6].Width = 50
-	inputs[6].SetValue(host.ProxyCommand)
-
-	// 7: Tags input
-	inputs[7] = textinput.New()
-	inputs[7].Placeholder = "production, web, database"
-	inputs[7].CharLimit = 200
-	inputs[7].Width = 50
-	if len(host.Tags) > 0 {
-		inputs[7].SetValue(strings.Join(host.Tags, ", "))
-	}
-
-	// 8: Options input
-	inputs[8] = textinput.New()
-	inputs[8].Placeholder = "-o StrictHostKeyChecking=no"
-	inputs[8].CharLimit = 200
-	inputs[8].Width = 50
+	optionsStr := ""
 	if host.Options != "" {
-		inputs[8].SetValue(config.FormatSSHOptionsForCommand(host.Options))
+		optionsStr = config.FormatSSHOptionsForCommand(host.Options)
 	}
 
-	// 9: Remote Command input
-	inputs[9] = textinput.New()
-	inputs[9].Placeholder = "ls -la, htop, bash"
-	inputs[9].CharLimit = 300
-	inputs[9].Width = 70
-	inputs[9].SetValue(host.RemoteCommand)
+	tagsStr := ""
+	if len(host.Tags) > 0 {
+		tagsStr = strings.Join(host.Tags, ", ")
+	}
 
-	// 10: RequestTTY input
-	inputs[10] = textinput.New()
-	inputs[10].Placeholder = "yes, no, force, auto"
-	inputs[10].CharLimit = 10
-	inputs[10].Width = 30
-	inputs[10].SetValue(host.RequestTTY)
-
-	return &editFormModel{
-		hostInputs:       hostInputs,
-		inputs:           inputs,
-		focusArea:        focusAreaHosts, // Start with hosts focused for multi-host editing
-		focused:          0,
-		currentTab:       0, // Start on General tab
+	m := &editFormModel{
+		styles:           styles,
+		width:            width,
+		height:           height,
 		originalName:     hostName,
 		originalHosts:    hostNames,
 		host:             host,
 		configFile:       configFile,
 		actualConfigFile: actualConfigFile,
-		styles:           styles,
-		width:            width,
-		height:           height,
-	}, nil
+		hostNamesVal:     strings.Join(hostNames, " "),
+		hostnameVal:      host.Hostname,
+		userVal:          host.User,
+		portVal:          host.Port,
+		passwordVal:      password,
+		identityVal:      host.Identity,
+		tagsVal:          tagsStr,
+		proxyJumpVal:     host.ProxyJump,
+		proxyCommandVal:  host.ProxyCommand,
+		optionsVal:       optionsStr,
+		remoteCommandVal: host.RemoteCommand,
+		requestTTYVal:    host.RequestTTY,
+		confirmSave:      true,
+	}
+
+	m.buildForm()
+	return m, nil
+}
+
+func (m *editFormModel) buildForm() {
+	innerW := formPageInnerWidth(m.width)
+	if innerW < 20 {
+		innerW = 20
+	}
+
+	currentHuhTheme := theme.GetTheme(m.styles.Theme.ID).HuhTheme()
+
+	m.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Key("hosts").
+				Title(i18n.T("form.host_name")).
+				Prompt("> ").
+				Placeholder("server-name (or multiple aliases separated by space)").
+				Value(&m.hostNamesVal).
+				Validate(func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("%s", i18n.T("form.err_host_name_req"))
+					}
+					return nil
+				}),
+
+			huh.NewInput().
+				Key("hostname").
+				Title(i18n.T("form.hostname_ip")).
+				Prompt("> ").
+				Placeholder("192.168.1.100 or example.com").
+				Value(&m.hostnameVal).
+				Validate(func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("%s", i18n.T("form.err_hostname_req"))
+					}
+					return nil
+				}),
+
+			huh.NewInput().
+				Key("user").
+				Title(i18n.T("form.user")).
+				Prompt("> ").
+				Placeholder("root").
+				Value(&m.userVal),
+
+			huh.NewInput().
+				Key("port").
+				Title(i18n.T("form.port")).
+				Prompt("> ").
+				Placeholder("22").
+				Value(&m.portVal),
+
+			huh.NewInput().
+				Key("password").
+				Title(i18n.T("form.password")).
+				Prompt("> ").
+				Placeholder(i18n.T("form.password_placeholder")).
+				EchoMode(huh.EchoModePassword).
+				Value(&m.passwordVal),
+
+			huh.NewInput().
+				Key("identity").
+				Title(i18n.T("form.identity_file")).
+				Prompt("> ").
+				Placeholder("~/.ssh/id_rsa").
+				Value(&m.identityVal),
+
+			huh.NewInput().
+				Key("tags").
+				Title(i18n.T("form.tags")).
+				Prompt("> ").
+				Placeholder("production, web").
+				Value(&m.tagsVal),
+
+			huh.NewInput().
+				Key("proxy_jump").
+				Title(i18n.T("form.proxy_jump")).
+				Prompt("> ").
+				Placeholder("user@jump-host:port").
+				Value(&m.proxyJumpVal),
+
+			huh.NewInput().
+				Key("proxy_command").
+				Title(i18n.T("form.proxy_command")).
+				Prompt("> ").
+				Placeholder("ssh -W %h:%p Jumphost").
+				Value(&m.proxyCommandVal),
+
+			huh.NewInput().
+				Key("options").
+				Title(i18n.T("form.ssh_options")).
+				Prompt("> ").
+				Placeholder("-o Compression=yes").
+				Value(&m.optionsVal),
+
+			huh.NewInput().
+				Key("remote_command").
+				Title(i18n.T("form.remote_command")).
+				Prompt("> ").
+				Placeholder("ls -la, htop, bash").
+				Value(&m.remoteCommandVal),
+
+			huh.NewSelect[string]().
+				Key("request_tty").
+				Title(i18n.T("form.request_tty")).
+				Inline(true).
+				Options(
+					huh.NewOption("Default", ""),
+					huh.NewOption("yes", "yes"),
+					huh.NewOption("no", "no"),
+					huh.NewOption("force", "force"),
+					huh.NewOption("auto", "auto"),
+				).
+				Value(&m.requestTTYVal),
+
+			huh.NewConfirm().
+				Key("confirm").
+				Title(i18n.T("settings.save_prompt")).
+				Affirmative(i18n.T("settings.save_confirm")).
+				Negative(i18n.T("settings.cancel")).
+				Value(&m.confirmSave),
+		),
+	).WithLayout(huh.LayoutStack).
+		WithTheme(currentHuhTheme).
+		WithWidth(innerW).
+		WithShowHelp(false)
 }
 
 func (m *editFormModel) Init() tea.Cmd {
-	return textinput.Blink
-}
-
-// addHostInput adds a new empty host input
-func (m *editFormModel) addHostInput() tea.Cmd {
-	newInput := textinput.New()
-	newInput.Placeholder = "host-name"
-	newInput.Focus()
-
-	// Unfocus current input regardless of which area we're in
-	if m.focusArea == focusAreaHosts && m.focused < len(m.hostInputs) {
-		m.hostInputs[m.focused].Blur()
-	} else if m.focusArea == focusAreaProperties && m.focused < len(m.inputs) {
-		m.inputs[m.focused].Blur()
+	if m.form != nil {
+		return m.form.Init()
 	}
-
-	m.hostInputs = append(m.hostInputs, newInput)
-
-	// Move focus to the new host input
-	m.focusArea = focusAreaHosts
-	m.focused = len(m.hostInputs) - 1
-
-	return textinput.Blink
-}
-
-// deleteHostInput removes the currently focused host input
-func (m *editFormModel) deleteHostInput() tea.Cmd {
-	if len(m.hostInputs) <= 1 || m.focusArea != focusAreaHosts {
-		return nil // Can't delete if only one host or not in host area
-	}
-
-	// Remove the focused host input
-	m.hostInputs = append(m.hostInputs[:m.focused], m.hostInputs[m.focused+1:]...)
-
-	// Adjust focus
-	if m.focused >= len(m.hostInputs) {
-		m.focused = len(m.hostInputs) - 1
-	}
-
-	// Focus the new current input
-	if len(m.hostInputs) > 0 {
-		m.hostInputs[m.focused].Focus()
-	}
-
 	return nil
 }
 
-// updateFocus updates the focus state based on current area and index
-func (m *editFormModel) updateFocus() tea.Cmd {
-	// Blur all inputs first
-	for i := range m.hostInputs {
-		m.hostInputs[i].Blur()
+func (m *editFormModel) nextField() tea.Cmd {
+	if m.form == nil {
+		return nil
 	}
-	for i := range m.inputs {
-		m.inputs[i].Blur()
-	}
-
-	// Focus the appropriate input
-	if m.focusArea == focusAreaHosts {
-		if m.focused < len(m.hostInputs) {
-			m.hostInputs[m.focused].Focus()
+	focused := m.form.GetFocusedField()
+	if focused != nil && focused.GetKey() == "confirm" {
+		for m.form.GetFocusedField().GetKey() != "hosts" {
+			m.form.PrevField()
 		}
-	} else {
-		if m.focused < len(m.inputs) {
-			m.inputs[m.focused].Focus()
-		}
+		return nil
 	}
-
-	return textinput.Blink
+	return m.form.NextField()
 }
 
-// getPropertiesForCurrentTab returns the property input indices for the current tab
-func (m *editFormModel) getPropertiesForCurrentTab() []int {
-	switch m.currentTab {
-	case 0: // General
-		return []int{0, 1, 2, 3, 4, 5, 6, 7} // hostname, user, port, password, identity, proxyjump, proxycommand, tags
-	case 1: // Advanced
-		return []int{8, 9, 10} // options, remotecommand, requesttty
-	default:
-		return []int{0, 1, 2, 3, 4, 5, 6, 7}
+func (m *editFormModel) prevField() tea.Cmd {
+	if m.form == nil {
+		return nil
 	}
-}
-
-// getFirstPropertyForTab returns the first property index for a given tab
-func (m *editFormModel) getFirstPropertyForTab(tab int) int {
-	properties := []int{0, 1, 2, 3, 4, 5, 6, 7} // General tab
-	if tab == 1 {
-		properties = []int{8, 9, 10} // Advanced tab
+	focused := m.form.GetFocusedField()
+	if focused != nil && focused.GetKey() == "hosts" {
+		for m.form.GetFocusedField().GetKey() != "confirm" {
+			m.form.NextField()
+		}
+		return nil
 	}
-	if len(properties) > 0 {
-		return properties[0]
-	}
-	return 0
-}
-
-// handleEditNavigation handles navigation in the edit form with tab support
-func (m *editFormModel) handleEditNavigation(key string) tea.Cmd {
-	if m.focusArea == focusAreaHosts {
-		// Navigate in hosts area
-		if key == "up" || key == "shift+tab" {
-			m.focused--
-		} else {
-			m.focused++
-		}
-
-		if m.focused >= len(m.hostInputs) {
-			// Move to properties area, keep current tab
-			m.focusArea = focusAreaProperties
-			// Keep the current tab instead of forcing it to 0
-			m.focused = m.getFirstPropertyForTab(m.currentTab)
-		} else if m.focused < 0 {
-			m.focused = len(m.hostInputs) - 1
-		}
-	} else {
-		// Navigate in properties area within current tab
-		currentTabProperties := m.getPropertiesForCurrentTab()
-
-		// Find current position within the tab
-		currentPos := 0
-		for i, prop := range currentTabProperties {
-			if prop == m.focused {
-				currentPos = i
-				break
-			}
-		}
-
-		// Handle form submission on last field of Advanced tab
-		if key == "enter" && m.currentTab == 1 && currentPos == len(currentTabProperties)-1 {
-			return m.submitEditForm()
-		}
-
-		// Navigate within current tab
-		if key == "up" || key == "shift+tab" {
-			currentPos--
-		} else {
-			currentPos++
-		}
-
-		// Handle transitions between areas and tabs
-		if currentPos >= len(currentTabProperties) {
-			// Move to next area/tab
-			if m.currentTab == 0 {
-				// Move to advanced tab
-				m.currentTab = 1
-				m.focused = m.getFirstPropertyForTab(1)
-			} else {
-				// Move back to hosts area
-				m.focusArea = focusAreaHosts
-				m.focused = 0
-			}
-		} else if currentPos < 0 {
-			// Move to previous area/tab
-			if m.currentTab == 1 {
-				// Move to general tab
-				m.currentTab = 0
-				properties := m.getPropertiesForCurrentTab()
-				m.focused = properties[len(properties)-1]
-			} else {
-				// Move to hosts area
-				m.focusArea = focusAreaHosts
-				m.focused = len(m.hostInputs) - 1
-			}
-		} else {
-			m.focused = currentTabProperties[currentPos]
-		}
-	}
-
-	return m.updateFocus()
-}
-
-type editFormFieldDef struct {
-	index int
-	label string
-}
-
-func (m *editFormModel) getPropertiesForTab(tab int) []editFormFieldDef {
-	if tab == 0 {
-		return []editFormFieldDef{
-			{0, i18n.T("form.hostname_ip")},
-			{1, i18n.T("form.user")},
-			{2, i18n.T("form.port")},
-			{3, i18n.T("form.password")},
-			{4, i18n.T("form.identity_file")},
-			{5, i18n.T("form.proxy_jump")},
-			{6, i18n.T("form.proxy_command")},
-			{7, i18n.T("form.tags")},
-		}
-	}
-	return []editFormFieldDef{
-		{8, i18n.T("form.ssh_options")},
-		{9, i18n.T("form.remote_command")},
-		{10, i18n.T("form.request_tty")},
-	}
-}
-
-// renderEditTabs renders the tab headers for properties
-func (m *editFormModel) renderEditTabs() string {
-	var generalTab, advancedTab string
-	generalLabel := i18n.T("form.tab_general")
-	advancedLabel := i18n.T("form.tab_advanced")
-
-	if m.currentTab == 0 {
-		generalTab = m.styles.FocusedLabel.Render(fmt.Sprintf("[ %s ]", generalLabel))
-		advancedTab = m.styles.FormField.Render(fmt.Sprintf("  %s  ", advancedLabel))
-	} else {
-		generalTab = m.styles.FormField.Render(fmt.Sprintf("  %s  ", generalLabel))
-		advancedTab = m.styles.FocusedLabel.Render(fmt.Sprintf("[ %s ]", advancedLabel))
-	}
-
-	return generalTab + "  " + advancedTab
+	return m.form.PrevField()
 }
 
 func (m *editFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		innerW := formPageInnerWidth(m.width)
+		if innerW < 20 {
+			innerW = 20
+		}
+		if m.form != nil {
+			m.form.WithWidth(innerW)
+		}
+		return m, nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "esc":
-			m.err = ""
+		switch {
+		case msg.String() == "esc" || msg.String() == "ctrl+c":
 			return m, func() tea.Msg { return editFormCancelMsg{} }
-
-		case "ctrl+s":
-			// Allow submission from any field with Ctrl+S (Save)
+		case msg.String() == "ctrl+s":
 			return m, m.submitEditForm()
-
-		case "ctrl+j":
-			// Switch to next tab
-			m.currentTab = (m.currentTab + 1) % 2
-			// If we're in hosts area, stay there. If in properties, go to the first field of the new tab
-			if m.focusArea == focusAreaProperties {
-				m.focused = m.getFirstPropertyForTab(m.currentTab)
+		case msg.Type == tea.KeyTab || msg.String() == "tab":
+			return m, m.nextField()
+		case msg.Type == tea.KeyShiftTab || msg.String() == "shift+tab" || msg.String() == "backtab":
+			return m, m.prevField()
+		case msg.Type == tea.KeyDown || msg.String() == "down":
+			return m, m.nextField()
+		case msg.Type == tea.KeyUp || msg.String() == "up":
+			return m, m.prevField()
+		case msg.Type == tea.KeyEnter || msg.String() == "enter":
+			if m.form != nil {
+				focused := m.form.GetFocusedField()
+				if focused != nil && focused.GetKey() == "confirm" {
+					if m.confirmSave {
+						return m, m.submitEditForm()
+					}
+					return m, func() tea.Msg { return editFormCancelMsg{} }
+				}
 			}
-			return m, m.updateFocus()
-
-		case "ctrl+k":
-			// Switch to previous tab
-			m.currentTab = (m.currentTab - 1 + 2) % 2
-			// If we're in hosts area, stay there. If in properties, go to the first field of the new tab
-			if m.focusArea == focusAreaProperties {
-				m.focused = m.getFirstPropertyForTab(m.currentTab)
-			}
-			return m, m.updateFocus()
-
-		case "tab", "shift+tab", "enter", "up", "down":
-			return m, m.handleEditNavigation(msg.String())
-
-		case "ctrl+a":
-			// Add a new host input
-			return m, m.addHostInput()
-
-		case "ctrl+d":
-			// Delete the currently focused host (if more than one exists)
-			if m.focusArea == focusAreaHosts && len(m.hostInputs) > 1 {
-				return m, m.deleteHostInput()
-			}
+			return m, m.nextField()
 		}
 
 	case editFormSubmitMsg:
 		if msg.err != nil {
 			m.err = msg.err.Error()
 		} else {
-			// Success: let the wrapper handle this
-			// In TUI mode, this will be handled by the parent
-			// In standalone mode, the wrapper will quit
+			m.success = true
+			m.err = ""
 		}
 		return m, nil
 	}
 
-	// Update host inputs
-	hostCmd := make([]tea.Cmd, len(m.hostInputs))
-	for i := range m.hostInputs {
-		m.hostInputs[i], hostCmd[i] = m.hostInputs[i].Update(msg)
-	}
-	cmds = append(cmds, hostCmd...)
-
-	// Update property inputs
-	propCmd := make([]tea.Cmd, len(m.inputs))
-	for i := range m.inputs {
-		m.inputs[i], propCmd[i] = m.inputs[i].Update(msg)
-	}
-	cmds = append(cmds, propCmd...)
-
-	return m, tea.Batch(cmds...)
-}
-
-func (m *editFormModel) View() string {
-	// 1. Header (Title + Config File Info)
-	var headerLines []string
-	headerLines = append(headerLines, m.styles.Header.Render(i18n.T("form.edit_title")))
-	if m.host != nil && m.host.SourceFile != "" {
-		labelStyle := m.styles.FormField
-		pathStyle := m.styles.FormField
-		configInfo := labelStyle.Render(i18n.T("form.config_file")) + pathStyle.Render(formatConfigFile(m.host.SourceFile))
-		headerLines = append(headerLines, configInfo)
+	if m.form == nil {
+		return m, nil
 	}
 
-	// 2. Footer (Errors + Help)
-	var footerLines []string
-	if m.err != "" {
-		footerLines = append(footerLines, m.styles.Error.Render("Error: "+m.err))
+	formModel, cmd := m.form.Update(msg)
+	if f, ok := formModel.(*huh.Form); ok {
+		m.form = f
 	}
-	var helpText string
-	if len(m.hostInputs) > 1 {
-		helpText = m.styles.FormHelp.Render(i18n.T("form.help_multi_host"))
-	} else {
-		helpText = m.styles.FormHelp.Render(i18n.T("form.help_single_host"))
-	}
-	helpText += " • " + m.styles.FormHelp.Render(i18n.T("form.help_save_cancel"))
-	footerLines = append(footerLines, helpText)
 
-	// 3. Body lines & field line positions
-	type fieldPos struct {
-		startLine int
-		endLine   int
-	}
-	hostPositions := make(map[int]fieldPos)
-	propPositions := make(map[int]fieldPos)
-	var bodyLines []string
-
-	// Host Names Section
-	bodyLines = append(bodyLines, m.styles.FormTitle.Render(i18n.T("form.host_names_section")))
-	bodyLines = append(bodyLines, "")
-
-	for i, hostInput := range m.hostInputs {
-		startLine := len(bodyLines)
-		hostStyle := m.styles.FormField
-		if m.focusArea == focusAreaHosts && m.focused == i {
-			hostStyle = m.styles.FocusedLabel
+	if m.form.State == huh.StateCompleted {
+		if m.confirmSave {
+			return m, m.submitEditForm()
 		}
-		bodyLines = append(bodyLines, hostStyle.Render(fmt.Sprintf(i18n.T("form.host_name_num"), i+1)))
-		bodyLines = append(bodyLines, hostInput.View())
-		bodyLines = append(bodyLines, "")
-		endLine := len(bodyLines) - 1
-		hostPositions[i] = fieldPos{startLine: startLine, endLine: endLine}
+		return m, func() tea.Msg { return editFormCancelMsg{} }
 	}
 
-	// Properties Section
-	bodyLines = append(bodyLines, m.styles.FormTitle.Render(i18n.T("form.common_properties_section")))
-	bodyLines = append(bodyLines, "")
-	bodyLines = append(bodyLines, m.renderEditTabs())
-	bodyLines = append(bodyLines, "")
-
-	fields := m.getPropertiesForTab(m.currentTab)
-	for _, field := range fields {
-		startLine := len(bodyLines)
-		fieldStyle := m.styles.FormField
-		if m.focusArea == focusAreaProperties && m.focused == field.index {
-			fieldStyle = m.styles.FocusedLabel
-		}
-		bodyLines = append(bodyLines, fieldStyle.Render(field.label))
-		bodyLines = append(bodyLines, m.inputs[field.index].View())
-		if field.index == 7 && m.focusArea == focusAreaProperties && m.focused == 7 {
-			bodyLines = append(bodyLines, m.styles.FormHelp.Render(i18n.T("form.tip_hidden")))
-		}
-		bodyLines = append(bodyLines, "")
-		endLine := len(bodyLines) - 1
-		propPositions[field.index] = fieldPos{startLine: startLine, endLine: endLine}
+	if m.form.State == huh.StateAborted {
+		return m, func() tea.Msg { return editFormCancelMsg{} }
 	}
 
-	// 4. Viewport calculation & auto-scroll
-	totalHeight := m.height
-	if totalHeight <= 0 {
-		totalHeight = 24
-	}
-
-	reservedLines := len(headerLines) + len(footerLines) + 2
-	viewportHeight := totalHeight - reservedLines
-	if viewportHeight < 3 {
-		viewportHeight = 3
-	}
-
-	if len(bodyLines) <= viewportHeight {
-		m.scrollOffset = 0
-	} else {
-		var targetPos *fieldPos
-		if m.focusArea == focusAreaHosts {
-			if pos, ok := hostPositions[m.focused]; ok {
-				targetPos = &pos
-			}
-		} else {
-			if pos, ok := propPositions[m.focused]; ok {
-				targetPos = &pos
-			}
-		}
-
-		if targetPos != nil {
-			if targetPos.startLine < m.scrollOffset {
-				m.scrollOffset = targetPos.startLine
-			}
-			if targetPos.endLine >= m.scrollOffset+viewportHeight {
-				m.scrollOffset = targetPos.endLine - viewportHeight + 1
-			}
-		}
-
-		if m.scrollOffset > len(bodyLines)-viewportHeight {
-			m.scrollOffset = len(bodyLines) - viewportHeight
-		}
-		if m.scrollOffset < 0 {
-			m.scrollOffset = 0
-		}
-	}
-
-	endIdx := m.scrollOffset + viewportHeight
-	if endIdx > len(bodyLines) {
-		endIdx = len(bodyLines)
-	}
-	visibleBody := bodyLines[m.scrollOffset:endIdx]
-
-	var b strings.Builder
-	for _, line := range headerLines {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
-
-	for _, line := range visibleBody {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-
-	for _, line := range footerLines {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-
-	return strings.TrimRight(b.String(), "\n")
-}
-
-// Standalone wrapper for edit form
-type standaloneEditForm struct {
-	*editFormModel
-}
-
-func (m standaloneEditForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case editFormSubmitMsg:
-		if msg.err != nil {
-			m.editFormModel.err = msg.err.Error()
-			return m, nil
-		} else {
-			// Success: quit the program
-			return m, tea.Quit
-		}
-	case editFormCancelMsg:
-		return m, tea.Quit
-	}
-
-	newForm, cmd := m.editFormModel.Update(msg)
-	m.editFormModel = newForm.(*editFormModel)
 	return m, cmd
-}
-
-// RunEditForm runs the edit form as a standalone program
-func RunEditForm(hostName string, configFile string) error {
-	styles := NewStyles(80) // Default width
-	editForm, err := NewEditForm(hostName, styles, 80, 24, configFile)
-	if err != nil {
-		return err
-	}
-
-	m := standaloneEditForm{editForm}
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	_, err = p.Run()
-	return err
 }
 
 func (m *editFormModel) submitEditForm() tea.Cmd {
 	return func() tea.Msg {
-		// Collect host names
+		rawNames := strings.FieldsFunc(m.hostNamesVal, func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\t'
+		})
 		var hostNames []string
-		for _, input := range m.hostInputs {
-			name := strings.TrimSpace(input.Value())
+		for _, name := range rawNames {
+			name = strings.TrimSpace(name)
 			if name != "" {
 				hostNames = append(hostNames, name)
 			}
@@ -685,37 +380,32 @@ func (m *editFormModel) submitEditForm() tea.Cmd {
 			return editFormSubmitMsg{err: fmt.Errorf("%s", i18n.T("form.err_host_name_req"))}
 		}
 
-		// Get property values using direct indices
-		hostname := strings.TrimSpace(m.inputs[0].Value())
-		user := strings.TrimSpace(m.inputs[1].Value())
-		port := strings.TrimSpace(m.inputs[2].Value())
-		password := strings.TrimSpace(m.inputs[3].Value())
-		identity := strings.TrimSpace(m.inputs[4].Value())
-		proxyJump := strings.TrimSpace(m.inputs[5].Value())
-		proxyCommand := strings.TrimSpace(m.inputs[6].Value())
-		tagsStr := strings.TrimSpace(m.inputs[7].Value())
-		options := config.ParseSSHOptionsFromCommand(strings.TrimSpace(m.inputs[8].Value()))
-		remoteCommand := strings.TrimSpace(m.inputs[9].Value())
-		requestTTY := strings.TrimSpace(m.inputs[10].Value())
+		hostname := strings.TrimSpace(m.hostnameVal)
+		user := strings.TrimSpace(m.userVal)
+		port := strings.TrimSpace(m.portVal)
+		password := strings.TrimSpace(m.passwordVal)
+		identity := strings.TrimSpace(m.identityVal)
+		proxyJump := strings.TrimSpace(m.proxyJumpVal)
+		proxyCommand := strings.TrimSpace(m.proxyCommandVal)
+		tagsStr := strings.TrimSpace(m.tagsVal)
+		options := config.ParseSSHOptionsFromCommand(strings.TrimSpace(m.optionsVal))
+		remoteCommand := strings.TrimSpace(m.remoteCommandVal)
+		requestTTY := strings.TrimSpace(m.requestTTYVal)
 
-		// Set defaults
 		if port == "" {
 			port = "22"
 		}
 
-		// Validate hostname
 		if hostname == "" {
 			return editFormSubmitMsg{err: fmt.Errorf("%s", i18n.T("form.err_hostname_req"))}
 		}
 
-		// Validate all host names
-		for _, hostName := range hostNames {
-			if err := validation.ValidateHost(hostName, hostname, port, identity); err != nil {
+		for _, h := range hostNames {
+			if err := validation.ValidateHost(h, hostname, port, identity); err != nil {
 				return editFormSubmitMsg{err: err}
 			}
 		}
 
-		// Parse tags
 		var tags []string
 		if tagsStr != "" {
 			for _, tag := range strings.Split(tagsStr, ",") {
@@ -727,7 +417,6 @@ func (m *editFormModel) submitEditForm() tea.Cmd {
 			}
 		}
 
-		// Create the common host configuration
 		commonHost := config.SSHHost{
 			Hostname:      hostname,
 			User:          user,
@@ -743,7 +432,6 @@ func (m *editFormModel) submitEditForm() tea.Cmd {
 
 		var err error
 		if len(hostNames) == 1 && len(m.originalHosts) == 1 {
-			// Single host editing
 			commonHost.Name = hostNames[0]
 			if m.actualConfigFile != "" {
 				err = config.UpdateSSHHostInFile(m.originalName, commonHost, m.actualConfigFile)
@@ -751,23 +439,187 @@ func (m *editFormModel) submitEditForm() tea.Cmd {
 				err = config.UpdateSSHHost(m.originalName, commonHost)
 			}
 		} else {
-			// Multi-host editing or conversion from single to multi
-			err = config.UpdateMultiHostBlock(m.originalHosts, hostNames, commonHost, m.actualConfigFile)
+			if m.actualConfigFile != "" {
+				err = config.UpdateMultiHostBlock(m.originalHosts, hostNames, commonHost, m.actualConfigFile)
+			} else {
+				err = config.UpdateMultiHostBlock(m.originalHosts, hostNames, commonHost, "")
+			}
 		}
 
 		if err == nil {
-			for _, name := range hostNames {
-				if m.originalName != name {
-					_ = credential.RenameHost(m.originalName, name)
-				}
-				if password != "" {
+			if password != "" {
+				for _, name := range hostNames {
 					_ = credential.SetPassword(name, password)
-				} else {
-					_ = credential.DeletePassword(name)
 				}
 			}
 		}
 
-		return editFormSubmitMsg{hostname: hostNames[0], err: err}
+		return editFormSubmitMsg{hostname: m.originalName, err: err}
 	}
+}
+
+func (m *editFormModel) getFieldTitle(key string) string {
+	switch key {
+	case "hosts":
+		return i18n.T("form.host_name")
+	case "hostname":
+		return i18n.T("form.hostname_ip")
+	case "user":
+		return i18n.T("form.user")
+	case "port":
+		return i18n.T("form.port")
+	case "password":
+		return i18n.T("form.password")
+	case "identity":
+		return i18n.T("form.identity_file")
+	case "tags":
+		return i18n.T("form.tags")
+	case "proxy_jump":
+		return i18n.T("form.proxy_jump")
+	case "proxy_command":
+		return i18n.T("form.proxy_command")
+	case "options":
+		return i18n.T("form.ssh_options")
+	case "remote_command":
+		return i18n.T("form.remote_command")
+	case "request_tty":
+		return i18n.T("form.request_tty")
+	case "confirm":
+		return i18n.T("settings.save_prompt")
+	default:
+		return ""
+	}
+}
+
+func (m *editFormModel) View() string {
+	if m.success {
+		return ""
+	}
+
+	boxWidth := m.width - 4
+	if boxWidth < 20 {
+		boxWidth = 20
+	}
+
+	container := m.styles.FormContainer
+	if m.height < 24 {
+		container = container.Padding(0, 1)
+	}
+
+	innerW := boxWidth - container.GetHorizontalFrameSize()
+	if innerW < 10 {
+		innerW = 10
+	}
+	titleText := m.styles.Header.Width(innerW).Render(i18n.T("form.edit_title"))
+
+	helpText := m.styles.HelpText.Width(innerW).Render(i18n.T("form.help_save_cancel"))
+
+	formView := ""
+	if m.form != nil {
+		formView = m.form.View()
+	}
+
+	frameH := container.GetVerticalFrameSize()
+	headerH := lipgloss.Height(titleText)
+	helpH := lipgloss.Height(helpText)
+
+	targetBoxH := m.height
+	if m.height >= 14 {
+		targetBoxH = m.height - 1
+	}
+
+	overhead := frameH + headerH + helpH + 2
+	if m.err != "" {
+		overhead += 2
+	}
+	availableH := targetBoxH - overhead
+	if availableH < 2 {
+		availableH = 2
+	}
+
+	formH := lipgloss.Height(formView)
+	var bodyView string
+	if formH <= availableH {
+		bodyView = formView
+	} else {
+		m.viewport.Width = innerW
+		m.viewport.Height = availableH
+		m.viewport.SetContent(formView)
+
+		// Auto-scroll viewport to keep focused field in view
+		if m.form != nil {
+			focused := m.form.GetFocusedField()
+			if focused != nil {
+				key := focused.GetKey()
+				title := m.getFieldTitle(key)
+				if title != "" {
+					lines := strings.Split(formView, "\n")
+					for idx, line := range lines {
+						if strings.Contains(line, title) {
+							if idx < m.viewport.YOffset {
+								m.viewport.SetYOffset(idx)
+							} else if idx+2 >= m.viewport.YOffset+availableH {
+								m.viewport.SetYOffset(idx + 3 - availableH)
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+		bodyView = m.viewport.View()
+	}
+
+	contentParts := []string{titleText, ""}
+	if m.err != "" {
+		contentParts = append(contentParts, m.styles.ErrorText.Width(innerW).MaxHeight(2).Render("❌ "+m.err), "")
+	}
+	contentParts = append(contentParts, bodyView, "", helpText)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, contentParts...)
+	box := container.Width(boxWidth).Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
+}
+
+type standaloneEditForm struct {
+	*editFormModel
+}
+
+func (m standaloneEditForm) Init() tea.Cmd {
+	return m.editFormModel.Init()
+}
+
+func (m standaloneEditForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case editFormSubmitMsg:
+		if msg.err != nil {
+			m.editFormModel.err = msg.err.Error()
+			return m, nil
+		}
+		return m, tea.Quit
+	case editFormCancelMsg:
+		return m, tea.Quit
+	}
+
+	newForm, cmd := m.editFormModel.Update(msg)
+	m.editFormModel = newForm.(*editFormModel)
+	return m, cmd
+}
+
+func (m standaloneEditForm) View() string {
+	return m.editFormModel.View()
+}
+
+// RunEditForm runs the edit form as a standalone program
+func RunEditForm(hostName string, configFile string) error {
+	styles := NewStyles(80)
+	editForm, err := NewEditForm(hostName, styles, 80, 24, configFile)
+	if err != nil {
+		return err
+	}
+
+	m := standaloneEditForm{editForm}
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	_, err = p.Run()
+	return err
 }

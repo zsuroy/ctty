@@ -11,8 +11,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/selfupdate"
@@ -220,77 +218,51 @@ func progressBar(pct, width int) string {
 	return bar
 }
 
-// View renders the modal centered on screen.
+// View renders the modal centered on a blank screen. Every phase flows
+// through renderCardBox, which refits the card to m.width each frame —
+// so resizing the terminal reflows the confirm, running, done, and failed
+// states alike instead of pinning them to the size at open time.
 func (m *updateFormModel) View() string {
-	var body string
+	title := m.styles.Header.Render(i18n.T("update.modal_title"))
+
+	var lines []string
 	switch m.phase {
 	case updateConfirm:
-		body = m.renderConfirm()
+		lines = append(lines, title, "",
+			i18n.T("update.available_short", m.info.current, m.info.latest))
+		if m.info.releaseURL != "" {
+			lines = append(lines, m.styles.HelpText.Faint(true).Render(m.info.releaseURL))
+		}
+		lines = append(lines, "",
+			i18n.T("update.confirm_prompt"),
+			m.styles.HelpText.Render(i18n.T("update.confirm_keys")))
+
 	case updateRunning:
 		spinner := updateSpinnerFrames[m.frame]
-		bar := progressBar(m.percent, max(10, min(32, m.width-13)))
-		progressLine := ansi.Truncate(spinner+" "+m.progress, max(10, m.width-8), "…")
-		hint := ansi.Wrap(i18n.T("update.running_hint"), max(10, m.width-8), " ")
-		body = lipgloss.JoinVertical(lipgloss.Center,
-			m.styles.FormTitle.Render(i18n.T("update.modal_title")),
-			"",
-			progressLine,
+		bar := progressBar(m.percent, max(10, min(32, m.width-20)))
+		lines = append(lines, title, "",
+			spinner+" "+m.progress,
 			bar,
 			"",
-			m.styles.HelpText.Faint(true).Render(hint),
-		)
+			m.styles.HelpText.Faint(true).Render(i18n.T("update.running_hint")))
+
 	case updateDone:
-		body = lipgloss.JoinVertical(lipgloss.Center,
-			m.styles.FormTitle.Render(i18n.T("update.modal_title")),
-			"",
+		lines = append(lines, title, "",
 			i18n.T("update.success", m.info.latest),
 			i18n.T("update.restart_hint"),
 			"",
-			m.styles.HelpText.Render(i18n.T("update.close_key")),
-		)
+			m.styles.HelpText.Render(i18n.T("update.close_key")))
+
 	case updateFailed:
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-		detail := ""
+		lines = append(lines, title, "",
+			m.styles.ErrorText.Render("❌ "+i18n.T("update.failed")))
 		if m.err != nil {
-			detail = ansi.Truncate(m.err.Error(), max(10, m.width-8), "…")
+			lines = append(lines, m.styles.ErrorText.Render(m.err.Error()))
 		}
-		body = lipgloss.JoinVertical(lipgloss.Center,
-			m.styles.FormTitle.Render(i18n.T("update.modal_title")),
-			"",
-			errStyle.Render("❌ "+i18n.T("update.failed")),
-			detail,
-			"",
-			m.styles.HelpText.Render(i18n.T("update.close_key")),
-		)
+		lines = append(lines, "",
+			m.styles.HelpText.Render(i18n.T("update.close_key")))
 	}
 
-	box := m.styles.FormContainer.Render(body)
-	return lipgloss.Place(m.width, m.height,
-		lipgloss.Center, lipgloss.Center, box)
-}
-
-// renderConfirm lays out the confirmation dialog with a centered title and
-// left-aligned body so the release URL doesn't stretch-center every line.
-func (m *updateFormModel) renderConfirm() string {
-	title := m.styles.FormTitle.Render(i18n.T("update.modal_title"))
-
-	infoLines := []string{
-		i18n.T("update.available_short", m.info.current, m.info.latest),
-	}
-	if m.info.releaseURL != "" {
-		url := ansi.Truncate(m.info.releaseURL, max(24, m.width-12), "…")
-		infoLines = append(infoLines, m.styles.HelpText.Faint(true).Render(url))
-	}
-	info := lipgloss.JoinVertical(lipgloss.Left, infoLines...)
-
-	actions := lipgloss.JoinVertical(lipgloss.Left,
-		i18n.T("update.confirm_prompt"),
-		m.styles.HelpText.Render(i18n.T("update.confirm_keys")),
-	)
-
-	body := lipgloss.JoinVertical(lipgloss.Left, info, "", actions)
-	contentW := max(lipgloss.Width(title), lipgloss.Width(body))
-	header := lipgloss.NewStyle().Width(contentW).Align(lipgloss.Center).Render(title)
-
-	return lipgloss.JoinVertical(lipgloss.Left, header, "", body)
+	box := renderCardBox(m.styles.FormContainer, m.width, lines...)
+	return renderConfirmModal(m.width, m.height, box)
 }

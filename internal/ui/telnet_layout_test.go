@@ -108,7 +108,7 @@ func TestTelnetListRendersColoredTags(t *testing.T) {
 	}
 }
 
-func TestTelnetDeleteKeepsListVisible(t *testing.T) {
+func TestTelnetDeleteIsPureModal(t *testing.T) {
 	i18n.SetLang("en")
 	m := newTestTelnetForm(80, 24, []telnetconfig.TelnetHost{
 		{Name: "dockerview", Host: "10.0.0.2", Port: 23},
@@ -116,14 +116,15 @@ func TestTelnetDeleteKeepsListVisible(t *testing.T) {
 	m.mode = telnetDeleteConfirm
 	m.deleteIndex = 0
 	view := m.View()
-	if !strings.Contains(view, "Telnet") {
-		t.Fatalf("list chrome missing during delete confirm:\n%s", view)
-	}
 	if !strings.Contains(view, "dockerview") {
 		t.Fatalf("device name missing:\n%s", view)
 	}
 	if !strings.Contains(strings.ToLower(view), "delete") {
 		t.Fatalf("confirm prompt missing:\n%s", view)
+	}
+	// The underlying list must not leak through the modal.
+	if strings.Contains(view, "Telnet Connections") {
+		t.Fatalf("list chrome visible during delete confirm:\n%s", view)
 	}
 }
 
@@ -211,9 +212,8 @@ func TestTelnetAddFormCtrlSSavesFromAnyField(t *testing.T) {
 	m := newTestTelnetForm(80, 24, nil)
 	m.addForm = newTelnetAddForm(m.styles, 80, 24, nil)
 	m.mode = telnetAdd
-	m.addForm.inputs[telnetFieldName].SetValue("lab-sw")
-	m.addForm.inputs[telnetFieldHost].SetValue("10.0.0.1")
-	m.addForm.focusIndex = telnetFieldName
+	m.addForm.nameVal = "lab-sw"
+	m.addForm.hostVal = "10.0.0.1"
 
 	view := m.View()
 	if !strings.Contains(view, "Ctrl+S") {
@@ -253,5 +253,118 @@ func TestTelnetListClearsPreviousFrameOnResize(t *testing.T) {
 		if i < 18 && w < 60 {
 			t.Errorf("line %d width %d < 60 (won't clear leftover cells):\n%q", i, w, ansi.Strip(line))
 		}
+	}
+}
+
+func TestTelnetInfoView(t *testing.T) {
+	i18n.SetLang("zh")
+	host := telnetconfig.TelnetHost{
+		Name: "router1",
+		Host: "192.168.1.1",
+		Port: 23,
+		Tags: []string{"core", "cisco"},
+	}
+	m := newTestTelnetForm(80, 24, []telnetconfig.TelnetHost{host})
+	m.mode = telnetInfo
+	m.infoIndex = 0
+
+	view := m.renderInfo()
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╰") {
+		t.Errorf("expected rounded border corners in telnet info view")
+	}
+	if !strings.Contains(view, "router1") {
+		t.Errorf("missing host name in telnet info view")
+	}
+	if !strings.Contains(view, "192.168.1.1") {
+		t.Errorf("missing host address in telnet info view")
+	}
+	if !strings.Contains(view, "23") {
+		t.Errorf("missing port in telnet info view")
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) > 24 {
+		t.Errorf("expected view lines <= 24, got %d", len(lines))
+	}
+
+	// Test key exits: esc, q, i
+	for _, key := range []string{"esc", "q", "i"} {
+		m.mode = telnetInfo
+		m.infoIndex = 0
+		var keyMsg tea.KeyMsg
+		if key == "esc" {
+			keyMsg = tea.KeyMsg{Type: tea.KeyEsc}
+		} else {
+			keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+		}
+		updated, _ := m.handleInfoKeys(keyMsg)
+		um := updated.(*telnetFormModel)
+		if um.mode != telnetList {
+			t.Errorf("key %s did not return to telnetList", key)
+		}
+	}
+}
+
+func TestTelnetAddFormEnterSavesFromConfirmField(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	i18n.SetLang("en")
+
+	m := newTestTelnetForm(80, 24, nil)
+	m.addForm = newTelnetAddForm(m.styles, 80, 24, nil)
+	m.mode = telnetAdd
+	initCmd := m.addForm.Init()
+	if initCmd != nil {
+		_ = initCmd()
+	}
+
+	// Simulate typing in name field
+	for _, r := range "myroutertest" {
+		m.addForm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	// Enter → advance to host
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(*telnetFormModel)
+
+	// Type host
+	for _, r := range "10.0.0.1" {
+		m.addForm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	// Enter → advance to port
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(*telnetFormModel)
+
+	// Enter → advance to tags (port empty is OK)
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(*telnetFormModel)
+
+	// Enter → advance to confirm
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(*telnetFormModel)
+
+	// Check we are now on confirm field
+	if m.addForm == nil {
+		t.Fatal("addForm should still be open")
+	}
+	focused := m.addForm.form.GetFocusedField()
+	if focused == nil || focused.GetKey() != "confirm" {
+		key := "<nil>"
+		if focused != nil {
+			key = focused.GetKey()
+		}
+		t.Fatalf("expected focus on confirm, got %q", key)
+	}
+
+	// Enter on confirm → should save
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(*telnetFormModel)
+
+	if m.mode != telnetList {
+		t.Fatalf("mode = %v, want list after confirm Enter save", m.mode)
+	}
+	if m.addForm != nil {
+		t.Fatal("addForm should be nil after save")
+	}
+	if len(m.hosts) == 0 {
+		t.Fatal("expected at least one host after save")
 	}
 }

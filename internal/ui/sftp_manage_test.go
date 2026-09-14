@@ -519,3 +519,74 @@ func TestSFTPLayoutToggleRefusedWhenNarrow(t *testing.T) {
 		t.Fatalf("status = %q, want too-narrow hint", fm.statusMsg)
 	}
 }
+
+// TestSFTPDownloadUsesLocalCwd verifies that downloading a remote file saves it
+// into the current local directory (localCwd) shown in the left pane, not ~/Downloads.
+func TestSFTPDownloadUsesLocalCwd(t *testing.T) {
+	m := newSFTPManageTestForm(t)
+	localDir := t.TempDir()
+	m.localCwd = localDir
+
+	// localDownloadPath must use localCwd, not ~/Downloads
+	got := m.localDownloadPath("report.csv")
+	want := filepath.Join(localDir, "report.csv")
+	if got != want {
+		t.Fatalf("localDownloadPath = %q, want %q (localCwd-relative)", got, want)
+	}
+
+	// sortEntries puts directories first, so "a.bin" (a file) is at index 1.
+	// Point the remote table cursor at the file before pressing Enter.
+	m.remoteTbl.SetCursor(1)
+
+	// Simulate pressing Enter on the remote file "a.bin" – should enter download confirm.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	fm := updated.(*sftpFormModel)
+	// After first Enter on a file the model enters sftpDownloadConfirm (not yet transferring).
+	if fm.mode != sftpDownloadConfirm {
+		t.Fatalf("mode = %v after Enter on file, want sftpDownloadConfirm", fm.mode)
+	}
+	// The confirm dialog text must reference localCwd, not ~/Downloads.
+	view := fm.View()
+	if strings.Contains(view, "Downloads") {
+		t.Fatalf("confirm dialog references ~/Downloads; want localCwd path:\n%s", view)
+	}
+	if !strings.Contains(view, localDir) {
+		t.Fatalf("confirm dialog does not show localCwd %q:\n%s", localDir, view)
+	}
+}
+
+// TestSFTPDownloadRefreshesLocalPane verifies that after a successful download,
+// the local pane immediately shows the downloaded file without requiring manual refresh.
+func TestSFTPDownloadRefreshesLocalPane(t *testing.T) {
+	m := newSFTPManageTestForm(t)
+	localDir := t.TempDir()
+	m.localCwd = localDir
+	m.refreshLocal()
+	m.updateLocalRows()
+
+	// Simulate a completed download result arriving.
+	m.transferring = true
+	m.progressGen = 1
+	m.queue.startOrEnqueue(sftpTransferJob{filename: "remote.txt", isUpload: false})
+
+	// Write the file to localCwd as if the download actually finished.
+	dlPath := filepath.Join(localDir, "remote.txt")
+	if err := os.WriteFile(dlPath, []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, _ := m.Update(sftpDownloadResultMsg{gen: 1, filename: "remote.txt", success: true})
+	fm := updated.(*sftpFormModel)
+
+	// The local pane must now list remote.txt without user pressing 'r'.
+	found := false
+	for _, f := range fm.localFiles {
+		if filepath.Base(f) == "remote.txt" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("local pane not refreshed after download; localFiles = %v", fm.localFiles)
+	}
+}

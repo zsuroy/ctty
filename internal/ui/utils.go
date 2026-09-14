@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/zsuroy/ctty/internal/connectivity"
 	"github.com/zsuroy/ctty/internal/i18n"
@@ -101,35 +102,84 @@ func formatConfigFile(filePath string) string {
 	return filePath
 }
 
-// getPingStatusIndicator returns a colored circle indicator based on ping status
+// getPingStatusIndicator returns a colored circle indicator based on ping status and latency tier
 func (m *Model) getPingStatusIndicator(hostName string) string {
 	if m.pingManager == nil {
 		return "⚫" // Gray circle for unknown
 	}
 
+	if result, exists := m.pingManager.GetResult(hostName); exists && result != nil {
+		switch result.Status {
+		case connectivity.StatusOnline:
+			ms := result.Duration.Milliseconds()
+			if ms < 50 {
+				return "🟢" // Green (< 50ms, fast)
+			} else if ms < 150 {
+				return "🟡" // Yellow (50-150ms, normal)
+			}
+			return "🟠" // Orange (> 150ms, high latency)
+		case connectivity.StatusOffline:
+			return "🔴" // Red circle for offline
+		case connectivity.StatusConnecting:
+			return "🔵" // Blue circle for connecting
+		default:
+			return "⚫" // Gray circle for unknown
+		}
+	}
+
 	status := m.pingManager.GetStatus(hostName)
 	switch status {
 	case connectivity.StatusOnline:
-		return "🟢" // Green circle for online
+		return "🟢"
 	case connectivity.StatusOffline:
-		return "🔴" // Red circle for offline
+		return "🔴"
 	case connectivity.StatusConnecting:
-		return "🟡" // Yellow circle for connecting
+		return "🔵"
 	default:
-		return "⚫" // Gray circle for unknown
+		return "⚫"
 	}
 }
 
 // extractHostNameFromTableRow extracts the host name from the first column,
-// removing the ping status indicator
+// removing the ping status indicator and multi-select checkboxes.
 func extractHostNameFromTableRow(firstColumn string) string {
-	// The first first column format is: "🟢 hostname" or "⚫ hostname" etc.
-	// We need to remove the emoji and space to get just the hostname
-	parts := strings.Fields(firstColumn)
+	s := ansi.Strip(firstColumn)
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "[✓]")
+	s = strings.TrimPrefix(s, "[ ]")
+	s = strings.TrimSpace(s)
+	parts := strings.Fields(s)
 	if len(parts) >= 2 {
 		// Return everything after the first part (the emoji)
 		return strings.Join(parts[1:], " ")
 	}
-	// Fallback: if there's no space, return the whole string
-	return firstColumn
+	// Fallback: if there's no space, return the trimmed string
+	return s
+}
+
+// renderStatusToast formats a single-line status toast with contextual semantic icons and colors.
+func renderStatusToast(msg string) string {
+	icon := "✓"
+	color := lipgloss.Color("10") // Green (default success)
+
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "probing") || strings.Contains(msg, "探测") || strings.Contains(lower, "loading") || strings.Contains(msg, "正在") {
+		icon = "⏳"
+		color = lipgloss.Color("14") // Cyan
+	} else if strings.Contains(lower, "clear") || strings.Contains(msg, "清除") {
+		icon = "ℹ"
+		color = lipgloss.Color("14") // Cyan
+	} else if strings.Contains(lower, "no ") || strings.Contains(msg, "未设置") || strings.Contains(lower, "warning") {
+		icon = "ℹ"
+		color = lipgloss.Color("11") // Yellow
+	} else if strings.Contains(lower, "fail") || strings.Contains(lower, "error") || strings.Contains(msg, "失败") || strings.Contains(msg, "错误") {
+		icon = "✗"
+		color = lipgloss.Color("9") // Red
+	}
+
+	statusStyle := lipgloss.NewStyle().
+		Foreground(color).
+		Bold(true)
+
+	return statusStyle.Render(fmt.Sprintf(" %s %s", icon, msg))
 }

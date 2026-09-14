@@ -80,14 +80,36 @@ func sortHostsByTags(hosts []config.SSHHost) []config.SSHHost {
 	return sorted
 }
 
+func hostHasTag(host config.SSHHost, targetTag string) bool {
+	cleanTarget := strings.ToLower(strings.TrimPrefix(targetTag, "#"))
+	for _, tag := range host.Tags {
+		cleanTag := strings.ToLower(strings.TrimPrefix(tag, "#"))
+		if cleanTag == cleanTarget {
+			return true
+		}
+	}
+	return false
+}
+
 // filterHosts filters hosts according to the search query (name, hostname, user, or tags)
 func (m Model) filterHosts(query string) []config.SSHHost {
-	words := strings.Fields(strings.TrimSpace(query))
-	if len(words) == 0 {
-		return m.sortHosts(m.hosts)
+	var base []config.SSHHost
+	if m.selectedTag != "" {
+		for _, host := range m.hosts {
+			if hostHasTag(host, m.selectedTag) {
+				base = append(base, host)
+			}
+		}
+	} else {
+		base = m.hosts
 	}
 
-	var current []config.SSHHost = m.hosts
+	words := strings.Fields(strings.TrimSpace(query))
+	if len(words) == 0 {
+		return m.sortHosts(base)
+	}
+
+	var current []config.SSHHost = base
 	for _, word := range words {
 		var matched []config.SSHHost
 		wordLower := strings.ToLower(word)

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -28,8 +29,8 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 	maxLastLoginLength := ansi.StringWidth(i18n.T("table.col.last_login")) + 4
 
 	for _, host := range hosts {
-		// Name column: status emoji (display width 2) + space + host name
-		nameLength := 3 + ansi.StringWidth(host.Name)
+		// Name column: checkbox "[ ] " (4) + status emoji (2) + space (1) + host name
+		nameLength := 7 + ansi.StringWidth(host.Name)
 		if nameLength > maxNameLength {
 			maxNameLength = nameLength
 		}
@@ -230,8 +231,14 @@ func (m *Model) updateTableRows() {
 			}
 		}
 
+		// Format multi-select checkbox prefix: always visible so selection state is clear
+		selectPrefix := "[ ] "
+		if m.selectedHosts[host.Name] {
+			selectPrefix = "[✓] "
+		}
+
 		rows = append(rows, table.Row{
-			statusIndicator + " " + host.Name,
+			selectPrefix + statusIndicator + " " + host.Name,
 			host.Hostname,
 			tagsStr,
 			lastLoginStr,
@@ -440,8 +447,20 @@ func (m *Model) renderTableView() string {
 			}
 		}
 
+		selectPrefix := ""
+		if m.selectedHosts[host.Name] {
+			selectPrefix = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true).Render("[✓]") + " "
+		} else {
+			selectPrefix = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("[ ]") + " "
+		}
+
+		nameVal := host.Name
+		if m.selectedHosts[host.Name] {
+			nameVal = lipgloss.NewStyle().Bold(true).Render(host.Name)
+		}
+
 		rowValues := []string{
-			statusIndicator + " " + host.Name,
+			selectPrefix + statusIndicator + " " + nameVal,
 			host.Hostname,
 			FormatColoredTags(host.Tags),
 			lastLoginStr,
@@ -470,6 +489,8 @@ func (m *Model) renderTableView() string {
 		emptyMsg := i18n.T("table.no_matching")
 		if len(m.hosts) == 0 && m.searchInput.Value() == "" {
 			emptyMsg = i18n.T("table.empty_hosts")
+		} else if m.searchInput.Value() != "" {
+			emptyMsg = fmt.Sprintf("%s  •  %s", emptyMsg, i18n.T("search.empty_add_hint"))
 		}
 		// Truncate to table content width to prevent overflow on narrow terminals
 		tableContentWidth := 0
@@ -531,11 +552,11 @@ func max(a, b int) int {
 // calculateNameColumnWidth calculates the optimal width for the Name column
 // based on the longest hostname, with a minimum of 8 and maximum of 40 characters
 func calculateNameColumnWidth(hosts []config.SSHHost) int {
-	maxLength := 8 // Minimum width to accommodate the "Name" header
+	maxLength := 12 // Minimum width to accommodate the "Name" header and checkbox prefix
 
 	for _, host := range hosts {
-		if len(host.Name) > maxLength {
-			maxLength = len(host.Name)
+		if len(host.Name)+6 > maxLength {
+			maxLength = len(host.Name) + 6
 		}
 	}
 

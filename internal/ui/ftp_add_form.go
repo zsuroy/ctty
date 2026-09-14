@@ -9,56 +9,62 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/zsuroy/ctty/internal/ftpconfig"
+	"github.com/zsuroy/ctty/internal/ftpcred"
 	"github.com/zsuroy/ctty/internal/i18n"
-	"github.com/zsuroy/ctty/internal/telnetconfig"
 	"github.com/zsuroy/ctty/internal/ui/theme"
 )
 
-// telnetAddFormModel is the form for adding or editing a telnet device,
-// modernized using charmbracelet/huh with dynamic theme support and responsive viewport.
-type telnetAddFormModel struct {
+type ftpAddFormModel struct {
 	form     *huh.Form
 	viewport viewport.Model
 	styles   Styles
 	width    int
 	height   int
-	editing  *telnetconfig.TelnetHost
+	editing  *ftpconfig.FTPSite
 	err      string
 
-	nameVal    string
-	hostVal    string
-	portVal    string
-	tagsVal    string
-	confirmVal bool
+	nameVal     string
+	hostVal     string
+	portVal     string
+	userVal     string
+	passwordVal string
+	tagsVal     string
+	confirmVal  bool
 
 	done      bool
 	cancelled bool
 }
 
-func newTelnetAddForm(styles Styles, width, height int, initial *telnetconfig.TelnetHost) *telnetAddFormModel {
-	m := &telnetAddFormModel{
+func newFTPAddForm(styles Styles, width, height int, initial *ftpconfig.FTPSite) *ftpAddFormModel {
+	m := &ftpAddFormModel{
 		styles:     styles,
 		width:      width,
 		height:     height,
 		editing:    initial,
-		portVal:    strconv.Itoa(telnetconfig.DefaultPort),
+		portVal:    strconv.Itoa(ftpconfig.DefaultPort),
+		userVal:    "anonymous",
 		confirmVal: true,
 	}
-
 	if initial != nil {
 		m.nameVal = initial.Name
 		m.hostVal = initial.Host
 		if initial.Port > 0 {
 			m.portVal = strconv.Itoa(initial.Port)
 		}
+		if initial.User != "" {
+			m.userVal = initial.User
+		}
+		if pass, ok := ftpcred.GetPassword(initial.Name); ok {
+			m.passwordVal = pass
+		}
 		m.tagsVal = strings.Join(initial.Tags, ", ")
 	}
-
 	m.buildForm()
 	return m
 }
 
-func (m *telnetAddFormModel) buildForm() {
+func (m *ftpAddFormModel) buildForm() {
 	innerW := formPageInnerWidth(m.width)
 	if innerW < 20 {
 		innerW = 20
@@ -95,33 +101,48 @@ func (m *telnetAddFormModel) buildForm() {
 		huh.NewGroup(
 			huh.NewInput().
 				Key("name").
-				Title(i18n.T("telnet.col_name")).
+				Title(strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_name"), ":"))).
 				Prompt("> ").
-				Placeholder("e.g. core-sw console").
+				Placeholder("e.g. lab-nas").
 				Validate(validateName).
 				Value(&m.nameVal),
 
 			huh.NewInput().
 				Key("host").
-				Title(i18n.T("telnet.col_host")).
+				Title(strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_host"), ":"))).
 				Prompt("> ").
-				Placeholder("e.g. 192.168.1.1 or ::1").
+				Placeholder("e.g. 192.168.1.1 or nas.local").
 				Validate(validateHost).
 				Value(&m.hostVal),
 
 			huh.NewInput().
 				Key("port").
-				Title(i18n.T("telnet.col_port")).
+				Title(strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_port"), ":"))).
 				Prompt("> ").
-				Placeholder("23").
+				Placeholder("21").
 				Validate(validatePort).
 				Value(&m.portVal),
 
 			huh.NewInput().
-				Key("tags").
-				Title(i18n.T("table.col.tags")).
+				Key("user").
+				Title(strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_user"), ":"))).
 				Prompt("> ").
-				Placeholder("lab,network").
+				Placeholder("anonymous").
+				Value(&m.userVal),
+
+			huh.NewInput().
+				Key("password").
+				Title(strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_password"), ":"))).
+				Prompt("> ").
+				Placeholder("leave empty to keep").
+				EchoMode(huh.EchoModePassword).
+				Value(&m.passwordVal),
+
+			huh.NewInput().
+				Key("tags").
+				Title(strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_tags"), ":"))).
+				Prompt("> ").
+				Placeholder("lab,backup").
 				Value(&m.tagsVal),
 
 			huh.NewConfirm().
@@ -137,14 +158,14 @@ func (m *telnetAddFormModel) buildForm() {
 		WithShowHelp(false)
 }
 
-func (m *telnetAddFormModel) Init() tea.Cmd {
+func (m *ftpAddFormModel) Init() tea.Cmd {
 	if m.form != nil {
 		return m.form.Init()
 	}
 	return nil
 }
 
-func (m *telnetAddFormModel) nextField() tea.Cmd {
+func (m *ftpAddFormModel) nextField() tea.Cmd {
 	if m.form == nil {
 		return nil
 	}
@@ -158,7 +179,7 @@ func (m *telnetAddFormModel) nextField() tea.Cmd {
 	return m.form.NextField()
 }
 
-func (m *telnetAddFormModel) prevField() tea.Cmd {
+func (m *ftpAddFormModel) prevField() tea.Cmd {
 	if m.form == nil {
 		return nil
 	}
@@ -172,7 +193,7 @@ func (m *telnetAddFormModel) prevField() tea.Cmd {
 	return m.form.PrevField()
 }
 
-func (m *telnetAddFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *ftpAddFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -245,20 +266,25 @@ func (m *telnetAddFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *telnetAddFormModel) submit() {
+func (m *ftpAddFormModel) submit() {
 	name := strings.TrimSpace(m.nameVal)
 	host := strings.TrimSpace(m.hostVal)
 	if name == "" || host == "" {
-		m.err = i18n.T("telnet.err_name_host_req")
+		m.err = i18n.T("ftp.err_name_host_req")
 		return
 	}
 
-	port := telnetconfig.DefaultPort
+	port := ftpconfig.DefaultPort
 	if strings.TrimSpace(m.portVal) != "" {
 		p, err := strconv.Atoi(strings.TrimSpace(m.portVal))
 		if err == nil && p > 0 && p <= 65535 {
 			port = p
 		}
+	}
+
+	user := strings.TrimSpace(m.userVal)
+	if user == "" {
+		user = "anonymous"
 	}
 
 	var tags []string
@@ -268,31 +294,46 @@ func (m *telnetAddFormModel) submit() {
 		}
 	}
 
-	newHost := telnetconfig.TelnetHost{Name: name, Host: host, Port: port, Tags: tags}
+	site := ftpconfig.FTPSite{Name: name, Host: host, Port: port, User: user, Tags: tags}
 
 	var err error
+	oldName := ""
 	if m.editing != nil {
-		err = telnetconfig.Update(m.editing.Name, newHost)
+		oldName = m.editing.Name
+		err = ftpconfig.Update(oldName, site)
+		if err == nil && oldName != name {
+			_ = ftpcred.DeletePassword(oldName)
+		}
 	} else {
-		err = telnetconfig.Add(newHost)
+		err = ftpconfig.Add(site)
 	}
 	if err != nil {
 		m.err = err.Error()
 		return
 	}
+	pass := m.passwordVal
+	if pass != "" {
+		_ = ftpcred.SetPassword(name, pass)
+	} else if m.editing != nil {
+		_ = ftpcred.DeletePassword(name)
+	}
 	m.done = true
 }
 
-func (m *telnetAddFormModel) getFieldTitle(key string) string {
+func (m *ftpAddFormModel) getFieldTitle(key string) string {
 	switch key {
 	case "name":
-		return strings.TrimSpace(strings.TrimSuffix(i18n.T("telnet.col_name"), ":"))
+		return strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_name"), ":"))
 	case "host":
-		return strings.TrimSpace(strings.TrimSuffix(i18n.T("telnet.col_host"), ":"))
+		return strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_host"), ":"))
 	case "port":
-		return strings.TrimSpace(strings.TrimSuffix(i18n.T("telnet.col_port"), ":"))
+		return strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_port"), ":"))
+	case "user":
+		return strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_user"), ":"))
+	case "password":
+		return strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_password"), ":"))
 	case "tags":
-		return strings.TrimSpace(strings.TrimSuffix(i18n.T("table.col.tags"), ":"))
+		return strings.TrimSpace(strings.TrimSuffix(i18n.T("ftp.field_tags"), ":"))
 	case "confirm":
 		return i18n.T("form.btn_save")
 	default:
@@ -300,10 +341,10 @@ func (m *telnetAddFormModel) getFieldTitle(key string) string {
 	}
 }
 
-func (m *telnetAddFormModel) View() string {
-	title := i18n.T("telnet.add_title")
+func (m *ftpAddFormModel) View() string {
+	title := i18n.T("ftp.sites_add_title")
 	if m.editing != nil {
-		title = i18n.T("telnet.edit_title")
+		title = i18n.T("ftp.sites_edit_title")
 	}
 
 	boxWidth := m.width - 4
@@ -322,7 +363,9 @@ func (m *telnetAddFormModel) View() string {
 	}
 	titleText := m.styles.Header.Width(innerW).Render(title)
 
-	helpText := m.styles.HelpText.Width(innerW).Render(i18n.T("telnet.help_add"))
+	helpText := m.styles.HelpText.Width(innerW).Render(i18n.T("ftp.sites_form_help"))
+	credHint := m.styles.HelpText.Width(innerW).Render(i18n.T("ftp.cred_hint"))
+	helpJoined := lipgloss.JoinVertical(lipgloss.Left, helpText, credHint)
 
 	formView := ""
 	if m.form != nil {
@@ -331,7 +374,7 @@ func (m *telnetAddFormModel) View() string {
 
 	frameH := container.GetVerticalFrameSize()
 	headerH := lipgloss.Height(titleText)
-	helpH := lipgloss.Height(helpText)
+	helpH := lipgloss.Height(helpJoined)
 
 	targetBoxH := m.height
 	if m.height >= 14 {
@@ -353,7 +396,6 @@ func (m *telnetAddFormModel) View() string {
 		m.viewport.Height = availableH
 		m.viewport.SetContent(formView)
 
-		// Auto-scroll viewport to keep focused field in view
 		if m.form != nil {
 			focused := m.form.GetFocusedField()
 			if focused != nil {
@@ -381,7 +423,7 @@ func (m *telnetAddFormModel) View() string {
 	if m.err != "" {
 		contentParts = append(contentParts, m.styles.ErrorText.Width(innerW).MaxHeight(2).Render("❌ "+m.err), "")
 	}
-	contentParts = append(contentParts, bodyView, "", helpText)
+	contentParts = append(contentParts, bodyView, "", helpJoined)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, contentParts...)
 	box := container.Width(boxWidth).Render(content)

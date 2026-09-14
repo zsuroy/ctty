@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/version"
 )
@@ -72,6 +74,39 @@ func TestUpdateRunningProgressTruncatesToWidth(t *testing.T) {
 			if got := lineDisplayWidth(line); got > w {
 				t.Fatalf("width=%d: line %d cols exceeds terminal: %q", w, got, line)
 			}
+		}
+	}
+}
+
+// The root model must forward WindowSizeMsg to the update modal; without it
+// the modal kept its creation size and its lines overflowed a shrunk or
+// stretched terminal.
+func TestUpdateModalResizesWithTerminal(t *testing.T) {
+	i18n.SetLang("en")
+	hosts := []config.SSHHost{
+		{Name: "server1", Hostname: "10.0.0.1", User: "root", Port: "22"},
+	}
+	m := NewModel(hosts, "", false, "v0.5.0", true)
+	m.updateInfo = &version.UpdateInfo{
+		Available:  true,
+		CurrentVer: "v0.5.0",
+		LatestVer:  "v0.6.0",
+		ReleaseURL: "https://github.com/zsuroy/ctty/releases/tag/v0.6.0",
+	}
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("U")})
+	m = res.(Model)
+	if m.updateForm == nil {
+		t.Fatal("update modal did not open")
+	}
+
+	res, _ = m.Update(tea.WindowSizeMsg{Width: 42, Height: 20})
+	m = res.(Model)
+	if m.updateForm.width != 42 || m.updateForm.height != 20 {
+		t.Fatalf("modal size = %dx%d, want 42x20", m.updateForm.width, m.updateForm.height)
+	}
+	for _, line := range strings.Split(m.View(), "\n") {
+		if got := lineDisplayWidth(line); got > 42 {
+			t.Fatalf("line %d cols exceeds shrunk terminal: %q", got, line)
 		}
 	}
 }

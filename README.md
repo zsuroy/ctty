@@ -34,20 +34,24 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 ## ✨ Features
 
 ### 🚀 **Core Capabilities**
-- **🎨 Beautiful TUI Interface** - Navigate your SSH hosts with an elegant, interactive terminal UI
-- **⚡ Quick Connect** - Connect to any host instantly through the TUI or the CLI with `ctty <host>`
+- **🎨 Beautiful TUI Interface** - Navigate your SSH hosts with an elegant, interactive terminal UI and zero vertical layout jitter
+- **⚡ Quick Connect & Health Peek** - Connect instantly with `Enter` or inspect real-time system metrics (uptime, CPU load, memory bar, root disk space) via **Quick Peek** (`v` / `P`) without opening a full shell
+- **📦 Multi-Select & Batch Exec** - Press `Space` to multi-select hosts with visual `[ ]` / `[✓]` checkboxes, `Ctrl+A` to select all, `p` to probe selected hosts, `y` to copy commands, and `x` to batch-execute remote snippets in parallel with an aggregated scrollable results modal
+- **🔄 Unified Cross-Protocol Navigation** - Switch between SSH, Serial (`t`), Telnet (`T`), FTP (`F`), and Local File Browser (`b`) directly via hotkeys or `[` / `]` tabs without leaving your current view
+- **🏷️ Tag Organization & Quick Drawer** - Organize hosts with automatic color-coding (e.g., `#prod` in red, `#dev` in green); press `w` to open an interactive Tag Drawer with host counts and 1-key filtering (`1`-`9`), or use `hidden` tag to hide sensitive hosts
+- **📝 Direct Config Editing** - Press `E` to open your active SSH configuration directly in `$EDITOR` / `$VISUAL` (vim, nano, notepad) with automatic live config reload upon exit
+- **📋 Universal Clipboard with OSC 52** - Copy commands (`y`) seamlessly across local terminals, remote SSH sessions, and tmux via OSC 52 fallback
 - **🔄 Port Forwarding** - Easy setup for Local, Remote, and Dynamic (SOCKS) forwarding with history persistence
-- **📝 Easy Management** - Add, edit, move, and manage SSH configurations seamlessly
-- **🏷️ Tag Support** - Organize your hosts with custom tags with automatic color-coding (e.g., `#prod` in red, `#dev` in green, `#db` in purple) and custom color configuration; use the special `hidden` tag to exclude hosts from the list while keeping them connectable
-- **🔍 Smart Search** - Find hosts quickly with built-in filtering and search
-- **📝 Real-time Status** - Live SSH connectivity indicators with asynchronous ping checks and color-coded status
+- **📝 Easy Management** - Add, edit, move, and manage SSH configurations seamlessly; typing in search and pressing `a` auto-fills the host name
+- **🔍 Smart Search** - Find hosts quickly with real-time filtering across names, addresses, and `#tags`
+- **📝 Real-time Status** - Live SSH connectivity indicators with latency gradient colors (🟢 <100ms, 🟡 100-300ms, 🔴 >300ms / offline)
 - **🔌 Serial Connections** - Manage and connect to serial devices (console, switch, router) with configurable baud rate, data bits, parity, and stop bits; auto-detected ports appear in the list instantly
 - **📡 Telnet Connections** - Native RFC 854 telnet client (no system telnet needed): save and manage lab equipment, console servers, and legacy devices; reachability probe with one keypress
-- **📂 SFTP File Transfer** - Full-featured SFTP browser (`o` key) with remote browsing, upload/download queue with progress and cancel, search, mkdir/delete, plus headless CLI transfers (`put`/`get`/`scp`)
+- **📂 SFTP File Transfer** - Full-featured SFTP browser (`o` key) with remote browsing, upload/download queue with progress and cancel, transfer bell (`\a`), search, mkdir/delete, plus headless CLI transfers (`put`/`get`/`scp`)
 - **📁 FTP Site Manager** - Plain-FTP support (`F` key) for hosts without SSH: tagged site inventory, dual-pane local|remote browser, mkdir/delete/rename in both panes, single/dual layout toggle, passwords in the encrypted vault
 - **🗂️ Local File Browser** - Standalone local filesystem manager (`b` key or `ctty browse [path]`): navigate, search, sort, mkdir/delete/rename with confirms, file details, open-with-default-app, reveal in file manager
 - **🔑 Password Storage & Zero-Touch Auto-Login** - Save SSH passwords securely in a local AES-256-GCM encrypted vault (`~/.config/ctty/credentials.json`, `0600` permissions) with native OpenSSH `SSH_ASKPASS` protocol bridge (zero third-party dependencies, works on macOS, Linux, Windows, and Termux)
-- **🖥️ Split-Pane & Small Terminal Friendly** - All forms and dialogs (Add/Edit Host, Port Forwarding, Host Info, Help Menu) feature focus-following dynamic viewport scrolling with fixed headers/footers. Works flawlessly in tmux/Zellij splits, VS Code/JetBrains embedded terminals, and tiling WMs (i3/Sway) down to 8~12 lines with zero height blocking or truncation
+- **🖥️ Split-Pane & Small Terminal Friendly** - All forms and dialogs (Add/Edit Host, Port Forwarding, Host Info, Help Menu, Quick Peek, Batch Exec) feature focus-following dynamic viewport scrolling with fixed headers/footers. Works flawlessly in tmux/Zellij splits, VS Code/JetBrains embedded terminals, and tiling WMs (i3/Sway) down to 8~12 lines with zero height blocking or truncation
 - **🌐 Bilingual i18n & Settings UI** - Full English and Simplified Chinese support with automatic OS detection (macOS, Windows, Linux, Termux) and interactive in-TUI Settings menu (`S` key) to configure language, updates, and keybindings
 
 ### 🛠️ **Technical Features**
@@ -153,22 +157,34 @@ Launch ctty without arguments to enter the beautiful TUI interface:
 ctty
 ```
 
-**Navigation:**
+**Navigation & Host Actions:**
 - `↑/↓` or `j/k` - Navigate hosts
 - `Enter` - Connect to selected host
-- `a` - Add new host
+- `v` or `P` - **Quick Peek** host health stats (uptime, CPU load, memory %, disk % progress bars)
+- `Space` - **Multi-Select** toggle (auto-advances cursor down by 1 row)
+- `Ctrl+A` - Select all / deselect all visible hosts
+- `Esc` - Clear multi-selection (when active) or cancel/exit mode
+- `y` - Copy SSH command to clipboard (copies newline-separated commands for all selected hosts when multi-selection is active)
+- `x` - Remote command snippet execution (runs in parallel across all selected hosts when multi-selection is active)
+- `p` - Ping hosts to test latency (pings only selected hosts when multi-selection is active)
+- `w` - Open interactive **Tag Filter Drawer** (`1`-`9` or `Enter` to filter, `c` to clear)
+- `c` - Clear active tag filter
+- `E` - Open active SSH configuration file directly in `$EDITOR` (vim/nano/notepad)
+- `[` / `]` - Switch to previous / next protocol tab (SSH ⇄ Serial ⇄ Telnet ⇄ FTP ⇄ Local Browser)
+- `g` / `Home` - Jump to first row
+- `G` / `End` - Jump to last row
+- `1`-`9` - Quick jump to row
+- `a` - Add new host (auto-fills search query if typing)
 - `e` - Edit selected host
 - `d` - Delete selected host
 - `m` - Move host to another config file (requires SSH Include directives)
 - `i` - Show host configuration info
-- `p` - Ping all hosts to check connectivity
 - `f` - Setup port forwarding
 - `t` - Open serial device manager
 - `T` - Open telnet device manager
 - `o` - Open SFTP file browser for selected host
 - `F` - Open FTP site manager
 - `b` - Open local file browser
-- `x` - Remote Command Execution (snippets supported)
 - `S` - Open Settings & Preferences (Language, Updates, ESC behavior)
 - `U` - Open self-update modal (when an update is available)
 - `H` - Toggle hidden hosts visibility
@@ -177,9 +193,9 @@ ctty
 - `/` - Search/filter hosts
 
 **Real-time Status Indicators:**
-- 🟢 **Online** - Host is reachable via SSH
-- 🟡 **Connecting** - Currently checking host connectivity
-- 🔴 **Offline** - Host is unreachable or SSH connection failed
+- 🟢 **Online** - Low latency (<100ms)
+- 🟡 **Moderate / Connecting** - Moderate latency (100-300ms) or checking connectivity
+- 🔴 **Offline / High Latency** - Host unreachable, timeout, or latency >300ms
 - ⚫ **Unknown** - Connectivity status not yet determined
 
 **Sorting & Filtering:**

@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
@@ -11,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // serialFormModel manages the serial device list view.
@@ -29,10 +31,22 @@ type serialFormModel struct {
 	deleteMode      bool
 	deleteIndex     int
 	infoIndex       int
+	infoScroll      int
 	ready           bool
 	searchInput     textinput.Model
 	searchMode      bool
 	filteredDevices []serialconfig.SerialDevice
+	statusMessage   string
+	statusExpiry    time.Time
+}
+
+func (m *serialFormModel) setStatus(msg string) {
+	m.statusMessage = msg
+	m.statusExpiry = time.Now().Add(3 * time.Second)
+}
+
+func (m *serialFormModel) statusActive() bool {
+	return m.statusMessage != "" && time.Now().Before(m.statusExpiry)
 }
 
 type serialMode int
@@ -100,7 +114,9 @@ func (m *serialFormModel) loadDevices() {
 	for _, port := range scanned {
 		if !seen[port] {
 			auto := serialconfig.DefaultDevice()
-			auto.Name = "(auto) " + port
+			// The full path already lives in the Device column; repeating it
+			// in Name guaranteed truncation in both.
+			auto.Name = "(auto)"
 			auto.Device = port
 			merged = append(merged, auto)
 		}
@@ -122,14 +138,41 @@ func (m *serialFormModel) getColumns() []table.Column {
 	// To match search bar (rendered = tw - 2 + 2 = tw):
 	//   colWidths + numCols*2 + 4 = tw
 	//   colWidths = tw - 4 - numCols*2
+	//
+	// Name and Device split the flexible remainder by their longest actual
+	// content (device paths like /dev/cu.Bluetooth-Incoming-Port are 31+
+	// chars; a 50/50 split truncated them while padding short aliases).
+	nameNeed, devNeed := 10, 16 // header-length floors
+	for _, d := range m.filteredDevices {
+		if n := ansi.StringWidth(d.Name); n > nameNeed {
+			nameNeed = n
+		}
+		if n := ansi.StringWidth(d.Device); n > devNeed {
+			devNeed = n
+		}
+	}
+
+	split := func(rem int) (int, int) {
+		nameW := rem * nameNeed / (nameNeed + devNeed)
+		if nameW < 8 {
+			nameW = 8
+		}
+		if dw := rem - nameW; dw < 8 {
+			nameW = rem - 8
+			if nameW < 0 {
+				nameW = 0
+			}
+		}
+		return nameW, rem - nameW
+	}
+
 	if w < 60 {
 		// 3 columns: name, device, baud(8)
 		rem := w - 4 - 3*2 - 8
 		if rem < 8 {
 			rem = 8
 		}
-		nameW := rem / 2
-		devW := rem - nameW
+		nameW, devW := split(rem)
 		return []table.Column{
 			{Title: i18n.T("serial.col_name"), Width: nameW},
 			{Title: i18n.T("serial.col_device"), Width: devW},
@@ -141,8 +184,7 @@ func (m *serialFormModel) getColumns() []table.Column {
 		if rem < 10 {
 			rem = 10
 		}
-		nameW := rem / 2
-		devW := rem - nameW
+		nameW, devW := split(rem)
 		return []table.Column{
 			{Title: i18n.T("serial.col_name"), Width: nameW},
 			{Title: i18n.T("serial.col_device"), Width: devW},
@@ -157,8 +199,7 @@ func (m *serialFormModel) getColumns() []table.Column {
 	if rem < 12 {
 		rem = 12
 	}
-	nameW := rem / 2
-	devW := rem - nameW
+	nameW, devW := split(rem)
 	return []table.Column{
 		{Title: i18n.T("serial.col_name"), Width: nameW},
 		{Title: i18n.T("serial.col_device"), Width: devW},
@@ -209,11 +250,14 @@ func (m *serialFormModel) buildTable() {
 	s.Selected = m.styles.Selected
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(PrimaryColor)).
+		BorderForeground(m.styles.Theme.Primary).
 		BorderBottom(true).
 		Bold(false)
 
 	availHeight := m.height - 8
+	if m.height >= 18 && m.width >= 64 {
+		availHeight--
+	}
 	if availHeight < 2 {
 		availHeight = 2
 	}
@@ -279,6 +323,20 @@ func (m *serialFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.styles = NewStyles(m.width)
 		m.searchInput.Width = searchInputWidth(m.width, i18n.T("search.prompt"))
 		m.buildTable()
+		if m.addForm != nil {
+			updated, cmd := m.addForm.Update(msg)
+			if sm, ok := updated.(*serialAddFormModel); ok {
+				m.addForm = sm
+			}
+			return m, cmd
+		}
+		if m.connectForm != nil {
+			updated, cmd := m.connectForm.Update(msg)
+			if sm, ok := updated.(*serialConnectFormModel); ok {
+				m.connectForm = sm
+			}
+			return m, cmd
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -308,9 +366,32 @@ func (m *serialFormModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSearchKeys(msg)
 	}
 
-	switch msg.String() {
+	key := msg.String()
+	switch key {
 	case "esc", "q":
 		return m, func() tea.Msg { return serialDoneMsg{} }
+	case "T", "]":
+		return m, func() tea.Msg { return switchProtocolMsg{target: ViewTelnet} }
+	case "F":
+		return m, func() tea.Msg { return switchProtocolMsg{target: ViewFTP} }
+	case "b":
+		return m, func() tea.Msg { return switchProtocolMsg{target: ViewLocalBrowser} }
+	case "[":
+		return m, func() tea.Msg { return switchProtocolMsg{target: ViewList} }
+	case "g", "home":
+		m.table.SetCursor(0)
+		return m, nil
+	case "G", "end":
+		if len(m.filteredDevices) > 0 {
+			m.table.SetCursor(len(m.filteredDevices) - 1)
+		}
+		return m, nil
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(key[0] - '1')
+		if idx < len(m.filteredDevices) {
+			m.table.SetCursor(idx)
+		}
+		return m, nil
 	case "/", "ctrl+f":
 		m.searchMode = true
 		m.searchInput.Focus()
@@ -340,8 +421,20 @@ func (m *serialFormModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		idx := m.table.Cursor()
 		if idx >= 0 && idx < len(m.filteredDevices) {
 			m.infoIndex = idx
+			m.infoScroll = 0
 			m.mode = serialInfo
 			return m, nil
+		}
+	case "e":
+		if len(m.filteredDevices) == 0 {
+			return m, nil
+		}
+		idx := m.table.Cursor()
+		if idx >= 0 && idx < len(m.filteredDevices) {
+			dev := m.filteredDevices[idx]
+			m.connectForm = newSerialConnectForm(m.styles, m.width, m.height, dev)
+			m.mode = serialConnectSettings
+			return m, m.connectForm.Init()
 		}
 	case "a":
 		m.mode = serialAdd
@@ -355,6 +448,17 @@ func (m *serialFormModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if idx >= 0 && idx < len(m.filteredDevices) {
 			m.mode = serialDeleteConfirm
 			m.deleteIndex = idx
+			return m, nil
+		}
+	case "y":
+		if len(m.filteredDevices) == 0 {
+			return m, nil
+		}
+		idx := m.table.Cursor()
+		if idx >= 0 && idx < len(m.filteredDevices) {
+			cmdStr := FormatSerialCommand(m.filteredDevices[idx])
+			copyToClipboard(cmdStr)
+			m.setStatus(fmt.Sprintf(i18n.T("main.copied"), cmdStr))
 			return m, nil
 		}
 	}
@@ -376,6 +480,13 @@ func (m *serialFormModel) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.searchInput.Blur()
 		m.table.Focus()
 		return m, nil
+	case "up", "down":
+		m.searchMode = false
+		m.searchInput.Blur()
+		m.table.Focus()
+		var cmd tea.Cmd
+		m.table, cmd = m.table.Update(msg)
+		return m, cmd
 	}
 
 	var cmd tea.Cmd
@@ -389,7 +500,7 @@ func (m *serialFormModel) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 
 func (m *serialFormModel) handleDeleteConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "y", "Y":
+	case "y", "Y", "enter":
 		if m.deleteIndex >= 0 && m.deleteIndex < len(m.filteredDevices) {
 			dev := m.filteredDevices[m.deleteIndex]
 			_ = serialconfig.Delete(dev.Name)
@@ -404,7 +515,6 @@ func (m *serialFormModel) handleDeleteConfirmKeys(msg tea.KeyMsg) (tea.Model, te
 	}
 	return m, nil
 }
-
 func (m *serialFormModel) handleInfoKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q", "i":
@@ -420,6 +530,9 @@ func (m *serialFormModel) handleInfoKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.connectForm.Init()
 		}
 	}
+	if scrollInfoKey(msg.String(), &m.infoScroll) {
+		return m, nil
+	}
 	return m, nil
 }
 
@@ -434,23 +547,89 @@ func (m *serialFormModel) renderInfo() string {
 		saved = i18n.T("serial.saved_no")
 	}
 
-	var components []string
-	components = append(components, m.styles.Header.Render(i18n.T("serial.info_title")))
-	components = append(components, fmt.Sprintf("  %-14s %s", i18n.T("serial.field_name"), dev.Name))
-	components = append(components, fmt.Sprintf("  %-14s %s", i18n.T("serial.field_device"), dev.Device))
-	components = append(components, fmt.Sprintf("  %-14s %d", i18n.T("serial.field_baud"), dev.BaudRate))
-	components = append(components, fmt.Sprintf("  %-14s %d", i18n.T("serial.field_data"), dev.DataBits))
-	components = append(components, fmt.Sprintf("  %-14s %s", i18n.T("serial.field_parity"), dev.Parity))
-	components = append(components, fmt.Sprintf("  %-14s %d", i18n.T("serial.field_stop"), dev.StopBits))
-	components = append(components, fmt.Sprintf("  %-14s %s", "Saved Config:", saved))
-	components = append(components, m.styles.HelpText.Render(i18n.T("serial.help_info")))
+	titleText := m.styles.Header.Render(strings.TrimSpace(i18n.T("serial.info_title")))
 
-	return m.styles.App.Render(
-		lipgloss.JoinVertical(
-			lipgloss.Left,
-			components...,
-		),
+	rows := [][2]string{
+		{strings.TrimSpace(i18n.T("serial.field_name")), dev.Name},
+		{strings.TrimSpace(i18n.T("serial.field_device")), dev.Device},
+		{strings.TrimSpace(i18n.T("serial.field_baud")), fmt.Sprintf("%d", dev.BaudRate)},
+		{strings.TrimSpace(i18n.T("serial.field_data")), fmt.Sprintf("%d", dev.DataBits)},
+		{strings.TrimSpace(i18n.T("serial.field_parity")), dev.Parity},
+		{strings.TrimSpace(i18n.T("serial.field_stop")), fmt.Sprintf("%d", dev.StopBits)},
+		{i18n.T("serial.col_saved") + ":", saved},
+	}
+
+	maxLabelW := 0
+	for _, r := range rows {
+		if w := ansi.StringWidth(r[0]); w > maxLabelW {
+			maxLabelW = w
+		}
+	}
+
+	labelStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(m.styles.Theme.Primary)
+
+	var bodyLines []string
+	for _, r := range rows {
+		line := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			labelStyle.Render("  "+padDisplay(r[0], maxLabelW)),
+			" ",
+			r[1],
+		)
+		bodyLines = append(bodyLines, line)
+	}
+
+	totalHeight := m.height
+	if totalHeight <= 0 {
+		totalHeight = 24
+	}
+
+	boxWidth := m.width - 4
+	if boxWidth < 20 {
+		boxWidth = 20
+	}
+
+	container := m.styles.FormContainer
+	if totalHeight < 24 {
+		container = container.Padding(0, 1)
+	}
+
+	innerW := boxWidth - container.GetHorizontalFrameSize()
+	if innerW < 10 {
+		innerW = 10
+	}
+
+	targetBoxH := totalHeight
+	if totalHeight >= 14 {
+		targetBoxH = totalHeight - 1
+	}
+
+	frameH := container.GetVerticalFrameSize()
+	headerH := lipgloss.Height(titleText)
+	helpText := m.styles.HelpText.Width(innerW).Render(i18n.T("serial.help_info"))
+	helpH := lipgloss.Height(helpText)
+
+	overhead := frameH + headerH + helpH + 2
+	viewportHeight := targetBoxH - overhead
+	if viewportHeight < 3 {
+		viewportHeight = 3
+	}
+	bodyLines = wrapInfoLines(bodyLines, innerW)
+	visibleBody := scrollInfoWindow(bodyLines, viewportHeight, &m.infoScroll)
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		titleText,
+		"",
+		visibleBody,
+		"",
+		helpText,
 	)
+
+	box := container.Width(boxWidth).Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }
 
 func (m *serialFormModel) handleAddKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -513,7 +692,7 @@ func (m *serialFormModel) View() string {
 	case serialInfo:
 		return m.renderInfo()
 	case serialDeleteConfirm:
-		return m.renderDeleteConfirm()
+		return renderConfirmModal(m.width, m.height, m.renderDeleteConfirm())
 	}
 
 	return m.renderList()
@@ -525,12 +704,22 @@ func (m *serialFormModel) renderList() string {
 	// Header
 	components = append(components, m.styles.Header.Render(i18n.T("serial.title")))
 
+	if m.height >= 18 {
+		if tabs := renderProtocolTabs(m.styles, "serial", len(m.filteredDevices), m.width); tabs != "" {
+			components = append(components, tabs)
+		}
+	}
+
 	// Search bar
 	searchPrompt := i18n.T("search.prompt")
 	components = append(components, renderSearchBar(m.styles, m.searchMode, searchPrompt, m.searchInput.View(), m.width))
 
 	// Table
 	components = append(components, m.styles.TableFocused.Render(m.table.View()))
+
+	if m.statusActive() {
+		components = append(components, renderStatusToast(m.statusMessage))
+	}
 
 	// Help
 	var helpText string
@@ -549,13 +738,18 @@ func (m *serialFormModel) renderList() string {
 	)
 }
 
+// renderDeleteConfirm builds the centered delete confirmation card.
 func (m *serialFormModel) renderDeleteConfirm() string {
 	if m.deleteIndex < 0 || m.deleteIndex >= len(m.filteredDevices) {
 		return ""
 	}
 	dev := m.filteredDevices[m.deleteIndex]
-	msg := i18n.T("serial.delete_confirm", dev.Name, dev.Device)
-	return m.styles.Error.Render(msg)
+	return renderConfirmBox(m.styles, m.width,
+		m.styles.ErrorText.Render(i18n.T("delete.title")),
+		i18n.T("serial.delete_confirm", dev.Name, dev.Device),
+		i18n.T("delete.warning"),
+		m.styles.HelpText.Render(i18n.T("delete.help")),
+	)
 }
 
 func min(a, b int) int {

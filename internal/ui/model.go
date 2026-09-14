@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -62,6 +63,15 @@ const (
 	ViewFTPBrowse
 	ViewLocalBrowser
 )
+
+// switchProtocolMsg requests switching to another top-level protocol view (SSH, Serial, Telnet, FTP, Local)
+type switchProtocolMsg struct {
+	target ViewMode
+}
+
+// reloadConfigMsg signals that the external editor has exited and config should reload
+type reloadConfigMsg struct{}
+
 
 // PortForwardType defines the type of port forwarding
 type PortForwardType int
@@ -144,6 +154,118 @@ type Model struct {
 	// Status notification toast
 	statusMessage string
 	statusExpiry  time.Time
+
+	// Tag filter drawer
+	tagPickerOpen   bool
+	tagPickerCursor int
+	selectedTag     string
+
+	// Multi-select state
+	selectedHosts map[string]bool
+
+	// Quick Peek state
+	peekOpen    bool
+	peekHost    *config.SSHHost
+	peekLoading bool
+	peekStats   *HostStats
+	peekErr     string
+
+	// Batch Exec state
+	batchResultOpen bool
+	batchRunning    bool
+	batchCommand    string
+	batchHostCount  int
+	batchResults    []BatchResult
+	batchScroll     int
+}
+
+// isHostSelected returns whether the host is currently selected.
+func (m Model) isHostSelected(name string) bool {
+	return m.selectedHosts[name]
+}
+
+// toggleHostSelected toggles selection of the given host name.
+func (m *Model) toggleHostSelected(name string) {
+	if m.selectedHosts == nil {
+		m.selectedHosts = make(map[string]bool)
+	}
+	if m.selectedHosts[name] {
+		delete(m.selectedHosts, name)
+	} else {
+		m.selectedHosts[name] = true
+	}
+}
+
+// clearSelection clears all multi-selected hosts.
+func (m *Model) clearSelection() {
+	m.selectedHosts = make(map[string]bool)
+}
+
+// toggleSelectAllVisible selects all visible hosts, or clears if all are already selected.
+func (m *Model) toggleSelectAllVisible() {
+	hosts := m.filteredHosts
+	if hosts == nil {
+		hosts = m.hosts
+	}
+	if len(hosts) == 0 {
+		return
+	}
+	if m.selectedHosts == nil {
+		m.selectedHosts = make(map[string]bool)
+	}
+
+	allSelected := true
+	for _, h := range hosts {
+		if !m.selectedHosts[h.Name] {
+			allSelected = false
+			break
+		}
+	}
+
+	if allSelected {
+		for _, h := range hosts {
+			delete(m.selectedHosts, h.Name)
+		}
+	} else {
+		for _, h := range hosts {
+			m.selectedHosts[h.Name] = true
+		}
+	}
+}
+
+// getSelectedHosts returns the list of SSHHost structs for all selected hosts.
+func (m Model) getSelectedHosts() []config.SSHHost {
+	if len(m.selectedHosts) == 0 {
+		return nil
+	}
+	var res []config.SSHHost
+	source := m.allHosts
+	if len(source) == 0 {
+		source = m.hosts
+	}
+	for _, h := range source {
+		if m.selectedHosts[h.Name] {
+			res = append(res, h)
+		}
+	}
+	return res
+}
+
+// startPingSelectedCmd creates a command to ping only selected hosts concurrently.
+func (m Model) startPingSelectedCmd() tea.Cmd {
+	if m.pingManager == nil || len(m.selectedHosts) == 0 {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for _, host := range m.hosts {
+		if m.selectedHosts[host.Name] {
+			cmds = append(cmds, pingSingleHostCmd(m.pingManager, host))
+		}
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
 }
 
 // setStatus sets a temporary status toast notification that expires after 3 seconds.

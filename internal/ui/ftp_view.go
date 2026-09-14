@@ -80,8 +80,9 @@ type ftpFormModel struct {
 	localOp          bool
 	pendingLocalPath string
 
-	showInfo  bool
-	entryInfo *ftpEntryInfo
+	showInfo   bool
+	entryInfo  *ftpEntryInfo
+	infoScroll int
 
 	localFiles  []string
 	searchInput textinput.Model
@@ -341,13 +342,15 @@ func (m *ftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateLocalRows()
 		m.clampActiveCursor()
 		return m, nil
-
 	case tea.KeyMsg:
 		if m.showInfo {
 			switch msg.String() {
 			case "esc", "i", "enter", "q":
 				m.showInfo = false
 				m.entryInfo = nil
+				return m, nil
+			case "up", "k", "down", "j":
+				scrollInfoKey(msg.String(), &m.infoScroll)
 				return m, nil
 			}
 			return m, nil
@@ -712,6 +715,7 @@ func (m *ftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if info := m.focusedEntryInfo(); info != nil {
 			m.entryInfo = info
 			m.showInfo = true
+			m.infoScroll = 0
 		}
 		return m, nil
 	case "r":
@@ -1034,16 +1038,21 @@ func (m *ftpFormModel) updateLocalRows() {
 
 func (m *ftpFormModel) paneTableHeight() int {
 	// Frame budget: header(1) + paths(2) + search(3) + table box(h+2) +
-	// help(3 tall, 1 compact). The frame must never exceed the terminal
-	// height: on overflow the alt-screen scrolls and the diff renderer
-	// never rewrites the unchanged header, losing it permanently.
+	// help(3 tall, 1 compact) + status/extras row(1 when a toast is up or
+	// an mkdir/rename input is open). The frame must never exceed the
+	// terminal height: on overflow the alt-screen scrolls and the diff
+	// renderer never rewrites the unchanged header, losing it permanently.
 	overhead := 11
 	if m.height < 20 {
 		overhead = 9
 	}
+	if m.mode == ftpMkdirInput || m.mode == ftpRenameInput ||
+		m.mode == ftpDownloadConfirm || m.statusActive() || m.transferring || m.refreshing {
+		overhead++
+	}
 	h := m.height - overhead
-	if h < 5 {
-		h = 5
+	if h < 3 {
+		h = 3
 	}
 	return h
 }
@@ -1223,6 +1232,7 @@ func (m *ftpFormModel) handleTransferResult(gen int, filename string, success bo
 	m.loading = false
 	m.transferCancel = nil
 	if success {
+		_, _ = os.Stdout.WriteString("\a")
 		action := "Downloaded"
 		if isUpload {
 			action = "Uploaded"
@@ -1332,24 +1342,88 @@ func (m *ftpFormModel) renderInfoView() string {
 	if info.modTime.IsZero() {
 		mod = i18n.T("info.not_set")
 	}
-	var b strings.Builder
-	b.WriteString(m.styles.FormTitle.Render(" "+i18n.T("ftp.entry_info_title", info.name)+" ") + "\n\n")
+
+	titleText := m.styles.Header.Render(strings.TrimSpace(i18n.T("ftp.entry_info_title", info.name)))
+
 	rows := [][2]string{
-		{i18n.T("sftp.col_name"), info.name},
-		{i18n.T("sftp.col_type"), kind},
-		{i18n.T("sftp.col_size"), size},
-		{i18n.T("sftp.col_modified"), mod},
-		{i18n.T("ftp.info_path"), info.path},
+		{i18n.T("sftp.col_name") + ":", info.name},
+		{i18n.T("sftp.col_type") + ":", kind},
+		{i18n.T("sftp.col_size") + ":", size},
+		{i18n.T("sftp.col_modified") + ":", mod},
+		{i18n.T("ftp.info_path") + ":", info.path},
 	}
+
+	maxLabelW := 0
 	for _, r := range rows {
-		label := "  " + r[0] + ":"
-		if w := ansi.StringWidth(label); w < 16 {
-			label += strings.Repeat(" ", 16-w)
+		if w := ansi.StringWidth(r[0]); w > maxLabelW {
+			maxLabelW = w
 		}
-		b.WriteString(m.styles.FormField.Render(label) + " " + r[1] + "\n")
 	}
-	b.WriteString("\n" + m.styles.HelpText.Render("  "+i18n.T("ftp.browser_info_help")))
-	return renderFormPage(m.styles, m.width, b.String())
+
+	labelStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(m.styles.Theme.Primary)
+
+	var bodyLines []string
+	for _, r := range rows {
+		line := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			labelStyle.Render("  "+padDisplay(r[0], maxLabelW)),
+			" ",
+			r[1],
+		)
+		bodyLines = append(bodyLines, line)
+	}
+
+	totalHeight := m.height
+	if totalHeight <= 0 {
+		totalHeight = 24
+	}
+
+	boxWidth := m.width - 4
+	if boxWidth < 20 {
+		boxWidth = 20
+	}
+
+	container := m.styles.FormContainer
+	if totalHeight < 24 {
+		container = container.Padding(0, 1)
+	}
+
+	innerW := boxWidth - container.GetHorizontalFrameSize()
+	if innerW < 10 {
+		innerW = 10
+	}
+
+	targetBoxH := totalHeight
+	if totalHeight >= 14 {
+		targetBoxH = totalHeight - 1
+	}
+
+	frameH := container.GetVerticalFrameSize()
+	headerH := lipgloss.Height(titleText)
+	helpText := m.styles.HelpText.Width(innerW).Render(i18n.T("ftp.browser_info_help"))
+	helpH := lipgloss.Height(helpText)
+
+	overhead := frameH + headerH + helpH + 2
+	viewportHeight := targetBoxH - overhead
+	if viewportHeight < 3 {
+		viewportHeight = 3
+	}
+	bodyLines = wrapInfoLines(bodyLines, innerW)
+	visibleBody := scrollInfoWindow(bodyLines, viewportHeight, &m.infoScroll)
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		titleText,
+		"",
+		visibleBody,
+		"",
+		helpText,
+	)
+
+	box := container.Width(boxWidth).Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }
 
 func (m *ftpFormModel) renderErrorView() string {
@@ -1368,6 +1442,14 @@ func (m *ftpFormModel) renderErrorView() string {
 }
 
 func (m *ftpFormModel) View() string {
+	// Keep pane height in sync with the current frame budget every paint:
+	// entering mkdir/download/status adds an extras row mid-session, and a
+	// height recomputed only on WindowSizeMsg leaves the frame one row too
+	// tall, so RenderCanvas clips the help footer's last line.
+	th := m.paneTableHeight()
+	m.localTbl.SetHeight(th)
+	m.remoteTbl.SetHeight(th)
+
 	if m.loading && m.client == nil && m.mode != ftpPasswordInput {
 		inner := formPageInnerWidth(m.width)
 		body := lipgloss.NewStyle().Width(inner).Render(
@@ -1411,16 +1493,16 @@ func (m *ftpFormModel) View() string {
 		if m.searchMode {
 			tableStyle = m.styles.TableUnfocused
 		}
-		paths = localStyle.Render(fmt.Sprintf("%s  %s", m.focusLabel(true), truncatePath(m.localCwd, pw-4))) + "\n" +
-			remoteStyle.Render(fmt.Sprintf("%s %s", m.focusLabel(false), truncatePath(m.cwd, pw-4)))
+		paths = localStyle.Render(fmt.Sprintf("%s  %s", m.focusLabel(true), truncatePath(m.localCwd, pw-ansi.StringWidth(m.focusLabel(true))-4))) + "\n" +
+			remoteStyle.Render(fmt.Sprintf("%s %s", m.focusLabel(false), truncatePath(m.cwd, pw-ansi.StringWidth(m.focusLabel(false))-3)))
 		if m.focusLocal {
 			panes = tableStyle.Width(pw).Render(m.localTbl.View())
 		} else {
 			panes = tableStyle.Width(pw).Render(m.remoteTbl.View())
 		}
 	} else {
-		paths = localStyle.Render(fmt.Sprintf("%s  %s", m.focusLabel(true), truncatePath(m.localCwd, pw-4))) + "\n" +
-			remoteStyle.Render(fmt.Sprintf("%s %s", m.focusLabel(false), truncatePath(m.cwd, pw-4)))
+		paths = localStyle.Render(fmt.Sprintf("%s  %s", m.focusLabel(true), truncatePath(m.localCwd, pw-ansi.StringWidth(m.focusLabel(true))-4))) + "\n" +
+			remoteStyle.Render(fmt.Sprintf("%s %s", m.focusLabel(false), truncatePath(m.cwd, pw-ansi.StringWidth(m.focusLabel(false))-3)))
 		localBoxStyle := m.styles.TableUnfocused
 		remoteBoxStyle := m.styles.TableUnfocused
 		if !m.searchMode {
@@ -1436,37 +1518,13 @@ func (m *ftpFormModel) View() string {
 	}
 
 	var extras []string
-	if m.statusActive() || m.transferring || m.refreshing {
+	if m.transferring || m.refreshing {
 		progressStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
-		prefix := " "
-		if m.transferring || m.refreshing {
-			prefix = " ⏳ "
-		}
-		extras = append(extras, progressStyle.Render(prefix+m.statusMsg))
+		extras = append(extras, progressStyle.Render(" ⏳ "+m.statusMsg))
+	} else if m.statusActive() {
+		extras = append(extras, renderStatusToast(m.statusMsg))
 	}
-	if m.mode == ftpDownloadConfirm && m.selected != nil {
-		extras = append(extras, lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Render(
-			i18n.T("ftp.download_confirm", m.selected.Name, filepath.Join(m.localCwd, m.selected.Name))))
-	}
-	if m.mode == ftpDeleteConfirm {
-		name, isDir := "", false
-		if m.selected != nil {
-			name, isDir = m.selected.Name, m.selected.IsDir
-		} else if m.pendingLocalPath != "" {
-			name = filepath.Base(m.pendingLocalPath)
-			if st, err := os.Stat(m.pendingLocalPath); err == nil {
-				isDir = st.IsDir()
-			}
-		}
-		if name != "" {
-			confirmKey := "ftp.delete_confirm"
-			if isDir {
-				confirmKey = "ftp.delete_dir_confirm"
-			}
-			extras = append(extras, lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(
-				i18n.T(confirmKey, name)))
-		}
-	}
+
 	if m.mode == ftpMkdirInput || m.mode == ftpRenameInput {
 		extras = append(extras, lipgloss.NewStyle().Foreground(lipgloss.Color(PrimaryColor)).Render(
 			fmt.Sprintf("  %s %s_", m.inputPrompt, m.inputBuffer)))
@@ -1501,5 +1559,53 @@ func (m *ftpFormModel) View() string {
 		// Single renderHelpText so the footer block is not joined twice.
 		parts = append(parts, renderHelpText(m.styles, help, m.width))
 	}
-	return m.styles.App.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	base := m.styles.App.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	switch m.mode {
+	case ftpDeleteConfirm:
+		return renderConfirmModal(m.width, m.height, m.renderDeleteConfirmBox())
+	case ftpDownloadConfirm:
+		if box := m.renderDownloadConfirmBox(); box != "" {
+			return renderConfirmModal(m.width, m.height, box)
+		}
+	}
+	return base
+}
+
+// renderDeleteConfirmBox builds the centered delete confirmation card for
+// the selected remote entry or pending local path.
+func (m *ftpFormModel) renderDeleteConfirmBox() string {
+	name, isDir := "", false
+	if m.selected != nil {
+		name, isDir = m.selected.Name, m.selected.IsDir
+	} else if m.pendingLocalPath != "" {
+		name = filepath.Base(m.pendingLocalPath)
+		if st, err := os.Stat(m.pendingLocalPath); err == nil {
+			isDir = st.IsDir()
+		}
+	}
+	if name == "" {
+		return ""
+	}
+	confirmKey := "ftp.delete_confirm"
+	if isDir {
+		confirmKey = "ftp.delete_dir_confirm"
+	}
+	return renderConfirmBox(m.styles, m.width,
+		m.styles.ErrorText.Render(i18n.T("delete.title")),
+		i18n.T(confirmKey, name),
+		i18n.T("delete.warning"),
+		m.styles.HelpText.Render(i18n.T("delete.help")),
+	)
+}
+
+// renderDownloadConfirmBox builds the centered download confirmation card.
+func (m *ftpFormModel) renderDownloadConfirmBox() string {
+	if m.selected == nil {
+		return ""
+	}
+	return renderCardBox(m.styles.FormContainer, m.width,
+		m.styles.Header.Render(i18n.T("download.title")),
+		i18n.T("ftp.download_confirm", m.selected.Name, filepath.Join(m.localCwd, m.selected.Name)),
+		m.styles.HelpText.Render(i18n.T("delete.help")),
+	)
 }

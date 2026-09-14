@@ -78,8 +78,9 @@ type sftpFormModel struct {
 	pendingLocalPath string
 
 	// Entry snapshot for the info overlay.
-	showInfo  bool
-	entryInfo *sftpEntryInfo
+	showInfo   bool
+	entryInfo  *sftpEntryInfo
+	infoScroll int
 
 	// For confirm dialogs
 	selectedEntry *sftpconfig.RemoteEntry
@@ -268,11 +269,16 @@ func (m *sftpFormModel) handleTransferResult(gen int, filename string, success b
 	m.transferring = false
 	m.loading = false
 	if success {
+		_, _ = os.Stdout.WriteString("\a")
 		if isUpload {
 			m.setStatus("Uploaded: " + filename)
-		} else {
-			m.setStatus(fmt.Sprintf("Downloaded: %s → %s", filename, m.localDownloadPath(filename)))
+			// Refresh remote dir so the uploaded file appears on the right pane.
+			return m.loadDirCmd(m.cwd)
 		}
+		m.setStatus(fmt.Sprintf("Downloaded: %s → %s", filename, m.localDownloadPath(filename)))
+		// Refresh local dir so the downloaded file appears on the left pane.
+		m.refreshLocal()
+		return nil
 	} else if err != nil {
 		m.setStatus("Failed: " + filename + ": " + err.Error())
 	}
@@ -530,6 +536,9 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showInfo = false
 				m.entryInfo = nil
 				return m, nil
+			case "up", "k", "down", "j":
+				scrollInfoKey(msg.String(), &m.infoScroll)
+				return m, nil
 			}
 			return m, nil
 		}
@@ -627,6 +636,7 @@ func (m *sftpFormModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if info := m.focusedEntryInfo(); info != nil {
 			m.entryInfo = info
 			m.showInfo = true
+			m.infoScroll = 0
 		}
 		return m, nil
 	case "v", "V":
@@ -1155,16 +1165,21 @@ func (m *sftpFormModel) focusedEntryInfo() *sftpEntryInfo {
 
 func (m *sftpFormModel) paneTableHeight() int {
 	// Frame budget: header(1) + paths(2) + search(3) + table box(h+2) +
-	// help(3 tall, 1 compact). The frame must never exceed the terminal
-	// height: on overflow the alt-screen scrolls and the diff renderer
-	// never rewrites the unchanged header, losing it permanently.
+	// help(3 tall, 1 compact) + status/download row(1). The frame must
+	// never exceed the terminal height: on overflow the alt-screen scrolls
+	// and the diff renderer never rewrites the unchanged header, losing it
+	// permanently.
 	overhead := 11
 	if m.height < 20 {
 		overhead = 9
 	}
+	if m.mode == sftpMkdirInput || m.mode == sftpRenameInput ||
+		m.mode == sftpDownloadConfirm || m.loading || m.statusActive() {
+		overhead++
+	}
 	h := m.height - overhead
-	if h < 5 {
-		h = 5
+	if h < 3 {
+		h = 3
 	}
 	return h
 }
@@ -1443,7 +1458,7 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		}
 		return m, nil
 
-	case "enter", "y":
+	case "enter", "y", "Y":
 		if m.mode == sftpDeleteConfirm && m.localOp {
 			m.localOp = false
 			target := m.pendingLocalPath
@@ -1500,7 +1515,7 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 
 		return m, nil
 
-	case "n":
+	case "n", "N":
 		upload := m.localOp
 		m.selectedEntry = nil
 		m.localOp = false
@@ -1519,6 +1534,12 @@ func (m *sftpFormModel) handleConfirmDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 
 // View renders the SFTP browser
 func (m *sftpFormModel) View() string {
+	// Re-apply the frame budget every paint: mkdir/download/status rows
+	// appear mid-session and a height only updated on resize overflows.
+	th := m.paneTableHeight()
+	m.localTbl.SetHeight(th)
+	m.remoteTbl.SetHeight(th)
+
 	if m.loading && m.client == nil {
 		body := m.styles.FormTitle.Render(" "+i18n.T("sftp.title_remote", m.hostName)+" ") + "\n\n" +
 			"  " + i18n.T("sftp.connecting", m.hostName)
@@ -1560,16 +1581,16 @@ func (m *sftpFormModel) View() string {
 		if m.searchMode {
 			tableStyle = m.styles.TableUnfocused
 		}
-		paths = localStyle.Render(fmt.Sprintf("%s  %s", m.focusLabel(true), truncatePath(localBrowseLabel(m.localCwd, m.localShowingDrives), pw-4))) + "\n" +
-			remoteStyle.Render(fmt.Sprintf("%s %s", m.focusLabel(false), truncatePath(m.cwd, pw-4)))
+		paths = localStyle.Render(fmt.Sprintf("%s  %s", m.focusLabel(true), truncatePath(localBrowseLabel(m.localCwd, m.localShowingDrives), pw-ansi.StringWidth(m.focusLabel(true))-4))) + "\n" +
+			remoteStyle.Render(fmt.Sprintf("%s %s", m.focusLabel(false), truncatePath(m.cwd, pw-ansi.StringWidth(m.focusLabel(false))-3)))
 		if m.focusLocal {
 			panes = tableStyle.Width(pw).Render(m.localTbl.View())
 		} else {
 			panes = tableStyle.Width(pw).Render(m.remoteTbl.View())
 		}
 	} else {
-		paths = localStyle.Render(fmt.Sprintf("%s  %s", m.focusLabel(true), truncatePath(localBrowseLabel(m.localCwd, m.localShowingDrives), pw-4))) + "\n" +
-			remoteStyle.Render(fmt.Sprintf("%s %s", m.focusLabel(false), truncatePath(m.cwd, pw-4)))
+		paths = localStyle.Render(fmt.Sprintf("%s  %s", m.focusLabel(true), truncatePath(localBrowseLabel(m.localCwd, m.localShowingDrives), pw-ansi.StringWidth(m.focusLabel(true))-4))) + "\n" +
+			remoteStyle.Render(fmt.Sprintf("%s %s", m.focusLabel(false), truncatePath(m.cwd, pw-ansi.StringWidth(m.focusLabel(false))-3)))
 		localBoxStyle := m.styles.TableUnfocused
 		remoteBoxStyle := m.styles.TableUnfocused
 		if !m.searchMode {
@@ -1589,17 +1610,10 @@ func (m *sftpFormModel) View() string {
 		progressStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
 		extras = append(extras, progressStyle.Render(fmt.Sprintf("  ⏳ %s...", m.statusMsg)))
 	} else if m.statusActive() {
-		statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
-		extras = append(extras, statusStyle.Render(" ✓ "+m.statusMsg))
+		extras = append(extras, renderStatusToast(m.statusMsg))
 	}
 	if m.mode == sftpMkdirInput || m.mode == sftpRenameInput {
 		extras = append(extras, m.renderInputLine())
-	}
-
-	if m.mode == sftpDownloadConfirm {
-		extras = append(extras, m.renderDownloadConfirm())
-	} else if m.mode == sftpDeleteConfirm {
-		extras = append(extras, m.renderDeleteConfirm())
 	}
 
 	var helpParts []string
@@ -1628,7 +1642,16 @@ func (m *sftpFormModel) View() string {
 	if help := strings.Join(helpParts, "\n"); help != "" {
 		parts = append(parts, renderHelpText(m.styles, help, m.width))
 	}
-	return m.styles.App.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	base := m.styles.App.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	switch m.mode {
+	case sftpDeleteConfirm:
+		return renderConfirmModal(m.width, m.height, m.renderDeleteConfirm())
+	case sftpDownloadConfirm:
+		if box := m.renderDownloadConfirm(); box != "" {
+			return renderConfirmModal(m.width, m.height, box)
+		}
+	}
+	return base
 }
 
 func (m *sftpFormModel) renderErrorView() string {
@@ -1664,24 +1687,88 @@ func (m *sftpFormModel) renderInfoView() string {
 	if info.modTime.IsZero() {
 		mod = i18n.T("info.not_set")
 	}
-	var b strings.Builder
-	b.WriteString(m.styles.FormTitle.Render(" "+i18n.T("sftp.entry_info_title", info.name)+" ") + "\n\n")
+
+	titleText := m.styles.Header.Render(strings.TrimSpace(i18n.T("sftp.entry_info_title", info.name)))
+
 	rows := [][2]string{
-		{i18n.T("sftp.col_name"), info.name},
-		{i18n.T("sftp.col_type"), kind},
-		{i18n.T("sftp.col_size"), size},
-		{i18n.T("sftp.col_modified"), mod},
-		{i18n.T("sftp.info_path"), info.path},
+		{i18n.T("sftp.col_name") + ":", info.name},
+		{i18n.T("sftp.col_type") + ":", kind},
+		{i18n.T("sftp.col_size") + ":", size},
+		{i18n.T("sftp.col_modified") + ":", mod},
+		{i18n.T("sftp.info_path") + ":", info.path},
 	}
+
+	maxLabelW := 0
 	for _, r := range rows {
-		label := "  " + r[0] + ":"
-		if w := ansi.StringWidth(label); w < 16 {
-			label += strings.Repeat(" ", 16-w)
+		if w := ansi.StringWidth(r[0]); w > maxLabelW {
+			maxLabelW = w
 		}
-		b.WriteString(m.styles.FormField.Render(label) + " " + r[1] + "\n")
 	}
-	b.WriteString("\n" + m.styles.HelpText.Render("  "+i18n.T("sftp.info_help")))
-	return renderFormPage(m.styles, m.width, b.String())
+
+	labelStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(m.styles.Theme.Primary)
+
+	var bodyLines []string
+	for _, r := range rows {
+		line := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			labelStyle.Render("  "+padDisplay(r[0], maxLabelW)),
+			" ",
+			r[1],
+		)
+		bodyLines = append(bodyLines, line)
+	}
+
+	totalHeight := m.height
+	if totalHeight <= 0 {
+		totalHeight = 24
+	}
+
+	boxWidth := m.width - 4
+	if boxWidth < 20 {
+		boxWidth = 20
+	}
+
+	container := m.styles.FormContainer
+	if totalHeight < 24 {
+		container = container.Padding(0, 1)
+	}
+
+	innerW := boxWidth - container.GetHorizontalFrameSize()
+	if innerW < 10 {
+		innerW = 10
+	}
+
+	targetBoxH := totalHeight
+	if totalHeight >= 14 {
+		targetBoxH = totalHeight - 1
+	}
+
+	frameH := container.GetVerticalFrameSize()
+	headerH := lipgloss.Height(titleText)
+	helpText := m.styles.HelpText.Width(innerW).Render(i18n.T("sftp.info_help"))
+	helpH := lipgloss.Height(helpText)
+
+	overhead := frameH + headerH + helpH + 2
+	viewportHeight := targetBoxH - overhead
+	if viewportHeight < 3 {
+		viewportHeight = 3
+	}
+	bodyLines = wrapInfoLines(bodyLines, innerW)
+	visibleBody := scrollInfoWindow(bodyLines, viewportHeight, &m.infoScroll)
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		titleText,
+		"",
+		visibleBody,
+		"",
+		helpText,
+	)
+
+	box := container.Width(boxWidth).Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }
 
 func (m *sftpFormModel) renderInputLine() string {
@@ -1689,15 +1776,20 @@ func (m *sftpFormModel) renderInputLine() string {
 	return inputStyle.Render(fmt.Sprintf("  %s %s_", m.inputPrompt, m.inputBuffer))
 }
 
+// renderDownloadConfirm builds the centered download confirmation card.
 func (m *sftpFormModel) renderDownloadConfirm() string {
 	if m.selectedEntry == nil {
 		return ""
 	}
-	msg := i18n.T("sftp.download_confirm", m.selectedEntry.Name, m.localDownloadPath(m.selectedEntry.Name))
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color("229"))
-	return style.Render(msg)
+	return renderCardBox(m.styles.FormContainer, m.width,
+		m.styles.Header.Render(i18n.T("download.title")),
+		i18n.T("sftp.download_confirm", m.selectedEntry.Name, m.localDownloadPath(m.selectedEntry.Name)),
+		m.styles.HelpText.Render(i18n.T("delete.help")),
+	)
 }
 
+// renderDeleteConfirm builds the centered delete confirmation card for the
+// selected remote entry or pending local path.
 func (m *sftpFormModel) renderDeleteConfirm() string {
 	name, isDir := "", false
 	if m.selectedEntry != nil {
@@ -1715,15 +1807,22 @@ func (m *sftpFormModel) renderDeleteConfirm() string {
 	if isDir {
 		confirmKey = "sftp.delete_dir_confirm"
 	}
-	msg := i18n.T(confirmKey, name)
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	return style.Render(msg)
+	return renderConfirmBox(m.styles, m.width,
+		m.styles.ErrorText.Render(i18n.T("delete.title")),
+		i18n.T(confirmKey, name),
+		i18n.T("delete.warning"),
+		m.styles.HelpText.Render(i18n.T("delete.help")),
+	)
 }
 
-// localDownloadPath returns the local path for a downloaded file
+// localDownloadPath returns the local path for a downloaded file.
+// Files are saved into the current local directory shown in the left pane (localCwd),
+// which the user can navigate to any folder before initiating the download.
 func (m *sftpFormModel) localDownloadPath(filename string) string {
-	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, "Downloads", filename)
+	if m.localCwd == "" {
+		m.localCwd = defaultLocalUploadDir()
+	}
+	return filepath.Join(m.localCwd, filename)
 }
 
 func (m *sftpFormModel) busyStatus() tea.Cmd {

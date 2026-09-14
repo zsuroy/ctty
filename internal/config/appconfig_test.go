@@ -290,3 +290,20 @@ func TestAppConfigTagColors(t *testing.T) {
 		t.Errorf("Expected database tag color #8B5CF6, got %s", loadedConfig.TagColors["database"])
 	}
 }
+
+func TestAppConfigTheme(t *testing.T) {
+	cfg := GetDefaultAppConfig()
+	if cfg.Theme != "default" {
+		t.Errorf("Expected default theme to be 'default', got %q", cfg.Theme)
+	}
+
+	merged := mergeWithDefaults(AppConfig{})
+	if merged.Theme != "default" {
+		t.Errorf("Expected merged empty theme to be 'default', got %q", merged.Theme)
+	}
+
+	custom := mergeWithDefaults(AppConfig{Theme: "catppuccin"})
+	if custom.Theme != "catppuccin" {
+		t.Errorf("Expected custom theme 'catppuccin', got %q", custom.Theme)
+	}
+}

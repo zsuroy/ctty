@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0-rc1] - 2026-09-15
+
+### Milestone 1.0 Release Candidate 🎉
+
+This milestone release marks the transition of `ctty` from an SSH host manager into a complete, production-ready, all-in-one terminal connection workstation across SSH, Serial, Telnet, SFTP, FTP, and local filesystem browsing.
+
+### Added
+
+- **⚡ Host Health Quick Peek (`v` or `P`)** — Press `v` (or `P`) on any host to open a centered non-interactive health inspection modal card:
+  - Background probe collects real-time metrics: system uptime, logged-in users, 1/5/15-minute load averages, memory usage with colored gradient progress bar `[████████░░░░░░░░]`, and root disk space with colored progress bar.
+  - Modal keyboard controls: `Enter` to connect directly, `r` to refresh/re-probe, `y` to copy SSH command, `Esc`/`q`/`v` to dismiss.
+- **📦 Multi-Select & Batch Operations (`Space`, `Ctrl+A`, `x`, `p`, `y`)** — Powerful multi-host workflows directly from the main list:
+  - `Space` toggles host selection with clear `[ ]` / `[✓]` checkboxes and auto-advances the cursor down by 1 row.
+  - `Ctrl+A` toggles select-all/deselect-all for all visible hosts; `Esc` clears all selections.
+  - Search bar header displays dynamic count badge (`[已选 N 台]` / `[N selected]`).
+  - `p` (Probe): Concurrently pings only the selected hosts.
+  - `y` (Copy): Copies newline-separated SSH commands for all selected hosts to the system clipboard / OSC 52.
+  - `x` (Batch Exec): Enters Batch Snippet Execution mode, concurrently running commands across all selected hosts with a 15-second timeout, and displays an aggregated, scrollable results modal with status, execution duration, and per-host output.
+- **🔄 Unified Cross-Protocol Navigation (`[` / `]`, `t`, `T`, `F`, `b`)** — Direct switching across all protocol modules without having to exit to the main menu:
+  - Interactive header tab bar (`● SSH (N)  t 串口  T Telnet  F FTP  b 本地`) showing live inventory counts.
+  - `[` and `]` cycle through previous/next protocol tabs; `t` (Serial), `T` (Telnet), `F` (FTP), and `b` (Local Browser) provide instant direct access from anywhere.
+- **🏷️ Interactive Tag Filter Drawer (`w`)** — Press `w` to open a centered tag drawer listing all tags with host counts, sorted by frequency; filter instantly using number keys `1`-`9` or `Enter`; clear active tag filter with `c`.
+- **📝 Direct Config Editing (`E`)** — Press `E` to open the active SSH configuration file directly in `$EDITOR` / `$VISUAL` (falls back to `vim`, `nano`, or `notepad`), automatically reloading changes upon editor exit.
+- **🔍 Search-to-Add Host** — Typing an unrecognized host name in the search bar and pressing `a` pre-populates the host name in the Add Host form.
+- **🔔 Terminal Transfer Bell (`\a`)** — Dispatches standard ASCII bell (`\a`) alerts upon SFTP, FTP, and local background file transfer completion.
+- **📈 Latency Gradient Indicators** — Dynamic multi-tier ping latency thresholds (🟢 <100ms, 🟡 100–300ms, 🔴 >300ms / offline, ⚪ connecting).
+- **🚀 Geek Navigation Shortcuts** — `g` / `Home` to jump to top, `G` / `End` to jump to bottom, `1`-`9` for 1-key row jumping.
+- **📋 Universal Clipboard with OSC 52** — Clipboard copy (`y`) automatically falls back to OSC 52 escape sequences, enabling seamless remote clipboard synchronization over SSH and tmux sessions.
+
+### Improved & Fixed
+
+- **Zero Layout Shifts** — Repositioned status toast notifications from the top header to the bottom status bar directly below the table, eliminating vertical screen jitter.
+- **Semantic Toast Icons & Styling** — Status messages feature contextual icons (`⏳` for async/probing, `✓` for success/copied, `ℹ` for info/cleared, `✗` for errors) unified across all protocol views.
+- **Unified Modal Dialog Architecture** — Standardized all delete confirmations and form card boxes across SSH, Telnet, Serial, FTP, SFTP, and Snippet views to centered modal canvases.
+- **100% ANSI & Checkbox Compatibility** — Stripped ANSI formatting in table row parser, ensuring host name extraction works reliably across all action keys (`Enter`, `e`, `i`, `f`, `m`, `o`, `x`, `y`).
+
 ## [0.8.0] - 2026-09-13
 
 ### Added

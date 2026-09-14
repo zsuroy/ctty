@@ -1,141 +1,257 @@
 package ui
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/i18n"
 )
 
-var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+func TestSettingsFormInitialization(t *testing.T) {
+	enabled := false
+	cfg := &config.AppConfig{
+		Language:        "zh_CN",
+		Theme:           "catppuccin",
+		CheckForUpdates: &enabled,
+		KeyBindings: config.KeyBindings{
+			DisableEscQuit: true,
+		},
+		FTPLayout:  config.FTPLayoutSingle,
+		SFTPLayout: config.SFTPLayoutSingle,
+	}
 
-// TestSettingsFormRowsAligned verifies the ◂ value ▸ widgets line up in a
-// single column on both sides; variable-length labels and values previously
-// left the closing arrow ragged.
-func TestSettingsFormRowsAligned(t *testing.T) {
+	f := NewSettingsForm(NewStyles(80), 80, 24, cfg)
+	if f.langVal != "zh_CN" {
+		t.Errorf("expected langVal zh_CN, got %q", f.langVal)
+	}
+	if f.themeVal != "catppuccin" {
+		t.Errorf("expected themeVal catppuccin, got %q", f.themeVal)
+	}
+	if f.updateVal != false {
+		t.Errorf("expected updateVal false, got %v", f.updateVal)
+	}
+	if f.disableEscVal != true {
+		t.Errorf("expected disableEscVal true, got %v", f.disableEscVal)
+	}
+	if f.ftpLayoutVal != "single" {
+		t.Errorf("expected ftpLayoutVal single, got %q", f.ftpLayoutVal)
+	}
+	if f.sftpLayoutVal != "single" {
+		t.Errorf("expected sftpLayoutVal single, got %q", f.sftpLayoutVal)
+	}
+}
+
+func TestSettingsFormRendering(t *testing.T) {
 	for _, lang := range []string{i18n.LangZHCN, i18n.LangEN} {
 		t.Run(lang, func(t *testing.T) {
 			i18n.Init(lang)
-			f := NewSettingsForm(NewStyles(80), 100, 40, &config.AppConfig{})
-			if got, want := i18n.CurrentLang(), lang; got != want {
-				t.Fatalf("language = %q, want %q", got, want)
+			f := NewSettingsForm(NewStyles(80), 80, 24, &config.AppConfig{})
+			f.Init()
+			view := f.View()
+			if view == "" {
+				t.Fatal("expected non-empty settings view")
 			}
-			checkArrowColumn(t, ansiRe.ReplaceAllString(f.View(), ""))
-		})
-	}
-}
+			t.Logf("RENDERED VIEW:\n%s", view)
 
-func checkArrowColumn(t *testing.T, view string) {
-	t.Helper()
-	var openCol, closeCol = -1, -1
-	for _, line := range strings.Split(view, "\n") {
-		open := strings.Index(line, "◂")
-		close := strings.Index(line, "▸")
-		if open < 0 || close < 0 {
-			continue
-		}
-		oc := ansi.StringWidth(line[:open])
-		cc := ansi.StringWidth(line[:close])
-		if openCol == -1 {
-			openCol, closeCol = oc, cc
-			continue
-		}
-		if oc != openCol {
-			t.Fatalf("opening arrow at column %d, want %d (line: %s)", oc, openCol, line)
-		}
-		if cc != closeCol {
-			t.Fatalf("closing arrow at column %d, want %d (line: %s)", cc, closeCol, line)
-		}
-	}
-	if openCol == -1 {
-		t.Fatal("no setting rows rendered")
-	}
-}
-
-// TestSettingsFormFillsTerminalHeight verifies the form pads its output to
-// the full terminal height on window resize. Bubble Tea's standard renderer
-// leaves the previous frame's bottom border on screen when a frame shrinks;
-// emitting exactly m.height lines every frame covers it up.
-func TestSettingsFormFillsTerminalHeight(t *testing.T) {
-	i18n.Init(i18n.LangEN)
-	natural := settingsFormNaturalHeight(t)
-	for _, h := range []int{natural - 4, natural, natural + 4, natural + 20} {
-		t.Run(itoa(h), func(t *testing.T) {
-			f := NewSettingsForm(NewStyles(80), 80, h, &config.AppConfig{})
-			f.Update(tea.WindowSizeMsg{Width: 80, Height: h})
-			rows := len(strings.Split(strings.TrimRight(f.View(), "\n"), "\n"))
-			if h >= natural && rows != h {
-				t.Fatalf("height=%d: rendered %d rows, want %d (full fill)", h, rows, h)
-			}
-			if h < natural && rows != natural {
-				t.Fatalf("height=%d: rendered %d rows, want natural %d", h, rows, natural)
+			// Verify key settings titles appear in rendered output
+			for _, key := range []string{
+				"settings.title",
+				"settings.lang_label",
+				"settings.theme_label",
+				"settings.update_label",
+			} {
+				expected := i18n.T(key)
+				if !strings.Contains(view, expected) {
+					t.Errorf("view missing expected label %q", expected)
+				}
 			}
 		})
 	}
 }
 
-// settingsFormNaturalHeight returns the dialog's unpadded height: the box
-// rendered without lipgloss.Place vertical fill. Below this height the View
-// degrades to the raw box (which overflows the terminal); at/above it the
-// output is padded to exactly h rows.
-func settingsFormNaturalHeight(t *testing.T) int {
-	t.Helper()
-	for h := 1; h <= 40; h++ {
-		g := NewSettingsForm(NewStyles(80), 80, h, &config.AppConfig{})
-		g.Update(tea.WindowSizeMsg{Width: 80, Height: h})
-		rows := len(strings.Split(strings.TrimRight(g.View(), "\n"), "\n"))
-		if rows == h {
-			return h
-		}
+func TestSettingsFormCancel(t *testing.T) {
+	f := NewSettingsForm(NewStyles(80), 80, 24, &config.AppConfig{})
+	updated, cmd := f.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if !updated.cancelled {
+		t.Error("expected form to be cancelled on Esc")
 	}
-	return 40
+	if cmd == nil {
+		t.Fatal("expected cancel cmd")
+	}
+	msg := cmd()
+	closeMsg, ok := msg.(settingsCloseMsg)
+	if !ok || closeMsg.Saved {
+		t.Errorf("expected closeMsg with Saved=false, got %+v", msg)
+	}
 }
 
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
+func TestSettingsFormSave(t *testing.T) {
+	cfg := &config.AppConfig{}
+	f := NewSettingsForm(NewStyles(80), 80, 24, cfg)
+	f.langVal = "en"
+	f.themeVal = "dracula"
+	f.updateVal = true
+
+	cmd := f.saveSettings()
+	if cmd == nil {
+		t.Fatal("expected save cmd")
 	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
+	msg := cmd()
+	closeMsg, ok := msg.(settingsCloseMsg)
+	if !ok || !closeMsg.Saved {
+		t.Fatalf("expected closeMsg with Saved=true, got %+v", msg)
 	}
-	return string(b)
+	if closeMsg.AppConfig.Language != "en" {
+		t.Errorf("expected saved language en, got %q", closeMsg.AppConfig.Language)
+	}
+	if closeMsg.AppConfig.Theme != "dracula" {
+		t.Errorf("expected saved theme dracula, got %q", closeMsg.AppConfig.Theme)
+	}
 }
 
-// TestSettingsFormScrollFollowsFocus verifies that on a terminal too short
-// for the whole dialog the focused setting row is always kept visible
-// (focus-following auto-scroll, same behavior as the add/edit forms).
-func TestSettingsFormScrollFollowsFocus(t *testing.T) {
-	i18n.Init(i18n.LangEN)
-	labels := []string{
-		i18n.T("settings.lang_label"),
-		i18n.T("settings.update_label"),
-		i18n.T("settings.esc_quit_label"),
-		i18n.T("settings.ftp_layout_label"),
-		i18n.T("settings.sftp_layout_label"),
+func TestSettingsFormWindowResize(t *testing.T) {
+	f := NewSettingsForm(NewStyles(80), 80, 24, &config.AppConfig{})
+	for _, size := range []struct{ w, h int }{
+		{40, 15},
+		{80, 24},
+		{120, 40},
+	} {
+		f.Update(tea.WindowSizeMsg{Width: size.w, Height: size.h})
+		view := f.View()
+		if view == "" {
+			t.Errorf("empty view on size %dx%d", size.w, size.h)
+		}
+	}
+}
+
+func TestSettingsFormNavigation(t *testing.T) {
+	f := NewSettingsForm(NewStyles(80), 80, 24, &config.AppConfig{})
+	f.Init()
+
+	expectedKeys := []string{"lang", "theme", "update", "esc", "ftp", "sftp", "save"}
+
+	// Check initial field
+	if f.form.GetFocusedField().GetKey() != expectedKeys[0] {
+		t.Fatalf("expected initial field %q, got %q", expectedKeys[0], f.form.GetFocusedField().GetKey())
 	}
 
-	// Terminal too short for the full dialog: only a few rows are visible.
-	f := NewSettingsForm(NewStyles(80), 80, 10, &config.AppConfig{})
-	f.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
-
-	for idx := range labels {
-		f.focusIndex = settingsField(idx)
-		view := ansiRe.ReplaceAllString(f.View(), "")
-		found := false
-		for _, line := range strings.Split(view, "\n") {
-			if strings.Contains(line, labels[idx]) {
-				found = true
-				break
-			}
+	// Navigate down with KeyDown
+	for i := 1; i < len(expectedKeys); i++ {
+		f.Update(tea.KeyMsg{Type: tea.KeyDown})
+		got := f.form.GetFocusedField().GetKey()
+		if got != expectedKeys[i] {
+			t.Fatalf("step %d: expected field %q after KeyDown, got %q", i, expectedKeys[i], got)
 		}
-		if !found {
-			t.Fatalf("focus row %d (%q) not visible at height 10", idx, labels[idx])
+	}
+
+	// Pressing down on the last field ("save") should stay on "save"
+	f.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if got := f.form.GetFocusedField().GetKey(); got != "save" {
+		t.Fatalf("expected to stay on 'save', got %q", got)
+	}
+
+	// Navigate back up with KeyUp
+	for i := len(expectedKeys) - 2; i >= 0; i-- {
+		f.Update(tea.KeyMsg{Type: tea.KeyUp})
+		got := f.form.GetFocusedField().GetKey()
+		if got != expectedKeys[i] {
+			t.Fatalf("step back %d: expected field %q after KeyUp, got %q", i, expectedKeys[i], got)
+		}
+	}
+
+	// Pressing up on the first field ("lang") should stay on "lang"
+	f.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if got := f.form.GetFocusedField().GetKey(); got != "lang" {
+		t.Fatalf("expected to stay on 'lang', got %q", got)
+	}
+
+	// Test 'j' and 'k' navigation
+	f.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if got := f.form.GetFocusedField().GetKey(); got != "theme" {
+		t.Fatalf("expected 'theme' after 'j', got %q", got)
+	}
+	f.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	if got := f.form.GetFocusedField().GetKey(); got != "lang" {
+		t.Fatalf("expected 'lang' after 'k', got %q", got)
+	}
+
+	// Test 'enter' advances on select
+	f.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := f.form.GetFocusedField().GetKey(); got != "theme" {
+		t.Fatalf("expected 'theme' after 'enter', got %q", got)
+	}
+
+	// Test 'tab' navigation
+	f.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if got := f.form.GetFocusedField().GetKey(); got != "update" {
+		t.Fatalf("expected 'update' after 'tab', got %q", got)
+	}
+
+	// Advance with Tab until "save"
+	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // esc
+	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // ftp
+	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // sftp
+	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // save
+	if got := f.form.GetFocusedField().GetKey(); got != "save" {
+		t.Fatalf("expected 'save' after tabs, got %q", got)
+	}
+
+	// Tab on "save" should loop back to "lang"
+	f.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if got := f.form.GetFocusedField().GetKey(); got != "lang" {
+		t.Fatalf("expected 'lang' after Tab on 'save' (loop), got %q", got)
+	}
+
+	// Shift+Tab on "lang" should loop to "save"
+	f.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if got := f.form.GetFocusedField().GetKey(); got != "save" {
+		t.Fatalf("expected 'save' after Shift+Tab on 'lang' (loop), got %q", got)
+	}
+
+	// Shift+Tab on "save" should go to "sftp"
+	f.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if got := f.form.GetFocusedField().GetKey(); got != "sftp" {
+		t.Fatalf("expected 'sftp' after Shift+Tab on 'save', got %q", got)
+	}
+}
+
+func TestSettingsFormHeaderAlwaysVisible(t *testing.T) {
+	headerText := i18n.T("settings.title")
+
+	for _, size := range []struct{ w, h int }{
+		{80, 24},
+		{60, 16},
+		{50, 12},
+		{100, 35},
+	} {
+		f := NewSettingsForm(NewStyles(size.w), size.w, size.h, &config.AppConfig{})
+		f.Init()
+		view := f.View()
+
+		// View height must NOT exceed terminal height
+		viewLines := strings.Split(view, "\n")
+		if len(viewLines) > size.h {
+			t.Errorf("size %dx%d: view height %d exceeds terminal height %d", size.w, size.h, len(viewLines), size.h)
+		}
+
+		// Top border corner (╭) and header must always be present in view
+		if !strings.Contains(view, "╭") {
+			t.Errorf("size %dx%d: top border corner (╭) not found in view", size.w, size.h)
+		}
+		if !strings.Contains(view, headerText) {
+			t.Errorf("size %dx%d: header %q not found in view", size.w, size.h, headerText)
+		}
+
+		// Bottom border corner (╰) must always be present in view
+		if !strings.Contains(view, "╰") {
+			t.Errorf("size %dx%d: bottom border corner (╰) not found in view", size.w, size.h)
+		}
+
+		// Help keywords must always be present
+		if !strings.Contains(view, "Esc") || !strings.Contains(view, "save") {
+			t.Errorf("size %dx%d: help not found in view", size.w, size.h)
 		}
 	}
 }

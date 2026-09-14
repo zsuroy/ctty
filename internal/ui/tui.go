@@ -8,6 +8,7 @@ import (
 	"github.com/zsuroy/ctty/internal/connectivity"
 	"github.com/zsuroy/ctty/internal/history"
 	"github.com/zsuroy/ctty/internal/i18n"
+	"github.com/zsuroy/ctty/internal/ui/theme"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -50,8 +51,12 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 		historyManager = nil
 	}
 
-	// Create initial styles (will be updated on first WindowSizeMsg)
-	styles := NewStyles(80) // Default width
+	// Initialize theme from app config
+	th := theme.DefaultTheme
+	if appConfig != nil && appConfig.Theme != "" {
+		th = theme.GetTheme(appConfig.Theme)
+	}
+	styles := ApplyTheme(th)
 
 	// Initialize ping manager with 5 second timeout
 	pingManager := connectivity.NewPingManager(5*time.Second, configFile)
@@ -152,6 +157,7 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 	m.table = t
 	m.searchInput = ti
 	m.filteredHosts = sortedHosts
+	m.selectedHosts = make(map[string]bool)
 
 	// Initialize table styles based on initial focus state
 	m.updateTableStyles()

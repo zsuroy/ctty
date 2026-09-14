@@ -3,9 +3,10 @@ package ui
 import (
 	"fmt"
 
-	"github.com/zsuroy/ctty/internal/config"
-
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/zsuroy/ctty/internal/config"
+	"github.com/zsuroy/ctty/internal/i18n"
 )
 
 type moveFormModel struct {
@@ -127,8 +128,16 @@ func (m *moveFormModel) View() string {
 		return "Loading..."
 
 	case moveFormProcessing:
-		return m.styles.FormTitle.Render("Moving host...") + "\n\n" +
-			m.styles.HelpText.Render(fmt.Sprintf("Moving host '%s' to selected config file...", m.hostName))
+		boxWidth := m.width - 4
+		if boxWidth < 20 {
+			boxWidth = 20
+		}
+		container := m.styles.FormContainer
+		titleText := m.styles.Header.Render(i18n.T("move.processing"))
+		helpText := m.styles.HelpText.Render(fmt.Sprintf("Moving host '%s' to selected config file...", m.hostName))
+		content := lipgloss.JoinVertical(lipgloss.Left, titleText, "", helpText)
+		box := container.Width(boxWidth).Render(content)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 
 	default:
 		return "Unknown state"
