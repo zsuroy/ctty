@@ -132,10 +132,25 @@ func searchMaxWidth(terminalWidth int) int {
 }
 
 // fillTerminal pads content to the full terminal so a smaller frame
-// overwrites leftover cells from the previous size.
+// overwrites leftover cells from the previous size. On JetBrains/VS Code
+// compensation terminals rows are emitted trailing-space-free with an
+// explicit EraseLineRight (see canvasRow) so the terminal clears the tail
+// itself — trimming padding by ansi.StringWidth, or to any fixed short
+// target, would cut width-critical content such as the table's right border.
 func fillTerminal(width, height int, content string) string {
 	if width <= 0 {
 		return content
+	}
+	if needsWidthCompensation() {
+		lines := strings.Split(content, "\n")
+		out := make([]string, 0, height)
+		for _, line := range lines {
+			out = append(out, canvasRow(line, width))
+		}
+		for len(out) < height {
+			out = append(out, eraseLineRight)
+		}
+		return strings.Join(out, "\n")
 	}
 	var lines []string
 	for _, line := range strings.Split(content, "\n") {

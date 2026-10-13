@@ -250,7 +250,11 @@ func TestTelnetListClearsPreviousFrameOnResize(t *testing.T) {
 		if w > 60 {
 			t.Errorf("line %d width %d exceeds 60 (wraps and smears):\n%q", i, w, ansi.Strip(line))
 		}
-		if i < 18 && w < 60 {
+		// Standard terminals pad rows to the full width; on compensation
+		// terminals rows are trimmed and carry an explicit EraseLineRight,
+		// which clears the tail just as well. Either way the row must cover
+		// the previous frame completely.
+		if i < 18 && w < 60 && !strings.HasSuffix(line, eraseLineRight) {
 			t.Errorf("line %d width %d < 60 (won't clear leftover cells):\n%q", i, w, ansi.Strip(line))
 		}
 	}

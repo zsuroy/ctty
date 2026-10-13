@@ -1164,7 +1164,11 @@ func (m *telnetFormModel) renderList() string {
 	} else {
 		components = append(components, m.styles.SearchUnfocused.Render(searchContent))
 	}
-	components = append(components, m.styles.TableFocused.Render(m.renderTable()))
+	// Align AFTER the border is drawn: lipgloss pads block lines to the
+	// widest one by ansi.StringWidth, so rows carrying the ⚫ status circle
+	// (one column narrower on JetBrains/VS Code) must be corrected on the
+	// bordered box, exactly like the site-list tables and modal cards.
+	components = append(components, alignJetBrainsBox(m.styles.TableFocused.Render(m.renderTable())))
 
 	if m.statusActive() {
 		components = append(components, renderStatusToast(m.statusMessage))

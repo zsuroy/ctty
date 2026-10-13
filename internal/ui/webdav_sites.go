@@ -1048,7 +1048,7 @@ func (m *webdavSitesModel) View() string {
 	if m.searchMode {
 		tableStyle = m.styles.TableUnfocused
 	}
-	components = append(components, colorizeWebDAVSiteTags(tableStyle.Render(m.table.View()), m.filtered))
+	components = append(components, colorizeWebDAVSiteTags(alignJetBrainsBox(tableStyle.Render(m.table.View())), m.filtered))
 	if m.statusActive() {
 		components = append(components, renderStatusToast(m.statusMessage))
 	}

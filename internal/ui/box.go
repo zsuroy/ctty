@@ -40,9 +40,11 @@ func renderAsciiBox(innerWidth int, body string, borderColor string) string {
 // shifted 1 column to the left.
 // alignJetBrainsBox inserts the missing spaces before the right border character
 // (and before any ANSI SGR sequence styling that border) so that all rows align
-// perfectly with the top and bottom corners.
+// perfectly with the top and bottom corners. The mirror case — glyphs that
+// advance WIDER than ansi.StringWidth counts (U+1F3F7 on JediTerm, measured in
+// PyCharm) — trims the same slack back so the row does not overhang.
 func alignJetBrainsBox(box string) string {
-	if !isJetBrainsTerminal() {
+	if !needsWidthCompensation() {
 		return box
 	}
 	lines := strings.Split(box, "\n")
@@ -50,9 +52,13 @@ func alignJetBrainsBox(box string) string {
 		return box
 	}
 
+	// Ground truth for the target: each row measured WITHOUT its excess.
+	// A row rendering wider than ansi.StringWidth counts must be trimmed
+	// down to the rest of the box; letting it drive the target would widen
+	// every other row instead.
 	targetWidth := 0
 	for _, l := range lines {
-		if w := terminalDisplayWidth(l); w > targetWidth {
+		if w := terminalDisplayWidth(l) - glyphExcessFor(l); w > targetWidth {
 			targetWidth = w
 		}
 	}
@@ -65,7 +71,7 @@ func alignJetBrainsBox(box string) string {
 	for _, line := range lines {
 		curWidth := terminalDisplayWidth(line)
 		diff := targetWidth - curWidth
-		if diff <= 0 {
+		if diff == 0 {
 			fixed = append(fixed, line)
 			continue
 		}
@@ -78,18 +84,40 @@ func alignJetBrainsBox(box string) string {
 			}
 		}
 
-		if lastBorderRuneIdx >= 0 {
-			insertIdx := lastBorderRuneIdx
-			if escIdx := strings.LastIndex(line[:lastBorderRuneIdx], "\x1b["); escIdx >= 0 {
-				sub := line[escIdx:lastBorderRuneIdx]
-				if isSGRSequence(sub) {
-					insertIdx = escIdx
-				}
+		if lastBorderRuneIdx < 0 {
+			// No right border: only the deficit case can be fixed, by
+			// padding from the end of the line.
+			if diff > 0 {
+				fixed = append(fixed, line+strings.Repeat(" ", diff))
+			} else {
+				fixed = append(fixed, line)
 			}
-			fixed = append(fixed, line[:insertIdx]+strings.Repeat(" ", diff)+line[insertIdx:])
-		} else {
-			fixed = append(fixed, line+strings.Repeat(" ", diff))
+			continue
 		}
+
+		insertIdx := lastBorderRuneIdx
+		if escIdx := strings.LastIndex(line[:lastBorderRuneIdx], "\x1b["); escIdx >= 0 {
+			sub := line[escIdx:lastBorderRuneIdx]
+			if isSGRSequence(sub) {
+				insertIdx = escIdx
+			}
+		}
+
+		if diff > 0 {
+			fixed = append(fixed, line[:insertIdx]+strings.Repeat(" ", diff)+line[insertIdx:])
+			continue
+		}
+
+		// diff < 0: excess glyphs push this row past the target. Trim the
+		// slack padding before the right border so its real advance matches
+		// the rest of the box.
+		trim := -diff
+		end := insertIdx
+		for trim > 0 && end > 0 && line[end-1] == ' ' {
+			end--
+			trim--
+		}
+		fixed = append(fixed, line[:end]+line[insertIdx:])
 	}
 	return strings.Join(fixed, "\n")
 }
@@ -114,7 +142,7 @@ func isSGRSequence(s string) bool {
 // per-row advance discrepancies (e.g. status/modal emoji) from staggering
 // outer edges or borders.
 func placeBox(width, height int, hAlign, vAlign lipgloss.Position, box string) string {
-	if !isJetBrainsTerminal() {
+	if !needsWidthCompensation() {
 		return lipgloss.Place(width, height, hAlign, vAlign, box)
 	}
 	lines := strings.Split(box, "\n")

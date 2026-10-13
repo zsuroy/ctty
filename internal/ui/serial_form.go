@@ -723,7 +723,7 @@ func (m *serialFormModel) renderList() string {
 	components = append(components, renderSearchBar(m.styles, m.searchMode, searchPrompt, m.searchInput.View(), m.width))
 
 	// Table
-	components = append(components, m.styles.TableFocused.Render(m.table.View()))
+	components = append(components, alignJetBrainsBox(m.styles.TableFocused.Render(m.table.View())))
 
 	if m.statusActive() {
 		components = append(components, renderStatusToast(m.statusMessage))

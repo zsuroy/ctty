@@ -306,6 +306,7 @@ func assertPlacedModalBordersAligned(t *testing.T, name, modal string, width int
 	t.Helper()
 	lines := strings.Split(modal, "\n")
 	var leftCols, rightCols []int
+	bordered := 0
 	for _, line := range lines {
 		s := ansi.Strip(line)
 		if strings.TrimSpace(s) == "" {
@@ -331,14 +332,19 @@ func assertPlacedModalBordersAligned(t *testing.T, name, modal string, width int
 				}
 			}
 		}
-		if leftIdx >= 0 && rightIdx >= 0 {
-			leftCols = append(leftCols, terminalDisplayWidth(s[:leftIdx])+1)
-			rightCols = append(rightCols, terminalDisplayWidth(s[:rightIdx])+1)
+		// Every content row must carry both borders: a missing one (e.g.
+		// trimmed away by the excess alignment in alignJetBrainsBox) would
+		// be invisible on screen while still "aligning" with the rest.
+		if leftIdx < 0 || rightIdx < 0 {
+			t.Fatalf("%s: row missing a border (left=%d right=%d): %q", name, leftIdx, rightIdx, s)
 		}
+		bordered++
+		leftCols = append(leftCols, terminalDisplayWidth(s[:leftIdx])+1)
+		rightCols = append(rightCols, terminalDisplayWidth(s[:rightIdx])+1)
 	}
 
-	if len(leftCols) < 3 {
-		t.Fatalf("%s: expected at least 3 content border lines, got %d", name, len(leftCols))
+	if bordered < 3 {
+		t.Fatalf("%s: expected at least 3 content border lines, got %d", name, bordered)
 	}
 	for i := 1; i < len(leftCols); i++ {
 		if leftCols[i] != leftCols[0] {
@@ -372,24 +378,157 @@ func TestJetBrainsUpdateSuccessModalBorderAlignment(t *testing.T) {
 				t.Fatalf("check mark: terminalDisplayWidth=%d ansi.StringWidth=%d want ansi-1", tw, sw)
 			}
 
-			form := NewUpdateForm(NewStyles(100), 100, 30, "1.0.0", "1.0.1", "")
-			form.phase = updateDone
-			modal := form.View()
-			assertPlacedModalBordersAligned(t, "updateSuccessModal", modal, form.width)
+		form := NewUpdateForm(NewStyles(100), 100, 30, "1.0.0", "1.0.1", "")
+		form.phase = updateDone
+		modal := form.View()
+		assertPlacedModalBordersAligned(t, "updateSuccessModal", modal, form.width)
 		})
+	}
+}
+
+func TestJetBrainsTagPickerModalBorderAlignment(t *testing.T) {
+	for _, lang := range []string{i18n.LangZHCN, i18n.LangEN} {
+		t.Run("Lang_"+lang, func(t *testing.T) {
+			i18n.SetLang(lang)
+			t.Setenv("TERMINAL_EMULATOR", "JetBrains-JediTerm")
+			t.Setenv("JETBRAINS_INTELLIJ_COMMAND_X", "")
+			t.Setenv("IDEA_INITIAL_DIRECTORY", "")
+			if !isJetBrainsTerminal() {
+				t.Fatal("expected JetBrains detection")
+			}
+
+			check := labelTagEmoji
+			// U+1F3F7+U+FE0F advances StringWidth+1 in JediTerm (measured in
+			// PyCharm: the variation selector takes a visible cell). The
+			// excess entry is what lets alignJetBrainsBox trim the drawer
+			// title row back to the card border instead of overhanging it.
+			if tw, sw := terminalDisplayWidth(check), ansi.StringWidth(check); tw != sw+1 {
+				t.Fatalf("tag label: terminalDisplayWidth=%d ansi.StringWidth=%d want ansi+1 (excess)", tw, sw)
+			}
+
+			hosts := []config.SSHHost{
+				{Name: "web-1", Hostname: "10.0.1.1", Tags: []string{"web", "prod"}},
+				{Name: "db-1", Hostname: "10.0.2.1", Tags: []string{"db"}},
+			}
+		m := NewModel(hosts, "", false, "v1.3.0", true)
+		m.ready = true
+		m.width = 100
+		m.height = 30
+		m.tagPickerOpen = true
+		modal := renderConfirmModal(m.width, m.height, m.renderTagPicker())
+		assertPlacedModalBordersAligned(t, "tagPickerModal", modal, m.width)
+		})
+	}
+}
+
+func TestVSCodeTagPickerModalBorderAlignment(t *testing.T) {
+	for _, lang := range []string{i18n.LangZHCN, i18n.LangEN} {
+		t.Run("Lang_"+lang, func(t *testing.T) {
+			i18n.SetLang(lang)
+			t.Setenv("TERM_PROGRAM", "vscode")
+			t.Setenv("TERMINAL_EMULATOR", "")
+			t.Setenv("JETBRAINS_INTELLIJ_COMMAND_X", "")
+			t.Setenv("IDEA_INITIAL_DIRECTORY", "")
+			if isJetBrainsTerminal() {
+				t.Fatal("expected non-JetBrains detection")
+			}
+			if !isVSCodeTerminal() {
+				t.Fatal("expected VS Code detection via TERM_PROGRAM")
+			}
+
+			check := labelTagEmoji
+			// xterm.js renders the two-codepoint grapheme one column wider
+			// than ansi.StringWidth counts as well (measured by report: the
+			// title row overhung the card border there). The startup probe
+			// re-measures and overrides this whenever the terminal answers.
+			if tw, sw := terminalDisplayWidth(check), ansi.StringWidth(check); tw != sw+1 {
+				t.Fatalf("tag label: terminalDisplayWidth=%d ansi.StringWidth=%d want ansi+1 (excess)", tw, sw)
+			}
+
+			hosts := []config.SSHHost{
+				{Name: "web-1", Hostname: "10.0.1.1", Tags: []string{"web", "prod"}},
+				{Name: "db-1", Hostname: "10.0.2.1", Tags: []string{"db"}},
+			}
+			m := NewModel(hosts, "", false, "v1.3.0", true)
+			m.ready = true
+			m.width = 100
+			m.height = 30
+			m.tagPickerOpen = true
+			modal := renderConfirmModal(m.width, m.height, m.renderTagPicker())
+			assertPlacedModalBordersAligned(t, "tagPickerModal", modal, m.width)
+		})
+	}
+}
+
+func TestTagPickerModalCoversFullCanvas(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(t *testing.T)
+	}{
+		{"JetBrains", func(t *testing.T) {
+			t.Setenv("TERMINAL_EMULATOR", "JetBrains-JediTerm")
+			t.Setenv("TERM_PROGRAM", "")
+			t.Setenv("JETBRAINS_INTELLIJ_COMMAND_X", "")
+			t.Setenv("IDEA_INITIAL_DIRECTORY", "")
+			if !isJetBrainsTerminal() {
+				t.Fatal("expected JetBrains detection")
+			}
+		}},
+		{"Standard", func(t *testing.T) {
+			t.Setenv("TERMINAL_EMULATOR", "xterm-256color")
+			t.Setenv("TERM_PROGRAM", "")
+			t.Setenv("JETBRAINS_INTELLIJ_COMMAND_X", "")
+			t.Setenv("IDEA_INITIAL_DIRECTORY", "")
+			if isJetBrainsTerminal() {
+				t.Fatal("expected standard terminal detection")
+			}
+		}},
+	}
+	for _, tc := range cases {
+		for _, lang := range []string{i18n.LangZHCN, i18n.LangEN} {
+			t.Run(tc.name+"/Lang_"+lang, func(t *testing.T) {
+				tc.setup(t)
+				i18n.SetLang(lang)
+				hosts := []config.SSHHost{
+					{Name: "web-1", Hostname: "10.0.1.1", Tags: []string{"web", "prod"}},
+					{Name: "db-1", Hostname: "10.0.2.1", Tags: []string{"db"}},
+				}
+				m := NewModel(hosts, "", false, "v1.3.0", true)
+				m.ready = true
+				m.width = 171
+				m.height = 22
+				m.tagPickerOpen = true
+				modal := renderConfirmModal(m.width, m.height, m.renderTagPicker())
+				lines := strings.Split(modal, "\n")
+				if len(lines) != 22 {
+					t.Fatalf("modal rows=%d want 22", len(lines))
+				}
+				for i, ln := range lines {
+					if w := terminalDisplayWidth(ln); w != 171 {
+						t.Fatalf("row %d display width=%d want 171 (%q)", i, w, ln)
+					}
+				}
+				for _, bad := range []string{"Serial", "Telnet", "WebDAV", "SSH ("} {
+					if strings.Contains(modal, bad) {
+						t.Fatalf("modal contains tab text %q", bad)
+					}
+				}
+			})
+		}
 	}
 }
 
 func TestStandardTerminalPeekModalBorderAlignment(t *testing.T) {
 	for _, lang := range []string{i18n.LangZHCN, i18n.LangEN} {
 		t.Run("Lang_"+lang, func(t *testing.T) {
-			i18n.SetLang(lang)
-			t.Setenv("TERMINAL_EMULATOR", "xterm-256color")
-			t.Setenv("JETBRAINS_INTELLIJ_COMMAND_X", "")
-			t.Setenv("IDEA_INITIAL_DIRECTORY", "")
-			if isJetBrainsTerminal() {
-				t.Fatal("expected standard terminal detection")
-			}
+		i18n.SetLang(lang)
+		t.Setenv("TERMINAL_EMULATOR", "xterm-256color")
+		t.Setenv("TERM_PROGRAM", "")
+		t.Setenv("JETBRAINS_INTELLIJ_COMMAND_X", "")
+		t.Setenv("IDEA_INITIAL_DIRECTORY", "")
+		if isJetBrainsTerminal() {
+			t.Fatal("expected standard terminal detection")
+		}
 
 			hosts := []config.SSHHost{
 				{Name: "prod-server-01", Hostname: "10.0.0.1"},
@@ -406,25 +545,25 @@ func TestStandardTerminalPeekModalBorderAlignment(t *testing.T) {
 			loadingPlaced := renderConfirmModal(m.width, m.height, loadingBox)
 			assertPlacedModalBordersAligned(t, "loadingPlaced", loadingPlaced, m.width)
 
-			m.peekLoading = false
-			m.peekStats = &HostStats{
-				Uptime:      "15 days, 4:20",
-				Users:       "2",
-				Load1:       "0.15",
-				Load5:       "0.20",
-				Load15:      "0.18",
-				MemTotalMB:  8192,
-				MemUsedMB:   4096,
-				MemPercent:  50.0,
-				DiskTotal:   "100G",
-				DiskUsed:    "25G",
-				DiskPercent: 25.0,
-			}
-			statsBox := m.renderPeekModal()
-			assertBoxRightBordersAligned(t, "statsBox", statsBox)
+		m.peekLoading = false
+		m.peekStats = &HostStats{
+			Uptime:      "15 days, 4:20",
+			Users:       "2",
+			Load1:       "0.15",
+			Load5:       "0.20",
+			Load15:      "0.18",
+			MemTotalMB:  8192,
+			MemUsedMB:   4096,
+			MemPercent:  50.0,
+			DiskTotal:   "100G",
+			DiskUsed:    "25G",
+			DiskPercent: 25.0,
+		}
+		statsBox := m.renderPeekModal()
+		assertBoxRightBordersAligned(t, "statsBox", statsBox)
 
-			statsPlaced := renderConfirmModal(m.width, m.height, statsBox)
-			assertPlacedModalBordersAligned(t, "statsPlaced", statsPlaced, m.width)
+		statsPlaced := renderConfirmModal(m.width, m.height, statsBox)
+		assertPlacedModalBordersAligned(t, "statsPlaced", statsPlaced, m.width)
 		})
 	}
 }
