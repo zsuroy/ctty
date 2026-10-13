@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"github.com/zsuroy/ctty/internal/config"
@@ -14,6 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"golang.org/x/term"
 )
 
 // NewModel creates a new TUI model with the given SSH hosts
@@ -168,8 +171,33 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 	return m
 }
 
+// calibrateTerminalGlyphs measures the real column advance of the glyphs the
+// layout depends on, so the alignment tables are measured facts instead of
+// per-terminal guesses. It runs before the Bubble Tea program takes over the
+// terminal and silently keeps the static fallback tables when the terminal
+// cannot be probed (no /dev/tty, no cursor-position reports).
+func calibrateTerminalGlyphs() {
+	if !needsWidthCompensation() {
+		return
+	}
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return
+	}
+	defer tty.Close()
+	oldState, err := term.MakeRaw(int(tty.Fd()))
+	if err != nil {
+		return
+	}
+	defer term.Restore(int(tty.Fd()), oldState)
+	CalibrateGlyphAdvances(tty)
+	// The probe wrote to the home position; clear it before the TUI starts.
+	_, _ = io.WriteString(tty, "\x1b[2K\x1b[1;1H")
+}
+
 // RunInteractiveMode starts the interactive TUI interface
 func RunInteractiveMode(hosts []config.SSHHost, configFile string, searchMode bool, currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
 	m := NewModel(hosts, configFile, searchMode, currentVersion, noUpdateCheck)
 
 	// Start the application in alt screen mode for clean output
@@ -184,6 +212,7 @@ func RunInteractiveMode(hosts []config.SSHHost, configFile string, searchMode bo
 
 // RunSerialMode starts the TUI directly in the serial device manager view.
 func RunSerialMode(currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
 	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
 	m.serialForm = NewSerialForm(m.styles, m.width, m.height)
 	m.viewMode = ViewSerial
@@ -199,6 +228,7 @@ func RunSerialMode(currentVersion string, noUpdateCheck bool) error {
 
 // RunTelnetMode starts the TUI directly in the telnet device manager view.
 func RunTelnetMode(currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
 	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
 	m.telnetForm = NewTelnetForm(m.styles, m.width, m.height)
 	m.viewMode = ViewTelnet
@@ -214,6 +244,7 @@ func RunTelnetMode(currentVersion string, noUpdateCheck bool) error {
 
 // RunSFTPMode starts the TUI directly in the SFTP file browser for a host.
 func RunSFTPMode(hostName, configFile, currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
 	m := NewModel(nil, configFile, false, currentVersion, noUpdateCheck)
 	m.sftpForm = NewSFTPFormWithLayout(m.styles, m.width, m.height, hostName, configFile, m.appConfig.SFTPLayout)
 	m.viewMode = ViewSFTP
@@ -228,6 +259,7 @@ func RunSFTPMode(hostName, configFile, currentVersion string, noUpdateCheck bool
 
 // RunFTPMode starts the TUI directly in the FTP site manager view.
 func RunFTPMode(currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
 	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
 	m.ftpSitesForm = NewFTPSitesForm(m.styles, m.width, m.height)
 	m.viewMode = ViewFTP
@@ -243,6 +275,7 @@ func RunFTPMode(currentVersion string, noUpdateCheck bool) error {
 
 // RunFTPBrowserMode opens the FTP browser for a saved site.
 func RunFTPBrowserMode(siteName, currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
 	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
 	m.ftpForm = NewFTPFormWithLayout(m.styles, m.width, m.height, siteName, m.appConfig.FTPLayout)
 	m.viewMode = ViewFTPBrowse
@@ -258,6 +291,7 @@ func RunFTPBrowserMode(siteName, currentVersion string, noUpdateCheck bool) erro
 
 // RunWebDAVMode starts the TUI directly in the WebDAV site manager view.
 func RunWebDAVMode(currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
 	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
 	m.webdavSitesForm = NewWebDAVSitesForm(m.styles, m.width, m.height)
 	m.viewMode = ViewWebDAV
@@ -273,6 +307,7 @@ func RunWebDAVMode(currentVersion string, noUpdateCheck bool) error {
 
 // RunWebDAVBrowserMode opens the WebDAV browser for a saved site.
 func RunWebDAVBrowserMode(siteName, currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
 	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
 	m.webdavForm = NewWebDAVFormWithLayout(m.styles, m.width, m.height, siteName, m.appConfig.WebDAVLayout)
 	m.viewMode = ViewWebDAVBrowse
@@ -288,6 +323,7 @@ func RunWebDAVBrowserMode(siteName, currentVersion string, noUpdateCheck bool) e
 
 // RunS3Mode starts the TUI directly in the S3 site manager view.
 func RunS3Mode(currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
 	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
 	m.s3SitesForm = NewS3SitesForm(m.styles, m.width, m.height)
 	m.viewMode = ViewS3
@@ -303,6 +339,7 @@ func RunS3Mode(currentVersion string, noUpdateCheck bool) error {
 
 // RunS3BrowserMode opens the S3 browser for a saved site.
 func RunS3BrowserMode(siteName, currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
 	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
 	m.s3Form = NewS3FormWithLayout(m.styles, m.width, m.height, siteName, m.appConfig.S3Layout)
 	m.viewMode = ViewS3Browse
