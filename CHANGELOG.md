@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - **📡 Telnet list cursor position** — saving an add/edit no longer snaps the list cursor up by the table's visible height; the cursor now stays on the edited item (clamped only to the filtered list bounds).
+- **📂 SFTP private key authentication (issue #49)** — the SFTP client now resolves effective SSH settings via `ssh -G` (with parser fallback), so `IdentityFile` entries from `Host *` / `Include` / merged config and multiple identity files work the same as interactive SSH; explicit key files are loaded in resolved order instead of only the single parsed host entry plus hardcoded defaults. Hosts that authenticate by key no longer fall through to the password prompt.
 
 ## [1.3.2] - 2026-10-13
 
