@@ -1,12 +1,16 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/zsuroy/ctty/internal/credential"
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/telnetconfig"
+	"github.com/zsuroy/ctty/internal/telnetcred"
 )
 
 func TestTelnetAddForm_Basic(t *testing.T) {
@@ -78,6 +82,14 @@ func TestTelnetAddForm_TabNavigation(t *testing.T) {
 }
 
 func TestTelnetAddForm_Submit(t *testing.T) {
+	// confirmVal defaults to true, so the final Enter really submits and
+	// writes both telnet.json and the credential vault. Keep both isolated.
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	credential.ResetStoreForTest()
+	t.Cleanup(credential.ResetStoreForTest)
+
 	styles := NewStyles(80)
 	form := newTelnetAddForm(styles, 80, 24, nil)
 	_ = form.Init()
@@ -97,6 +109,24 @@ func TestTelnetAddForm_Submit(t *testing.T) {
 	if form.form.GetFocusedField().GetKey() != "port" {
 		t.Fatalf("expected focus on port, got %s", form.form.GetFocusedField().GetKey())
 	}
+
+	// Press Enter to go to user
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if form.form.GetFocusedField().GetKey() != "user" {
+		t.Fatalf("expected focus on user, got %s", form.form.GetFocusedField().GetKey())
+	}
+
+	// Enter user
+	form.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("pi")})
+
+	// Press Enter to go to password
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if form.form.GetFocusedField().GetKey() != "password" {
+		t.Fatalf("expected focus on password, got %s", form.form.GetFocusedField().GetKey())
+	}
+
+	// Enter password
+	form.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s3cret")})
 
 	// Press Enter to go to tags
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -125,8 +155,9 @@ func TestTelnetAddForm_ConfirmNavigationAndAutoScroll(t *testing.T) {
 	form := newTelnetAddForm(styles, 80, 14, nil)
 	_ = form.Init()
 
-	// Advance through all fields to confirm: name -> host -> port -> tags -> confirm
-	for i := 0; i < 4; i++ {
+	// Advance through all fields to confirm:
+	// name -> host -> port -> user -> password -> tags -> confirm
+	for i := 0; i < 6; i++ {
 		form.Update(tea.KeyMsg{Type: tea.KeyTab})
 	}
 	if form.form.GetFocusedField().GetKey() != "confirm" {
@@ -171,5 +202,193 @@ func TestTelnetAddForm_ValidationErrorUsesTelnetLocale(t *testing.T) {
 	}
 	if strings.Contains(form.err, "站点") {
 		t.Fatalf("telnet error should not mention FTP site '站点': %s", form.err)
+	}
+}
+
+// TestTelnetAddForm_SubmitStoresCredentials covers issue #46: submitting
+// the form persists the user name to telnet.json and the password to the
+// encrypted vault (never to the JSON file), and a rename migrates the vault
+// entry so auto-login keeps working.
+func TestTelnetAddForm_SubmitStoresCredentials(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	credential.ResetStoreForTest()
+	t.Cleanup(credential.ResetStoreForTest)
+	i18n.SetLang("en")
+
+	form := newTelnetAddForm(NewStyles(100), 100, 30, nil)
+	form.nameVal = "rpi"
+	form.hostVal = "10.0.0.5"
+	form.portVal = "23"
+	form.userVal = "der"
+	form.passwordVal = "s3cret"
+	form.submit()
+
+	if !form.done {
+		t.Fatalf("submit did not complete: err=%q", form.err)
+	}
+	hosts, err := telnetconfig.Load()
+	if err != nil || len(hosts) != 1 {
+		t.Fatalf("Load = %d hosts, %v", len(hosts), err)
+	}
+	if hosts[0].User != "der" {
+		t.Fatalf("User=%q want %q", hosts[0].User, "der")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "ctty", "telnet.json"))
+	if err != nil {
+		t.Fatalf("read telnet.json: %v", err)
+	}
+	if strings.Contains(string(raw), "s3cret") {
+		t.Fatal("password must never be written to telnet.json")
+	}
+	pass, ok := telnetcred.GetPassword("rpi")
+	if !ok || pass != "s3cret" {
+		t.Fatalf("vault password = %q,%v want %q,true", pass, ok, "s3cret")
+	}
+
+	// Editing with a rename keeps the password reachable under the new name.
+	existing, _ := telnetconfig.Find("rpi")
+	edit := newTelnetAddForm(NewStyles(100), 100, 30, &existing)
+	if edit.passwordVal != "s3cret" {
+		t.Fatalf("edit form password prefill=%q want the vault password", edit.passwordVal)
+	}
+	edit.nameVal = "rpi-board"
+	edit.submit()
+	if !edit.done {
+		t.Fatalf("rename submit failed: err=%q", edit.err)
+	}
+	if pass, ok := telnetcred.GetPassword("rpi-board"); !ok || pass != "s3cret" {
+		t.Fatalf("vault after rename = %q,%v want %q,true", pass, ok, "s3cret")
+	}
+	if _, ok := telnetcred.GetPassword("rpi"); ok {
+		t.Fatal("old vault entry should be gone after a rename")
+	}
+
+	// Clearing the password removes the vault entry (password-only or
+	// manual entry is a supported choice).
+	renamed, _ := telnetconfig.Find("rpi-board")
+	clear := newTelnetAddForm(NewStyles(100), 100, 30, &renamed)
+	clear.passwordVal = ""
+	clear.submit()
+	if _, ok := telnetcred.GetPassword("rpi-board"); ok {
+		t.Fatal("clearing the password should delete the vault entry")
+	}
+}
+
+// TestTelnetAddForm_RenameHonoursPasswordEdits is a regression test: a
+// rename used to overwrite the password field with the previously stored
+// value, silently discarding both a rotated and a cleared password.
+func TestTelnetAddForm_RenameHonoursPasswordEdits(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	credential.ResetStoreForTest()
+	t.Cleanup(credential.ResetStoreForTest)
+
+	add := newTelnetAddForm(NewStyles(100), 100, 30, nil)
+	add.nameVal = "rpi"
+	add.hostVal = "10.0.0.5"
+	add.portVal = "23"
+	add.userVal = "pi"
+	add.passwordVal = "OLD-pass"
+	add.submit()
+	if !add.done {
+		t.Fatalf("initial submit failed: %q", add.err)
+	}
+
+	// Rename and rotate the password at the same time.
+	dev, _ := telnetconfig.Find("rpi")
+	rotate := newTelnetAddForm(NewStyles(100), 100, 30, &dev)
+	rotate.nameVal = "rpi2"
+	rotate.passwordVal = "NEW-pass"
+	rotate.submit()
+	if !rotate.done {
+		t.Fatalf("rename+rotate failed: %q", rotate.err)
+	}
+	if got, ok := telnetcred.GetPassword("rpi2"); !ok || got != "NEW-pass" {
+		t.Fatalf("vault after rename+rotate = %q,%v want NEW-pass,true", got, ok)
+	}
+	if _, ok := telnetcred.GetPassword("rpi"); ok {
+		t.Fatal("old vault key should be gone after a rename")
+	}
+
+	// Rename and clear: auto-login must be removable while renaming too.
+	renamed, _ := telnetconfig.Find("rpi2")
+	clear := newTelnetAddForm(NewStyles(100), 100, 30, &renamed)
+	clear.nameVal = "rpi3"
+	clear.passwordVal = ""
+	clear.submit()
+	if !clear.done {
+		t.Fatalf("rename+clear failed: %q", clear.err)
+	}
+	if _, ok := telnetcred.GetPassword("rpi3"); ok {
+		t.Fatal("clearing the password on rename must remove the vault entry")
+	}
+	if _, ok := telnetcred.GetPassword("rpi2"); ok {
+		t.Fatal("old vault key should be gone after a rename+clear")
+	}
+	if _, ok := telnetconfig.Find("rpi3"); !ok {
+		t.Fatal("renamed device should still be saved")
+	}
+}
+
+// TestTelnetAddFormVaultFailureRollsBackConfig covers a vault that cannot be
+// written: telnet.json must be restored so the user can fix the problem and
+// save again instead of hitting "a telnet host named ... already exists".
+func TestTelnetAddFormVaultFailureRollsBackConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	credential.ResetStoreForTest()
+	t.Cleanup(credential.ResetStoreForTest)
+
+	// Occupy the vault path with a directory so reads/writes of
+	// credentials.json fail deterministically on every platform.
+	vaultPath := filepath.Join(dir, "ctty", "credentials.json")
+	if err := os.MkdirAll(vaultPath, 0700); err != nil {
+		t.Fatalf("block vault: %v", err)
+	}
+
+	form := newTelnetAddForm(NewStyles(100), 100, 30, nil)
+	form.nameVal = "rpi"
+	form.hostVal = "10.0.0.5"
+	form.portVal = "23"
+	form.userVal = "pi"
+	form.passwordVal = "s3cret"
+	form.submit()
+
+	if form.done {
+		t.Fatal("a failed vault write must not complete the form")
+	}
+	if form.err == "" {
+		t.Fatal("a failed vault write must be reported to the user")
+	}
+	hosts, err := telnetconfig.Load()
+	if err != nil {
+		t.Fatalf("Load after rollback: %v", err)
+	}
+	if len(hosts) != 0 {
+		t.Fatalf("telnet.json was not rolled back: %d hosts saved", len(hosts))
+	}
+
+	// Repair the vault and submit again through the same form.
+	if err := os.Remove(vaultPath); err != nil {
+		t.Fatalf("repair vault: %v", err)
+	}
+	credential.ResetStoreForTest()
+	form.submit()
+	if !form.done {
+		t.Fatalf("retry after vault repair failed: %q", form.err)
+	}
+	if form.err != "" {
+		t.Fatalf("stale error after a successful retry: %q", form.err)
+	}
+	hosts, err = telnetconfig.Load()
+	if err != nil || len(hosts) != 1 || hosts[0].Name != "rpi" {
+		t.Fatalf("after retry hosts=%d err=%v", len(hosts), err)
+	}
+	if pass, ok := telnetcred.GetPassword("rpi"); !ok || pass != "s3cret" {
+		t.Fatalf("after retry vault password=%q,%v want s3cret,true", pass, ok)
 	}
 }

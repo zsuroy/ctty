@@ -10,6 +10,7 @@ import (
 
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/telnetconfig"
+	"github.com/zsuroy/ctty/internal/telnetcred"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -22,29 +23,31 @@ import (
 // It shows saved telnet hosts and lets the user connect, add,
 // edit, or delete entries.
 type telnetFormModel struct {
-	styles          Styles
-	width           int
-	height          int
-	table           table.Model
-	hosts           []telnetconfig.TelnetHost
-	filtered        []telnetconfig.TelnetHost
-	mode            telnetMode
-	addForm         *telnetAddFormModel
-	deleteIndex     int
-	infoIndex       int
-	infoScroll      int
-	probing         bool
-	status          map[string]bool
-	latencies       map[string]time.Duration
-	ready           bool
-	searchInput     textinput.Model
-	searchMode      bool
-	statusMessage   string
-	statusExpiry    time.Time
-	tagPickerOpen   bool
-	tagPickerCursor int
-	selectedTag     string
-	selectedHosts   map[string]bool
+	styles            Styles
+	width             int
+	height            int
+	table             table.Model
+	hosts             []telnetconfig.TelnetHost
+	filtered          []telnetconfig.TelnetHost
+	mode              telnetMode
+	addForm           *telnetAddFormModel
+	deleteIndex       int
+	infoIndex         int
+	infoScroll        int
+	infoPasswordFor   string // device name whose vault state is cached below
+	infoPasswordSaved bool   // memoized so View never decrypts on every frame
+	probing           bool
+	status            map[string]bool
+	latencies         map[string]time.Duration
+	ready             bool
+	searchInput       textinput.Model
+	searchMode        bool
+	statusMessage     string
+	statusExpiry      time.Time
+	tagPickerOpen     bool
+	tagPickerCursor   int
+	selectedTag       string
+	selectedHosts     map[string]bool
 }
 
 func (m *telnetFormModel) setStatus(msg string) {
@@ -453,11 +456,14 @@ func (m *telnetFormModel) refreshTable() {
 	m.loadHosts()
 	m.filterHosts()
 	m.buildTable()
-	if cursor >= m.table.Height()-1 && cursor > 0 {
-		cursor = m.table.Height() - 2
-	}
 	if cursor < 0 {
 		cursor = 0
+	}
+	if max := len(m.filtered) - 1; cursor > max {
+		if max < 0 {
+			max = 0
+		}
+		cursor = max
 	}
 	m.table.SetCursor(cursor)
 }
@@ -745,6 +751,9 @@ func (m *telnetFormModel) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if idx >= 0 && idx < len(m.filtered) {
 			m.infoIndex = idx
 			m.infoScroll = 0
+			// Force a fresh vault lookup: the password may have been
+			// changed in the edit form since this device was last shown.
+			m.infoPasswordFor = ""
 			m.mode = telnetInfo
 			return m, nil
 		}
@@ -832,14 +841,20 @@ func (m *telnetFormModel) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 func (m *telnetFormModel) handleDeleteConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y", "enter":
+		// Only clear the vault once the device record is really gone: a
+		// failed config write must not leave a saved device passwordless.
 		if len(m.selectedHosts) > 0 {
 			for name := range m.selectedHosts {
-				_ = telnetconfig.Delete(name)
+				if telnetconfig.Delete(name) == nil {
+					_ = telnetcred.DeletePassword(name)
+				}
 			}
 			m.clearSelection()
 		} else if m.deleteIndex >= 0 && m.deleteIndex < len(m.filtered) {
 			h := m.filtered[m.deleteIndex]
-			_ = telnetconfig.Delete(h.Name)
+			if telnetconfig.Delete(h.Name) == nil {
+				_ = telnetcred.DeletePassword(h.Name)
+			}
 		}
 		m.mode = telnetList
 		m.refreshTable()
@@ -885,8 +900,25 @@ func (m *telnetFormModel) renderInfo() string {
 		{i18n.T("telnet.col_name") + ":", h.Name},
 		{i18n.T("telnet.col_host") + ":", h.Host},
 		{i18n.T("telnet.col_port") + ":", strconv.Itoa(h.Port)},
-		{i18n.T("table.col.tags") + ":", FormatColoredTags(h.Tags)},
 	}
+	if user := strings.TrimSpace(h.User); user != "" {
+		rows = append(rows, [2]string{i18n.T("form.user") + ":", user})
+	}
+	// Memoize the vault lookup by device name: View() runs on every frame
+	// and GetPassword decrypts on each call, so only re-read it when the
+	// info panel switches to a different device (or is re-entered above).
+	if m.infoPasswordFor != h.Name {
+		_, m.infoPasswordSaved = telnetcred.GetPassword(h.Name)
+		m.infoPasswordFor = h.Name
+	}
+	pass := i18n.T("info.not_set")
+	if m.infoPasswordSaved {
+		pass = i18n.T("info.password_saved")
+	}
+	rows = append(rows,
+		[2]string{i18n.T("info.password") + ":", pass},
+		[2]string{i18n.T("table.col.tags") + ":", FormatColoredTags(h.Tags)},
+	)
 
 	maxLabelW := 0
 	for _, r := range rows {

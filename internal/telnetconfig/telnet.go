@@ -26,6 +26,7 @@ type TelnetHost struct {
 	Name string   `json:"name"`           // User-friendly alias, e.g. "core-sw console"
 	Host string   `json:"host"`           // Address, e.g. 192.168.1.1 or console01.lab.local
 	Port int      `json:"port"`           // Defaults to 23
+	User string   `json:"user,omitempty"` // Login name sent at login prompts; empty for password-only devices
 	Tags []string `json:"tags,omitempty"` // Optional organizational tags
 }
 
@@ -208,6 +209,7 @@ func DefaultHost() TelnetHost {
 func (h *TelnetHost) normalize() {
 	h.Name = strings.TrimSpace(h.Name)
 	h.Host = strings.TrimSpace(h.Host)
+	h.User = strings.TrimSpace(h.User)
 	if !strings.HasPrefix(h.Host, "[") && strings.Count(h.Host, ":") == 1 {
 		if idx := strings.LastIndex(h.Host, ":"); idx > 0 {
 			if n, err := strconv.Atoi(h.Host[idx+1:]); err == nil && n > 0 && n <= 65535 {

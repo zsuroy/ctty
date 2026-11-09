@@ -23,6 +23,7 @@ import (
 
 	"github.com/zsuroy/ctty/internal/rawterm"
 	"github.com/zsuroy/ctty/internal/telnetconfig"
+	"github.com/zsuroy/ctty/internal/telnetcred"
 )
 
 // TELNET protocol commands (RFC 854).
@@ -74,6 +75,10 @@ func Dial(addr string) (net.Conn, error) {
 type Bridge struct {
 	conn net.Conn
 
+	// auto, when set, answers login prompts from the session's display
+	// stream until its rules are exhausted or the deadline passes.
+	auto *AutoLogin
+
 	// exit is set once the user requests disconnection locally; both
 	// pump goroutines observe it to stop promptly instead of blocking
 	// forever on io.Copy.
@@ -83,6 +88,25 @@ type Bridge struct {
 // NewBridge wraps conn in an interactive telnet bridge.
 func NewBridge(conn net.Conn) *Bridge {
 	return &Bridge{conn: conn}
+}
+
+// WithAutoLogin attaches automatic login-prompt answering to the session.
+// A nil AutoLogin (no credentials) leaves the session fully manual.
+func (b *Bridge) WithAutoLogin(a *AutoLogin) *Bridge {
+	b.auto = a
+	return b
+}
+
+// AutoLoginFor resolves the automatic login rules for a saved device: its
+// configured user plus the password held in the encrypted vault (there is
+// none for ad-hoc addresses). Returns nil when the device has nothing to
+// send, keeping such sessions fully manual.
+func AutoLoginFor(host telnetconfig.TelnetHost) *AutoLogin {
+	var password string
+	if host.Name != "" {
+		password, _ = telnetcred.GetPassword(host.Name)
+	}
+	return NewAutoLogin(host.User, password)
 }
 
 // Run drives the session until it ends. Terminal raw mode setup/reuse
@@ -149,6 +173,8 @@ func (b *Bridge) Run(stdin io.Reader, stdout, stderr io.Writer) error {
 					if _, werr := stdout.Write(out); werr != nil {
 						return
 					}
+					// Answer login prompts from what the user sees.
+					b.auto.Observe(out, b.conn)
 				}
 			}
 			if err != nil {
@@ -473,7 +499,7 @@ func (c *telnetExecCommand) Run() error {
 	fmt.Fprintf(errOut, "Connected to %s (%s). Press Ctrl+] to disconnect.\n",
 		c.host.Name, addr)
 
-	bridge := NewBridge(conn)
+	bridge := NewBridge(conn).WithAutoLogin(AutoLoginFor(c.host))
 	if err := bridge.Run(c.stdin, out, errOut); err != nil {
 		return fmt.Errorf("telnet session: %w", err)
 	}

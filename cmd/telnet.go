@@ -97,7 +97,7 @@ Press Ctrl-] during a session to disconnect.`,
 
 		// Saved-name match wins over raw address interpretation.
 		if dev, ok := telnetconfig.Find(target); ok {
-			connectTelnet(dev.Host, dev.Port)
+			connectTelnetDevice(dev)
 			return
 		}
 		host, port, err := telnetclient.ParseHostPort(target, telnetconfig.DefaultPort)
@@ -219,6 +219,22 @@ func connectTelnet(host string, port int) {
 	defer conn.Close()
 	fmt.Printf("Connected to %s. Press Ctrl-] to disconnect.\n", addr)
 	bridge := telnetclient.NewBridge(conn)
+	if err := bridge.Run(nil, nil, nil); err != nil {
+		log.Fatalf("Session error: %v", err)
+	}
+}
+
+// connectTelnetDevice connects to a saved device, answering its login
+// prompts automatically from the configured user and vault password.
+func connectTelnetDevice(dev telnetconfig.TelnetHost) {
+	addr := dev.Addr()
+	conn, err := telnetclient.Dial(addr)
+	if err != nil {
+		log.Fatalf("Error connecting to %s: %v", addr, err)
+	}
+	defer conn.Close()
+	fmt.Printf("Connected to %s (%s). Press Ctrl-] to disconnect.\n", dev.Name, addr)
+	bridge := telnetclient.NewBridge(conn).WithAutoLogin(telnetclient.AutoLoginFor(dev))
 	if err := bridge.Run(nil, nil, nil); err != nil {
 		log.Fatalf("Session error: %v", err)
 	}
