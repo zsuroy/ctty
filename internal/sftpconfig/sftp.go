@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -45,48 +46,190 @@ type RemoteEntry struct {
 	Mode     string
 }
 
-// Connect establishes an SSH connection to the given host and returns an SFTPClient.
-// It reads host details from the SSH config (or the provided configFile).
-func Connect(hostName string, configFile string) (*SFTPClient, error) {
+// effectiveHost holds the connection settings resolved for an SSH host.
+// IdentityFiles is ordered: explicit/merged config entries first (as
+// OpenSSH resolves them, including Host * defaults), followed by the
+// standard default key paths as a fallback.
+type effectiveHost struct {
+	name          string
+	hostname      string
+	user          string
+	port          string
+	identityAgent string
+	identityFiles []string
+}
+
+// runSSHG shells out to ssh -G so SFTP honors the same effective config as
+// the system ssh client (Host * defaults, Include files, multiple
+// IdentityFile entries). It is a var for tests.
+var runSSHG = func(hostName, configFile string) ([]byte, error) {
+	args := []string{"-G"}
+	if configFile != "" {
+		args = append(args, "-F", configFile)
+	}
+	args = append(args, hostName)
+	return exec.Command("ssh", args...).Output()
+}
+
+// resolveEffectiveHost returns connection settings for hostName. When the
+// system ssh client is available it uses ssh -G for full OpenSSH-compatible
+// resolution (fixes issue #49: IdentityFile from Host * / merged config was
+// invisible to ctty's parser-only SFTP path). On failure it falls back to
+// ctty's parsed config so existing behavior is preserved.
+func resolveEffectiveHost(hostName, configFile string) effectiveHost {
+	h := effectiveHost{name: hostName, hostname: hostName, port: "22"}
+	// Baseline from ctty's parser.
+	if parsed, err := lookupParsedHost(hostName, configFile); err == nil && parsed != nil {
+		if parsed.Hostname != "" {
+			h.hostname = parsed.Hostname
+		}
+		h.user = parsed.User
+		if parsed.Port != "" {
+			h.port = parsed.Port
+		}
+		h.identityAgent = parsed.IdentityAgent
+		if parsed.Identity != "" {
+			h.identityFiles = append(h.identityFiles, parsed.Identity)
+		}
+	}
+	if out, err := runSSHG(hostName, configFile); err == nil {
+		if g := parseSSHGOutput(string(out)); g.hostname != "" || g.user != "" || len(g.identityFiles) > 0 || g.identityAgent != "" || g.port != "" {
+			if g.hostname != "" {
+				h.hostname = g.hostname
+			}
+			if g.user != "" {
+				h.user = g.user
+			}
+			if g.port != "" {
+				h.port = g.port
+			}
+			// ssh -G reports the effective identityagent and the full
+			// ordered identityfile list (including defaults).
+			if g.identityAgent != "" || g.identityAgentSet {
+				h.identityAgent = g.identityAgent
+			}
+			if len(g.identityFiles) > 0 {
+				h.identityFiles = g.identityFiles
+			}
+		}
+	}
+	return h
+}
+
+// resolveFrom builds an effectiveHost from an already-parsed SSHHost (may be nil)
+// and ssh -G output. It exists to avoid duplicating lookup in Connect paths.
+func resolveFrom(parsed *config.SSHHost, hostName, configFile string) effectiveHost {
+	h := effectiveHost{name: hostName, hostname: hostName, port: "22"}
+	if parsed != nil {
+		if parsed.Hostname != "" {
+			h.hostname = parsed.Hostname
+		}
+		h.user = parsed.User
+		if parsed.Port != "" {
+			h.port = parsed.Port
+		}
+		h.identityAgent = parsed.IdentityAgent
+		if parsed.Identity != "" {
+			h.identityFiles = append(h.identityFiles, parsed.Identity)
+		}
+	}
+	if out, err := runSSHG(hostName, configFile); err == nil {
+		if g := parseSSHGOutput(string(out)); g.hostname != "" || g.user != "" || len(g.identityFiles) > 0 || g.identityAgent != "" || g.port != "" || g.identityAgentSet {
+			if g.hostname != "" {
+				h.hostname = g.hostname
+			}
+			if g.user != "" {
+				h.user = g.user
+			}
+			if g.port != "" {
+				h.port = g.port
+			}
+			if g.identityAgent != "" || g.identityAgentSet {
+				h.identityAgent = g.identityAgent
+			}
+			if len(g.identityFiles) > 0 {
+				h.identityFiles = g.identityFiles
+			}
+		}
+	}
+	return h
+}
+
+type sshgResult struct {
+	hostname         string
+	user             string
+	port             string
+	identityAgent    string
+	identityAgentSet bool
+	identityFiles    []string
+}
+
+func parseSSHGOutput(out string) sshgResult {
+	var r sshgResult
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		key, val, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(key) {
+		case "hostname":
+			r.hostname = val
+		case "user":
+			r.user = val
+		case "port":
+			r.port = val
+		case "identityagent":
+			r.identityAgent = val
+			r.identityAgentSet = true
+		case "identityfile":
+			if val != "" {
+				r.identityFiles = append(r.identityFiles, val)
+			}
+		}
+	}
+	return r
+}
+
+func lookupParsedHost(hostName, configFile string) (*config.SSHHost, error) {
 	var hosts []config.SSHHost
 	var err error
-
 	if configFile != "" {
 		hosts, err = config.ParseSSHConfigFile(configFile)
 	} else {
 		hosts, err = config.ParseSSHConfig()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse SSH config: %w", err)
+		return nil, err
 	}
-
-	var host *config.SSHHost
 	for i := range hosts {
 		if hosts[i].Name == hostName {
-			host = &hosts[i]
-			break
+			return &hosts[i], nil
 		}
 	}
-	if host == nil {
+	return nil, fmt.Errorf("host '%s' not found in SSH config", hostName)
+}
+
+// Connect establishes an SSH connection to the given host and returns an SFTPClient.
+// It resolves effective SSH settings (ssh -G when available) so IdentityFile
+// entries from Host * / merged config work the same as interactive ssh.
+func Connect(hostName string, configFile string) (*SFTPClient, error) {
+	parsed, parsedErr := lookupParsedHost(hostName, configFile)
+	_, sshgErr := runSSHG(hostName, configFile)
+	if parsedErr != nil && sshgErr != nil {
 		return nil, fmt.Errorf("host '%s' not found in SSH config", hostName)
 	}
+	eff := resolveFrom(parsed, hostName, configFile)
 
-	sshConfig, err := buildSSHConfig(host)
+	sshConfig, err := buildSSHConfig(hostName, eff)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build SSH config: %w", err)
 	}
 
-	hostname := host.Hostname
-	if hostname == "" {
-		hostname = host.Name
-	}
-
-	port := host.Port
-	if port == "" {
-		port = "22"
-	}
-
-	addr := net.JoinHostPort(hostname, port)
+	addr := net.JoinHostPort(eff.hostname, eff.port)
 
 	sshClient, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
@@ -95,7 +238,7 @@ func Connect(hostName string, configFile string) (*SFTPClient, error) {
 
 	return &SFTPClient{
 		sshClient:  sshClient,
-		host:       *host,
+		host:       config.SSHHost{Name: hostName, Hostname: eff.hostname, User: eff.user, Port: eff.port},
 		configFile: configFile,
 	}, nil
 }
@@ -104,30 +247,14 @@ func Connect(hostName string, configFile string) (*SFTPClient, error) {
 // password can be empty to try publickey only, or a password to try
 // keyboard-interactive + password auth as fallback.
 func ConnectWithPassword(hostName string, configFile string, password string) (*SFTPClient, error) {
-	var hosts []config.SSHHost
-	var err error
-
-	if configFile != "" {
-		hosts, err = config.ParseSSHConfigFile(configFile)
-	} else {
-		hosts, err = config.ParseSSHConfig()
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse SSH config: %w", err)
-	}
-
-	var host *config.SSHHost
-	for i := range hosts {
-		if hosts[i].Name == hostName {
-			host = &hosts[i]
-			break
-		}
-	}
-	if host == nil {
+	parsed, parsedErr := lookupParsedHost(hostName, configFile)
+	_, sshgErr := runSSHG(hostName, configFile)
+	if parsedErr != nil && sshgErr != nil {
 		return nil, fmt.Errorf("host '%s' not found in SSH config", hostName)
 	}
+	eff := resolveFrom(parsed, hostName, configFile)
 
-	sshConfig, err := buildSSHConfig(host)
+	sshConfig, err := buildSSHConfig(hostName, eff)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build SSH config: %w", err)
 	}
@@ -153,15 +280,7 @@ func ConnectWithPassword(hostName string, configFile string, password string) (*
 		)
 	}
 
-	hostname := host.Hostname
-	if hostname == "" {
-		hostname = host.Name
-	}
-	port := host.Port
-	if port == "" {
-		port = "22"
-	}
-	addr := net.JoinHostPort(hostname, port)
+	addr := net.JoinHostPort(eff.hostname, eff.port)
 
 	sshClient, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
@@ -170,14 +289,14 @@ func ConnectWithPassword(hostName string, configFile string, password string) (*
 
 	return &SFTPClient{
 		sshClient:  sshClient,
-		host:       *host,
+		host:       config.SSHHost{Name: hostName, Hostname: eff.hostname, User: eff.user, Port: eff.port},
 		configFile: configFile,
 	}, nil
 }
 
-// buildSSHConfig creates an *ssh.ClientConfig from an SSHHost.
-func buildSSHConfig(host *config.SSHHost) (*ssh.ClientConfig, error) {
-	authMethods, err := getAuthMethods(host)
+// buildSSHConfig creates an *ssh.ClientConfig from resolved host settings.
+func buildSSHConfig(hostName string, eff effectiveHost) (*ssh.ClientConfig, error) {
+	authMethods, err := getAuthMethods(eff)
 	if err != nil {
 		return nil, err
 	}
@@ -191,23 +310,15 @@ func buildSSHConfig(host *config.SSHHost) (*ssh.ClientConfig, error) {
 		return nil, fmt.Errorf("failed to prepare host key verification: %w", err)
 	}
 
-	hostname := host.Hostname
-	if hostname == "" {
-		hostname = host.Name
-	}
-	port := host.Port
-	if port == "" {
-		port = "22"
-	}
-	dialAddr := net.JoinHostPort(hostname, port)
+	dialAddr := net.JoinHostPort(eff.hostname, eff.port)
 	algoAddrs := []string{dialAddr}
 	// Also consider the Host alias: OpenSSH may have recorded keys under either name.
-	if host.Name != "" && host.Name != hostname {
-		algoAddrs = append(algoAddrs, net.JoinHostPort(host.Name, port))
+	if hostName != "" && hostName != eff.hostname {
+		algoAddrs = append(algoAddrs, net.JoinHostPort(hostName, eff.port))
 	}
 
 	cfg := &ssh.ClientConfig{
-		User:              getUser(host),
+		User:              getUser(eff),
 		Auth:              authMethods,
 		HostKeyCallback:   knownHostsCallback,
 		HostKeyAlgorithms: hostKeyAlgorithms(knownHostsPath, algoAddrs...),
@@ -217,9 +328,9 @@ func buildSSHConfig(host *config.SSHHost) (*ssh.ClientConfig, error) {
 	return cfg, nil
 }
 
-func getUser(host *config.SSHHost) string {
-	if host.User != "" {
-		return host.User
+func getUser(eff effectiveHost) string {
+	if eff.user != "" {
+		return eff.user
 	}
 	if u := os.Getenv("USER"); u != "" {
 		return u
@@ -227,12 +338,14 @@ func getUser(host *config.SSHHost) string {
 	return "root"
 }
 
-// getAuthMethods returns SSH auth methods from identity files or SSH agent.
-func getAuthMethods(host *config.SSHHost) ([]ssh.AuthMethod, error) {
+// getAuthMethods returns SSH auth methods from the SSH agent and identity
+// files. eff.identityFiles is the effective ordered list (from ssh -G when
+// available, so Host * defaults and multiple IdentityFile entries are honored).
+func getAuthMethods(eff effectiveHost) ([]ssh.AuthMethod, error) {
 	var methods []ssh.AuthMethod
 
-	// Try SSH agent (host.IdentityAgent takes precedence over SSH_AUTH_SOCK per OpenSSH spec)
-	socket := host.IdentityAgent
+	// Try SSH agent (identityAgent takes precedence over SSH_AUTH_SOCK per OpenSSH spec)
+	socket := eff.identityAgent
 	if socket == "" || socket == "SSH_AUTH_SOCK" {
 		socket = os.Getenv("SSH_AUTH_SOCK")
 	} else if socket == "none" {
@@ -254,39 +367,34 @@ func getAuthMethods(host *config.SSHHost) ([]ssh.AuthMethod, error) {
 		}
 	}
 
-	// Try identity file
-	if host.Identity != "" {
-		keyPath := expandPath(host.Identity)
-		key, err := os.ReadFile(keyPath)
-		if err == nil {
-			signer, err := ssh.ParsePrivateKey(key)
-			if err == nil {
-				methods = append(methods, ssh.PublicKeys(signer))
-			}
+	// Try identity files from effective config (deduplicated, in order).
+	seen := make(map[string]bool)
+	addKey := func(path string) {
+		keyPath := expandPath(path)
+		if keyPath == "" || seen[keyPath] {
+			return
 		}
-	}
-
-	// Try default keys
-	homeDir, _ := os.UserHomeDir()
-	defaultKeys := []string{
-		filepath.Join(homeDir, ".ssh", "id_ed25519"),
-		filepath.Join(homeDir, ".ssh", "id_rsa"),
-		filepath.Join(homeDir, ".ssh", "id_ecdsa"),
-		filepath.Join(homeDir, ".ssh", "id_dsa"),
-	}
-	for _, keyPath := range defaultKeys {
+		seen[keyPath] = true
 		key, err := os.ReadFile(keyPath)
 		if err != nil {
-			continue
+			return
 		}
 		signer, err := ssh.ParsePrivateKey(key)
 		if err != nil {
-			continue
+			return
 		}
-		// Check if already added
-		alreadyExists := false
-		_ = alreadyExists
 		methods = append(methods, ssh.PublicKeys(signer))
+	}
+	for _, id := range eff.identityFiles {
+		addKey(id)
+	}
+	// Fallback defaults when no effective identity list was resolved.
+	if len(eff.identityFiles) == 0 {
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			for _, name := range []string{"id_ed25519", "id_rsa", "id_ecdsa", "id_dsa"} {
+				addKey(filepath.Join(homeDir, ".ssh", name))
+			}
+		}
 	}
 
 	// Don't return error if no methods found — password auth might be used
