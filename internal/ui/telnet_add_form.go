@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/telnetconfig"
+	"github.com/zsuroy/ctty/internal/telnetcred"
 	"github.com/zsuroy/ctty/internal/ui/theme"
 )
 
@@ -25,11 +27,13 @@ type telnetAddFormModel struct {
 	editing  *telnetconfig.TelnetHost
 	err      string
 
-	nameVal    string
-	hostVal    string
-	portVal    string
-	tagsVal    string
-	confirmVal bool
+	nameVal     string
+	hostVal     string
+	portVal     string
+	userVal     string
+	passwordVal string
+	tagsVal     string
+	confirmVal  bool
 
 	done      bool
 	cancelled bool
@@ -50,6 +54,12 @@ func newTelnetAddForm(styles Styles, width, height int, initial *telnetconfig.Te
 		m.hostVal = initial.Host
 		if initial.Port > 0 {
 			m.portVal = strconv.Itoa(initial.Port)
+		}
+		m.userVal = initial.User
+		// Prefill the password from the vault so editing keeps it (the
+		// field is masked, matching the SSH add/edit forms).
+		if pass, ok := telnetcred.GetPassword(initial.Name); ok {
+			m.passwordVal = pass
 		}
 		m.tagsVal = strings.Join(initial.Tags, ", ")
 	}
@@ -116,6 +126,21 @@ func (m *telnetAddFormModel) buildForm() {
 				Placeholder("23").
 				Validate(validatePort).
 				Value(&m.portVal),
+
+			huh.NewInput().
+				Key("user").
+				Title(i18n.T("form.user")).
+				Prompt("> ").
+				Placeholder("root").
+				Value(&m.userVal),
+
+			huh.NewInput().
+				Key("password").
+				Title(i18n.T("form.password")).
+				Prompt("> ").
+				Placeholder(i18n.T("telnet.password_placeholder")).
+				EchoMode(huh.EchoModePassword).
+				Value(&m.passwordVal),
 
 			huh.NewInput().
 				Key("tags").
@@ -246,6 +271,10 @@ func (m *telnetAddFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *telnetAddFormModel) submit() {
+	// Each attempt starts clean: a retry after a failed vault write must not
+	// keep showing the old error once it succeeds.
+	m.err = ""
+
 	name := strings.TrimSpace(m.nameVal)
 	host := strings.TrimSpace(m.hostVal)
 	if name == "" || host == "" {
@@ -268,11 +297,25 @@ func (m *telnetAddFormModel) submit() {
 		}
 	}
 
-	newHost := telnetconfig.TelnetHost{Name: name, Host: host, Port: port, Tags: tags}
+	newHost := telnetconfig.TelnetHost{
+		Name: name,
+		Host: host,
+		Port: port,
+		User: strings.TrimSpace(m.userVal),
+		Tags: tags,
+	}
+
+	// Snapshot the device list before writing telnet.json. If the vault
+	// write below fails, restore it so a retry follows the original path
+	// (Add on a clean list / Update with the original oldName) instead of
+	// being rejected as a duplicate name.
+	previous, previousErr := telnetconfig.Load()
 
 	var err error
+	oldName := ""
 	if m.editing != nil {
-		err = telnetconfig.Update(m.editing.Name, newHost)
+		oldName = m.editing.Name
+		err = telnetconfig.Update(oldName, newHost)
 	} else {
 		err = telnetconfig.Add(newHost)
 	}
@@ -280,6 +323,37 @@ func (m *telnetAddFormModel) submit() {
 		m.err = err.Error()
 		return
 	}
+
+	// The password field is prefilled from the vault when editing, so the
+	// value the user sees is authoritative: editing it rotates the password,
+	// clearing it removes auto-login. SetPassword("") deletes the entry.
+	// Never replace it with the stored value here — that silently discarded
+	// a changed or cleared password on every rename.
+	password := strings.TrimSpace(m.passwordVal)
+	if err := telnetcred.SetPassword(name, password); err != nil {
+		// Put telnet.json back exactly as it was so a retry follows the
+		// original path (Add on a clean list / Update with the original
+		// oldName) instead of being rejected as a duplicate name.
+		if previousErr != nil {
+			// Without a readable snapshot there is nothing safe to restore;
+			// say so rather than silently leaving a half-saved device.
+			m.err = fmt.Sprintf("password vault: %v (telnet.json could not be read: %v)", err, previousErr)
+			return
+		}
+		if rbErr := telnetconfig.Save(previous); rbErr != nil {
+			m.err = fmt.Sprintf("password vault: %v (restoring telnet.json failed: %v)", err, rbErr)
+			return
+		}
+		m.err = "password vault: " + err.Error()
+		return
+	}
+
+	// On rename, drop the old key only after the new value is safely stored,
+	// so a failed vault write can never leave the device without a password.
+	if oldName != "" && oldName != name {
+		_ = telnetcred.DeletePassword(oldName)
+	}
+
 	m.done = true
 }
 
@@ -291,6 +365,10 @@ func (m *telnetAddFormModel) getFieldTitle(key string) string {
 		return strings.TrimSpace(strings.TrimSuffix(i18n.T("telnet.col_host"), ":"))
 	case "port":
 		return strings.TrimSpace(strings.TrimSuffix(i18n.T("telnet.col_port"), ":"))
+	case "user":
+		return strings.TrimSpace(strings.TrimSuffix(i18n.T("form.user"), ":"))
+	case "password":
+		return strings.TrimSpace(strings.TrimSuffix(i18n.T("form.password"), ":"))
 	case "tags":
 		return strings.TrimSpace(strings.TrimSuffix(i18n.T("table.col.tags"), ":"))
 	case "confirm":
@@ -322,7 +400,12 @@ func (m *telnetAddFormModel) View() string {
 	}
 	titleText := m.styles.Header.Width(innerW).Render(title)
 
-	helpText := m.styles.HelpText.Width(innerW).Render(i18n.T("telnet.help_add"))
+	// Render the key hints and the credential hint as separate lines, like
+	// the FTP/WebDAV forms. fitHelpLine keeps each to a single line at any
+	// terminal width, so a long hint never wraps and eats form rows.
+	helpText := m.styles.HelpText.Width(innerW).Render(fitHelpLine(i18n.T("telnet.help_add"), innerW))
+	credHint := m.styles.HelpText.Width(innerW).Render(fitHelpLine(i18n.T("telnet.cred_hint"), innerW))
+	helpJoined := lipgloss.JoinVertical(lipgloss.Left, helpText, credHint)
 
 	formView := ""
 	if m.form != nil {
@@ -331,7 +414,7 @@ func (m *telnetAddFormModel) View() string {
 
 	frameH := container.GetVerticalFrameSize()
 	headerH := lipgloss.Height(titleText)
-	helpH := lipgloss.Height(helpText)
+	helpH := lipgloss.Height(helpJoined)
 
 	targetBoxH := m.height
 	if m.height >= 14 {
@@ -381,7 +464,7 @@ func (m *telnetAddFormModel) View() string {
 	if m.err != "" {
 		contentParts = append(contentParts, m.styles.ErrorText.Width(innerW).MaxHeight(2).Render("❌ "+m.err), "")
 	}
-	contentParts = append(contentParts, bodyView, "", helpText)
+	contentParts = append(contentParts, bodyView, "", helpJoined)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, contentParts...)
 	box := container.Width(boxWidth).Render(content)

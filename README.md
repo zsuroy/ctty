@@ -266,13 +266,15 @@ Press `T` (Shift+T) from the main TUI to open the telnet device manager — for 
 
 **Telnet device list:**
 - `Enter` - Connect to selected telnet device
-- `i` - Show device info (name, host, port, tags)
+- `i` - Show device info (name, host, port, user, tags)
 - `a` - Add a new telnet device
 - `e` - Edit the selected device
 - `d` - Delete a saved telnet device
 - `p` - Probe reachability of all saved hosts (TCP dial with 3s timeout; 🟢 up / 🔴 down)
 - `/` - Search/filter devices by name, host, or tags
 - `Esc`/`q` - Return to SSH host list
+
+**Automatic login:** `a` / `e` can store a user name and password (password in the encrypted credential vault, same as SSH/FTP/WebDAV/S3). On connect, ctty auto-answers `login:` / `Username:` / `user:` / `login as:` and `Password:` / `passwd:` prompts (user name optional). It only matches real prompts at line end, answers each at most once with no retries, and falls back to manual input when unrecognized. Telnet is cleartext — this saves typing, not security.
 
 **Connecting:** The TUI suspends and bridges your terminal directly to the telnet session. Press `Ctrl+]` (classic telnet escape) to disconnect and return to the TUI. The client negotiates conservatively: it accepts ECHO / SGA / BINARY, refuses other options, and answers window-size queries with 80×24.
 

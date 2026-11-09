@@ -8,9 +8,47 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
+	"github.com/zsuroy/ctty/internal/credential"
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/telnetconfig"
 )
+
+// TestTelnetAddFormHelpFitsNarrowTerminals guards the two-line help footer.
+// Each hint lives in its own key (no hard newlines) and is fitted to the
+// available width, so a long sentence never wraps and steals form rows.
+func TestTelnetAddFormHelpFitsNarrowTerminals(t *testing.T) {
+	for _, lang := range []string{"en", "zh"} {
+		i18n.SetLang(lang)
+		for _, w := range []int{40, 60, 80, 100} {
+			innerW := w - 8 // conservative: box width minus container frame
+			if innerW < 10 {
+				innerW = 10
+			}
+			for _, key := range []string{"telnet.help_add", "telnet.cred_hint"} {
+				text := i18n.T(key)
+				if text == key {
+					t.Errorf("lang=%s width=%d: missing i18n key %q", lang, w, key)
+					continue
+				}
+				if strings.Contains(text, "\n") {
+					t.Errorf("lang=%s width=%d: %s has a hard newline; keep hints in separate keys", lang, w, key)
+				}
+				fitted := fitHelpLine(text, innerW)
+				if strings.Contains(fitted, "\n") {
+					t.Errorf("lang=%s width=%d: %s wrapped: %q", lang, w, key, fitted)
+				}
+				if got := ansi.StringWidth(fitted); got > innerW {
+					t.Errorf("lang=%s width=%d: %s fitted width %d > %d", lang, w, key, got, innerW)
+				}
+			}
+			form := newTelnetAddForm(NewStyles(w), w, 14, nil)
+			if out := form.View(); out == "" {
+				t.Errorf("lang=%s width=%d: empty View", lang, w)
+			}
+		}
+	}
+	i18n.SetLang("en")
+}
 
 func newTestTelnetForm(width, height int, hosts []telnetconfig.TelnetHost) *telnetFormModel {
 	m := NewTelnetForm(NewStyles(width), width, height)
@@ -205,8 +243,13 @@ func TestTelnetEditFormBorderTracksWidth(t *testing.T) {
 }
 
 func TestTelnetAddFormCtrlSSavesFromAnyField(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	// Ctrl+S really submits, and submit touches the credential vault. Keep
+	// both the config and the vault inside the temp dir.
+	credential.ResetStoreForTest()
+	t.Cleanup(credential.ResetStoreForTest)
 	i18n.SetLang("en")
 
 	m := newTestTelnetForm(80, 24, nil)
@@ -309,8 +352,13 @@ func TestTelnetInfoView(t *testing.T) {
 }
 
 func TestTelnetAddFormEnterSavesFromConfirmField(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	// The submit path now writes the credential vault; drop the cached
+	// singleton so it resolves to the temp dir above, not the real config.
+	credential.ResetStoreForTest()
+	t.Cleanup(credential.ResetStoreForTest)
 	i18n.SetLang("en")
 
 	m := newTestTelnetForm(80, 24, nil)
@@ -334,6 +382,12 @@ func TestTelnetAddFormEnterSavesFromConfirmField(t *testing.T) {
 		m.addForm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	// Enter → advance to port
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(*telnetFormModel)
+
+	// Enter → advance to user, then password (both optional)
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(*telnetFormModel)
 	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = res.(*telnetFormModel)
 

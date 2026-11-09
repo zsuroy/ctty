@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **🔑 Telnet automatic login (issue #46)** — saved telnet devices can carry a user name and a password; on connect, ctty answers the console's login prompts automatically (`login:` / `Username:` / `user:` / `login as:` → user, `Password:` / `passwd:` → password), covering classic dev boards and lab gear such as `(none) login: …` + `Password: …`. Prompts must end the display line and start at a word boundary, so motd text or file contents containing the words cannot trigger an answer. If a user prompt and a password prompt arrive in the same read, only the user name is answered and the password waits for a genuinely later prompt. The user name is optional, so password-only devices work. Passwords are stored in the same AES-256-GCM encrypted vault as SSH/FTP/WebDAV/S3 credentials (`telnet:` namespace, `~/.config/ctty/credentials.json`), never in `telnet.json`. Safety by construction: each prompt is answered at most once (a wrong password never retries in a loop and locks the account), and a session deadline stops the watcher when the device never prompts — handing the session back for manual input. Configure per device in the telnet add/edit form (`a` / `e`); both the TUI and `ctty telnet <name>` use it. Telnet remains cleartext: this saves typing, it does not add security.
+
 ## [1.3.2] - 2026-10-13
 
 ### Fixed
