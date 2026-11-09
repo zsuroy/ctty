@@ -456,11 +456,14 @@ func (m *telnetFormModel) refreshTable() {
 	m.loadHosts()
 	m.filterHosts()
 	m.buildTable()
-	if cursor >= m.table.Height()-1 && cursor > 0 {
-		cursor = m.table.Height() - 2
-	}
 	if cursor < 0 {
 		cursor = 0
+	}
+	if max := len(m.filtered) - 1; cursor > max {
+		if max < 0 {
+			max = 0
+		}
+		cursor = max
 	}
 	m.table.SetCursor(cursor)
 }
