@@ -46,16 +46,20 @@ func canvasRow(line string, width int) string {
 //  2. Residual lines/ghosting: Uses lipgloss.Place to pad the output to the full height,
 //     cleanly overwriting previous frame artifacts when resizing or switching views.
 //
-// On JetBrains/JediTerm and VS Code the deficit/excess tables describe how
-// glyph advances differ from ansi.StringWidth there, and rows are emitted
-// trailing-space-free with an explicit EraseLineRight (see canvasRow): the
-// terminal clears the row tail itself, so stale cells from the previous frame
-// disappear no matter which way the glyph metrics are off — and no visible
-// content is ever trimmed to make room.
+// On compensation terminals (JetBrains/JediTerm, VS Code, Windows legacy
+// console, Git Bash/mintty) glyph advances can differ from ansi.StringWidth,
+// so rows are emitted trailing-space-free with an explicit EraseLineRight
+// (see canvasRow): the terminal clears the row tail itself, avoiding stale
+// cells and soft-wrap desync without trimming visible content.
 func RenderCanvas(width, height int, content string) string {
 	if width <= 0 || height <= 0 {
 		return content
 	}
+
+	// On the Windows legacy console, swap out glyphs ConHost has no font
+	// for before any row is measured/emitted here (idempotent; the layout
+	// already budgeted the substitutes via windowsLegacyGlyphDelta).
+	content = legacyGlyphFallback(content)
 
 	lines := strings.Split(content, "\n")
 	if len(lines) > height {

@@ -219,22 +219,22 @@ func (m *webdavSitesModel) siteDisplayName(s webdavconfig.WebDAVSite) string {
 			if dur, exists := m.latencies[s.Name]; exists {
 				ms := dur.Milliseconds()
 				if ms < 50 {
-					name = "🟢 " + name
+					name = statusCircle("🟢") + " " + name
 				} else if ms < 150 {
-					name = "🟡 " + name
+					name = statusCircle("🟡") + " " + name
 				} else {
-					name = "🟠 " + name
+					name = statusCircle("🟠") + " " + name
 				}
 			} else {
-				name = "🟢 " + name
+				name = statusCircle("🟢") + " " + name
 			}
 		} else {
-			name = "🔴 " + name
+			name = statusCircle("🔴") + " " + name
 		}
 	} else if m.probing {
-		name = "🔵 " + name
+		name = statusCircle("🔵") + " " + name
 	} else {
-		name = "⚫ " + name
+		name = statusCircle("⚫") + " " + name
 	}
 	return prefix + name
 }
@@ -581,7 +581,7 @@ func (m *webdavSitesModel) rebuildTable() {
 	if rem < 20 {
 		rem = 20
 	}
-	nameW := plainWebDAVColumnWidth(m.filtered, 15, 28, func(s webdavconfig.WebDAVSite) string { return "[ ] ⚫ " + s.Name })
+	nameW := plainWebDAVColumnWidth(m.filtered, 15, 28, func(s webdavconfig.WebDAVSite) string { return "[ ] " + statusCircle("⚫") + " " + s.Name })
 	urlW := plainWebDAVColumnWidth(m.filtered, 18, 36, func(s webdavconfig.WebDAVSite) string { return s.URL })
 	userW := plainWebDAVColumnWidth(m.filtered, 8, 16, func(s webdavconfig.WebDAVSite) string { return s.User })
 	tagsW := rem - nameW - urlW - userW

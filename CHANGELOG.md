@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **🪟 Windows console / Git Bash layout & ConHost frame fixes** — glyph-width compensation and row-tail clearing now enabled on Windows legacy console (`cmd.exe`/PowerShell in ConHost) and Git Bash/mintty; glyph advances calibrated via `CONOUT$`. Windows Terminal remains on the normal rendering path. Follow-up fixes from real Win10 `cmd.exe` testing stop frames from overflowing, losing title rows, ghosting, or rendering status emoji as tofu boxes: last-column auto-return disabled, calibration moved to `CONIN$` with a static ConHost glyph-delta fallback, startup probe skipped on legacy consoles, DBCS ambiguous-width glyphs budgeted at two columns, undrawable decorative glyphs substituted from console fonts, and the Telnet list height budgeted against its real fixed overhead.
+
 ## [1.3.3] - 2026-11-09
 
 ### Added

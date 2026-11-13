@@ -364,22 +364,22 @@ func (m *telnetFormModel) hostDisplayName(h telnetconfig.TelnetHost) string {
 			if dur, exists := m.latencies[h.Name]; exists {
 				ms := dur.Milliseconds()
 				if ms < 50 {
-					name = "🟢 " + name
+					name = statusCircle("🟢") + " " + name
 				} else if ms < 150 {
-					name = "🟡 " + name
+					name = statusCircle("🟡") + " " + name
 				} else {
-					name = "🟠 " + name
+					name = statusCircle("🟠") + " " + name
 				}
 			} else {
-				name = "🟢 " + name
+				name = statusCircle("🟢") + " " + name
 			}
 		} else {
-			name = "🔴 " + name
+			name = statusCircle("🔴") + " " + name
 		}
 	} else if m.probing {
-		name = "🔵 " + name
+		name = statusCircle("🔵") + " " + name
 	} else {
-		name = "⚫ " + name
+		name = statusCircle("⚫") + " " + name
 	}
 	return prefix + name
 }
@@ -413,17 +413,32 @@ func (m *telnetFormModel) buildTable() {
 		BorderBottom(true).
 		Bold(false)
 
-	availHeight := m.height - 9
-	if m.height < 20 {
-		availHeight = m.height - 7
-	}
+	// renderTable() is hand-rolled (unlike bubbles' native table View): it
+	// spends table.Height() on DATA rows alone and draws a two-line header
+	// (titles + bottom border) on top of them. The old budget charged the
+	// header only once (the "1 +" below, following bubbles semantics), so
+	// a full table overflowed the frame by 1 row (height >= 20) or 2 rows
+	// (height < 20); the over-tall frame then scrolled the title and the
+	// protocol tabs off the top of the screen — the Telnet page appeared
+	// to have no title at all. Budget the data rows against renderList's
+	// real fixed overhead instead:
+	//   title 1 + search box 3 + table border 2 + header 2 = 8,
+	//   +1 when the protocol tabs are shown (height >= 18 and width >= 64),
+	//   +help: 2 lines at height >= 20, otherwise 1 (also 1 in search mode).
+	overhead := 8
 	if m.height >= 18 && m.width >= 64 {
-		availHeight--
+		overhead++
 	}
-	if availHeight < 2 {
-		availHeight = 2
+	if m.height >= 20 && !m.searchMode {
+		overhead += 2
+	} else {
+		overhead++
 	}
-	tableHeight := 1 + len(rows)
+	availHeight := m.height - overhead
+	if availHeight < 1 {
+		availHeight = 1
+	}
+	tableHeight := len(rows)
 	if tableHeight > availHeight {
 		tableHeight = availHeight
 	}

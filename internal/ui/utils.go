@@ -105,7 +105,7 @@ func formatConfigFile(filePath string) string {
 // getPingStatusIndicator returns a colored circle indicator based on ping status and latency tier
 func (m *Model) getPingStatusIndicator(hostName string) string {
 	if m.pingManager == nil {
-		return "⚫" // Gray circle for unknown
+		return statusCircle("⚫") // Gray circle for unknown
 	}
 
 	if result, exists := m.pingManager.GetResult(hostName); exists && result != nil {
@@ -113,30 +113,30 @@ func (m *Model) getPingStatusIndicator(hostName string) string {
 		case connectivity.StatusOnline:
 			ms := result.Duration.Milliseconds()
 			if ms < 50 {
-				return "🟢" // Green (< 50ms, fast)
+				return statusCircle("🟢") // Green (< 50ms, fast)
 			} else if ms < 150 {
-				return "🟡" // Yellow (50-150ms, normal)
+				return statusCircle("🟡") // Yellow (50-150ms, normal)
 			}
-			return "🟠" // Orange (> 150ms, high latency)
+			return statusCircle("🟠") // Orange (> 150ms, high latency)
 		case connectivity.StatusOffline:
-			return "🔴" // Red circle for offline
+			return statusCircle("🔴") // Red circle for offline
 		case connectivity.StatusConnecting:
-			return "🔵" // Blue circle for connecting
+			return statusCircle("🔵") // Blue circle for connecting
 		default:
-			return "⚫" // Gray circle for unknown
+			return statusCircle("⚫") // Gray circle for unknown
 		}
 	}
 
 	status := m.pingManager.GetStatus(hostName)
 	switch status {
 	case connectivity.StatusOnline:
-		return "🟢"
+		return statusCircle("🟢")
 	case connectivity.StatusOffline:
-		return "🔴"
+		return statusCircle("🔴")
 	case connectivity.StatusConnecting:
-		return "🔵"
+		return statusCircle("🔵")
 	default:
-		return "⚫"
+		return statusCircle("⚫")
 	}
 }
 

@@ -217,22 +217,22 @@ func (m *ftpSitesModel) siteDisplayName(s ftpconfig.FTPSite) string {
 			if dur, exists := m.latencies[s.Name]; exists {
 				ms := dur.Milliseconds()
 				if ms < 50 {
-					name = "🟢 " + name
+					name = statusCircle("🟢") + " " + name
 				} else if ms < 150 {
-					name = "🟡 " + name
+					name = statusCircle("🟡") + " " + name
 				} else {
-					name = "🟠 " + name
+					name = statusCircle("🟠") + " " + name
 				}
 			} else {
-				name = "🟢 " + name
+				name = statusCircle("🟢") + " " + name
 			}
 		} else {
-			name = "🔴 " + name
+			name = statusCircle("🔴") + " " + name
 		}
 	} else if m.probing {
-		name = "🔵 " + name
+		name = statusCircle("🔵") + " " + name
 	} else {
-		name = "⚫ " + name
+		name = statusCircle("⚫") + " " + name
 	}
 	return prefix + name
 }
@@ -597,7 +597,7 @@ func (m *ftpSitesModel) rebuildTable() {
 		rem = 12
 	}
 	// Content-based widths (SSH-style): short values don't starve Tags.
-	nameW := plainColumnWidth(m.filtered, 15, 31, func(s ftpconfig.FTPSite) string { return "[ ] ⚫ " + s.Name })
+	nameW := plainColumnWidth(m.filtered, 15, 31, func(s ftpconfig.FTPSite) string { return "[ ] " + statusCircle("⚫") + " " + s.Name })
 	hostW := plainColumnWidth(m.filtered, 12, 32, func(s ftpconfig.FTPSite) string {
 		user := s.User
 		if user == "" {
