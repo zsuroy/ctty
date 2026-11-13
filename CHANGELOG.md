@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **⌨️ Saved commands inside telnet and serial sessions (issue #53)** — press `Ctrl+\` in a live telnet or serial session to list the commands saved in `~/.config/ctty/snippets.json` (the same list as the `x` exec view), type a number and Enter to insert it into the session. The command is typed without a trailing Enter, device output is held while the list is open, and `Ctrl+]` still disconnects. Interactive SSH sessions are not covered yet because they run under the system `ssh`.
+
 ### Fixed
 
 - **📂 SFTP on Windows cannot use the SSH agent (issue #52)** — the built-in SFTP client only dialed the agent over a Unix socket (`SSH_AUTH_SOCK`), so it never reached the OpenSSH named pipe `\\.\pipe\openssh-ssh-agent` on Windows. SFTP now uses that pipe when IdentityAgent / `SSH_AUTH_SOCK` are unset (and still honors `IdentityAgent none`). Encrypted identity files prompt for a key passphrase instead of being skipped, and key load/parse failures are shown instead of falling through to a server-password prompt.

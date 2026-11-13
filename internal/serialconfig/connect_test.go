@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/zsuroy/ctty/internal/snippets"
 	"go.bug.st/serial"
 )
 
@@ -172,5 +174,65 @@ func TestIsPortClosed(t *testing.T) {
 	}
 	if isPortClosed(errors.New("I/O error")) {
 		t.Fatal("I/O error should not be PortClosed")
+	}
+}
+
+type recordPort struct {
+	fakePort
+	mu      sync.Mutex
+	written bytes.Buffer
+}
+
+func (r *recordPort) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.written.Write(p)
+}
+
+func TestRun_SnippetHotkeyInsertsSavedCommand(t *testing.T) {
+	origOpen := serialOpen
+	origRaw := setRawStdinFn
+	origRestore := restoreStdinFn
+	defer func() {
+		serialOpen = origOpen
+		setRawStdinFn = origRaw
+		restoreStdinFn = origRestore
+	}()
+	setRawStdinFn = func() (*termState, error) { return nil, nil }
+	restoreStdinFn = func(_ *termState) {}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := snippets.Save([]snippets.Snippet{{Name: "vlan", Command: "show vlan brief"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	rp := &recordPort{fakePort: fakePort{readDone: make(chan struct{})}}
+	serialOpen = func(_ string, _ *serial.Mode) (serial.Port, error) { return rp, nil }
+
+	dev := SerialDevice{Name: "lab", Device: "/tmp/fake0", BaudRate: 9600, DataBits: 8, Parity: "none", StopBits: 1}
+	cmd := NewExecCommand(dev)
+	// Separate reads, like real keystrokes: hotkey, choice, then disconnect.
+	cmd.SetStdin(io.MultiReader(
+		bytes.NewReader([]byte{0x1c}),
+		bytes.NewReader([]byte("1\r")),
+		bytes.NewReader([]byte{0x1d}),
+	))
+	var out, errOut bytes.Buffer
+	cmd.SetStdout(&out)
+	cmd.SetStderr(&errOut)
+
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	rp.mu.Lock()
+	got := rp.written.String()
+	rp.mu.Unlock()
+	if got != "show vlan brief" {
+		t.Fatalf("device received %q, want the saved command without newline", got)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("show vlan brief")) {
+		t.Fatalf("picker list not shown on terminal: %q", out.String())
 	}
 }
