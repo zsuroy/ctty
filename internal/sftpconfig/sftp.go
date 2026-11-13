@@ -213,40 +213,40 @@ func lookupParsedHost(hostName, configFile string) (*config.SSHHost, error) {
 	return nil, fmt.Errorf("host '%s' not found in SSH config", hostName)
 }
 
+// PassphraseRequiredError is returned when an identity file is encrypted
+// and no passphrase was provided to decrypt it.
+type PassphraseRequiredError struct {
+	Path string
+}
+
+func (e *PassphraseRequiredError) Error() string {
+	return fmt.Sprintf("private key %s is encrypted and requires a passphrase", e.Path)
+}
+
+// IsPassphraseRequired reports whether err is or wraps a PassphraseRequiredError.
+func IsPassphraseRequired(err error) bool {
+	var e *PassphraseRequiredError
+	return errors.As(err, &e)
+}
+
 // Connect establishes an SSH connection to the given host and returns an SFTPClient.
 // It resolves effective SSH settings (ssh -G when available) so IdentityFile
 // entries from Host * / merged config work the same as interactive ssh.
 func Connect(hostName string, configFile string) (*SFTPClient, error) {
-	parsed, parsedErr := lookupParsedHost(hostName, configFile)
-	_, sshgErr := runSSHG(hostName, configFile)
-	if parsedErr != nil && sshgErr != nil {
-		return nil, fmt.Errorf("host '%s' not found in SSH config", hostName)
-	}
-	eff := resolveFrom(parsed, hostName, configFile)
-
-	sshConfig, err := buildSSHConfig(hostName, eff)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build SSH config: %w", err)
-	}
-
-	addr := net.JoinHostPort(eff.hostname, eff.port)
-
-	sshClient, err := ssh.Dial("tcp", addr, sshConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to %s: %w", addr, err)
-	}
-
-	return &SFTPClient{
-		sshClient:  sshClient,
-		host:       config.SSHHost{Name: hostName, Hostname: eff.hostname, User: eff.user, Port: eff.port},
-		configFile: configFile,
-	}, nil
+	return ConnectWithAuth(hostName, configFile, "", "")
 }
 
 // ConnectWithPassword connects to the host using publickey + password auth.
 // password can be empty to try publickey only, or a password to try
 // keyboard-interactive + password auth as fallback.
 func ConnectWithPassword(hostName string, configFile string, password string) (*SFTPClient, error) {
+	return ConnectWithAuth(hostName, configFile, password, "")
+}
+
+// ConnectWithAuth is like ConnectWithPassword but also accepts a passphrase
+// for encrypted identity files. passphrase may be empty when the key is
+// unencrypted or will be provided by an SSH agent.
+func ConnectWithAuth(hostName, configFile, password, passphrase string) (*SFTPClient, error) {
 	parsed, parsedErr := lookupParsedHost(hostName, configFile)
 	_, sshgErr := runSSHG(hostName, configFile)
 	if parsedErr != nil && sshgErr != nil {
@@ -254,7 +254,7 @@ func ConnectWithPassword(hostName string, configFile string, password string) (*
 	}
 	eff := resolveFrom(parsed, hostName, configFile)
 
-	sshConfig, err := buildSSHConfig(hostName, eff)
+	sshConfig, err := buildSSHConfig(hostName, eff, passphrase)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build SSH config: %w", err)
 	}
@@ -295,8 +295,8 @@ func ConnectWithPassword(hostName string, configFile string, password string) (*
 }
 
 // buildSSHConfig creates an *ssh.ClientConfig from resolved host settings.
-func buildSSHConfig(hostName string, eff effectiveHost) (*ssh.ClientConfig, error) {
-	authMethods, err := getAuthMethods(eff)
+func buildSSHConfig(hostName string, eff effectiveHost, passphrase string) (*ssh.ClientConfig, error) {
+	authMethods, err := getAuthMethods(eff, passphrase)
 	if err != nil {
 		return nil, err
 	}
@@ -338,24 +338,38 @@ func getUser(eff effectiveHost) string {
 	return "root"
 }
 
-// getAuthMethods returns SSH auth methods from the SSH agent and identity
-// files. eff.identityFiles is the effective ordered list (from ssh -G when
-// available, so Host * defaults and multiple IdentityFile entries are honored).
-func getAuthMethods(eff effectiveHost) ([]ssh.AuthMethod, error) {
-	var methods []ssh.AuthMethod
-
-	// Try SSH agent (identityAgent takes precedence over SSH_AUTH_SOCK per OpenSSH spec)
-	socket := eff.identityAgent
+// agentAddr returns the SSH agent endpoint to dial, or "" if the agent is
+// disabled. IdentityAgent takes precedence over SSH_AUTH_SOCK (OpenSSH).
+// On Windows, when both are unset, this falls back to the OpenSSH named pipe.
+func agentAddr(identityAgent string) string {
+	if identityAgent == "none" {
+		return ""
+	}
+	socket := identityAgent
 	if socket == "" || socket == "SSH_AUTH_SOCK" {
 		socket = os.Getenv("SSH_AUTH_SOCK")
-	} else if socket == "none" {
-		socket = ""
 	} else {
 		socket = expandPath(socket)
 	}
+	if socket == "" {
+		socket = defaultSSHAgentAddr()
+	}
+	return socket
+}
 
-	if socket != "" {
-		conn, err := net.Dial("unix", socket)
+// getAuthMethods returns SSH auth methods from the SSH agent and identity
+// files. eff.identityFiles is the effective ordered list (from ssh -G when
+// available, so Host * defaults and multiple IdentityFile entries are honored).
+//
+// Encrypted keys require passphrase; missing files are skipped (ssh -G lists
+// default key paths even when they do not exist). Other load/parse failures
+// are returned when no usable method was found, so callers can show a real
+// error instead of falling through to a server-password prompt.
+func getAuthMethods(eff effectiveHost, passphrase string) ([]ssh.AuthMethod, error) {
+	var methods []ssh.AuthMethod
+
+	if socket := agentAddr(eff.identityAgent); socket != "" {
+		conn, err := dialSSHAgent(socket)
 		if err == nil {
 			agentClient := agent.NewClient(conn)
 			signers, err := agentClient.Signers()
@@ -369,21 +383,32 @@ func getAuthMethods(eff effectiveHost) ([]ssh.AuthMethod, error) {
 
 	// Try identity files from effective config (deduplicated, in order).
 	seen := make(map[string]bool)
+	var loadErrs []error
+	var passErr *PassphraseRequiredError
 	addKey := func(path string) {
 		keyPath := expandPath(path)
 		if keyPath == "" || seen[keyPath] {
 			return
 		}
 		seen[keyPath] = true
-		key, err := os.ReadFile(keyPath)
+		signer, err := loadIdentitySigner(keyPath, passphrase)
 		if err != nil {
+			if os.IsNotExist(err) {
+				return
+			}
+			var pe *PassphraseRequiredError
+			if errors.As(err, &pe) {
+				if passErr == nil {
+					passErr = pe
+				}
+				return
+			}
+			loadErrs = append(loadErrs, err)
 			return
 		}
-		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil {
-			return
+		if signer != nil {
+			methods = append(methods, ssh.PublicKeys(signer))
 		}
-		methods = append(methods, ssh.PublicKeys(signer))
 	}
 	for _, id := range eff.identityFiles {
 		addKey(id)
@@ -397,8 +422,40 @@ func getAuthMethods(eff effectiveHost) ([]ssh.AuthMethod, error) {
 		}
 	}
 
+	if len(methods) > 0 {
+		return methods, nil
+	}
+	if passErr != nil {
+		return nil, passErr
+	}
+	if len(loadErrs) > 0 {
+		return nil, errors.Join(loadErrs...)
+	}
 	// Don't return error if no methods found — password auth might be used
 	return methods, nil
+}
+
+func loadIdentitySigner(keyPath, passphrase string) (ssh.Signer, error) {
+	key, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, err
+	}
+	signer, err := ssh.ParsePrivateKey(key)
+	if err == nil {
+		return signer, nil
+	}
+	var missing *ssh.PassphraseMissingError
+	if !errors.As(err, &missing) {
+		return nil, fmt.Errorf("parse identity file %s: %w", keyPath, err)
+	}
+	if passphrase == "" {
+		return nil, &PassphraseRequiredError{Path: keyPath}
+	}
+	signer, err = ssh.ParsePrivateKeyWithPassphrase(key, []byte(passphrase))
+	if err != nil {
+		return nil, fmt.Errorf("decrypt identity file %s: %w", keyPath, err)
+	}
+	return signer, nil
 }
 
 var knownHostsMu sync.Mutex

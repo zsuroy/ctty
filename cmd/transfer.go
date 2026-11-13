@@ -57,11 +57,7 @@ func finishProgress() {
 }
 
 func connectTransferClient(hostName string) (*sftpconfig.SFTPClient, error) {
-	client, err := sftpconfig.ConnectWithPassword(hostName, configFile, "")
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+	return dialSFTPClient(hostName)
 }
 
 var putCmd = &cobra.Command{

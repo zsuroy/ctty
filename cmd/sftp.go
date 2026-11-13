@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/sftpconfig"
 	"github.com/zsuroy/ctty/internal/ui"
+
+	"golang.org/x/term"
 )
 
 // sftpCmd is the parent for SFTP. It supports both:
@@ -105,12 +108,43 @@ func completeSFTPHosts(toComplete string) []string {
 }
 
 func connectSFTPClient(hostName string) *sftpconfig.SFTPClient {
-	client, err := sftpconfig.ConnectWithPassword(hostName, configFile, "")
+	client, err := dialSFTPClient(hostName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	return client
+}
+
+func dialSFTPClient(hostName string) (*sftpconfig.SFTPClient, error) {
+	client, err := sftpconfig.ConnectWithPassword(hostName, configFile, "")
+	if sftpconfig.IsPassphraseRequired(err) {
+		passphrase, perr := promptPrivateKeyPassphrase(err)
+		if perr != nil {
+			return nil, perr
+		}
+		client, err = sftpconfig.ConnectWithAuth(hostName, configFile, "", passphrase)
+	}
+	return client, err
+}
+
+func promptPrivateKeyPassphrase(err error) (string, error) {
+	path := "private key"
+	var pe *sftpconfig.PassphraseRequiredError
+	if errors.As(err, &pe) && pe.Path != "" {
+		path = pe.Path
+	}
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return "", fmt.Errorf("%w (not a terminal; cannot prompt for passphrase)", err)
+	}
+	fmt.Fprintf(os.Stderr, "Passphrase for %s: ", path)
+	b, rerr := term.ReadPassword(fd)
+	fmt.Fprintln(os.Stderr)
+	if rerr != nil {
+		return "", rerr
+	}
+	return string(b), nil
 }
 
 // --- headless SFTP ops ---
