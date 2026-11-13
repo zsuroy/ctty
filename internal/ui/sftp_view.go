@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -32,6 +33,7 @@ const (
 	sftpRenameInput
 	sftpDeleteConfirm
 	sftpPasswordInput
+	sftpPassphraseInput
 	sftpError
 )
 
@@ -205,15 +207,16 @@ func (m *sftpFormModel) Init() tea.Cmd {
 // sftpPasswordPromptMsg tells the parent to switch to password input mode.
 type sftpPasswordPromptMsg struct{}
 
+// sftpPassphrasePromptMsg tells the parent to ask for an identity-file passphrase.
+type sftpPassphrasePromptMsg struct {
+	path string
+}
+
 func (m *sftpFormModel) connectCmd() tea.Cmd {
 	return func() tea.Msg {
 		client, err := sftpconfig.ConnectWithPassword(m.hostName, m.configFile, "")
 		if err != nil {
-			if strings.Contains(err.Error(), "unable to authenticate") ||
-				strings.Contains(err.Error(), "no supported methods") {
-				return sftpPasswordPromptMsg{}
-			}
-			return sftpErrorMsg{err: err}
+			return m.connectErrorMsg(err)
 		}
 
 		cwd, err := client.RealPath(".")
@@ -396,7 +399,18 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.mode = sftpPasswordInput
 		m.inputBuffer = ""
-		m.inputPrompt = "Password for " + m.hostName + ":"
+		m.inputPrompt = i18n.T("sftp.password_prompt", m.hostName)
+		return m, nil
+
+	case sftpPassphrasePromptMsg:
+		m.loading = false
+		m.mode = sftpPassphraseInput
+		m.inputBuffer = ""
+		path := msg.path
+		if path == "" {
+			path = "private key"
+		}
+		m.inputPrompt = i18n.T("sftp.passphrase_prompt", path)
 		return m, nil
 
 	case sftpEntriesMsg:
@@ -543,8 +557,8 @@ func (m *sftpFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle password input mode
-		if m.mode == sftpPasswordInput {
+		// Handle password / key-passphrase input mode
+		if m.mode == sftpPasswordInput || m.mode == sftpPassphraseInput {
 			return m.handlePasswordInput(msg)
 		}
 		// Handle confirm dialogs
@@ -1402,6 +1416,22 @@ func (m *sftpFormModel) handleRenameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m *sftpFormModel) connectErrorMsg(err error) tea.Msg {
+	if sftpconfig.IsPassphraseRequired(err) {
+		var pe *sftpconfig.PassphraseRequiredError
+		path := ""
+		if errors.As(err, &pe) {
+			path = pe.Path
+		}
+		return sftpPassphrasePromptMsg{path: path}
+	}
+	if strings.Contains(err.Error(), "unable to authenticate") ||
+		strings.Contains(err.Error(), "no supported methods") {
+		return sftpPasswordPromptMsg{}
+	}
+	return sftpErrorMsg{err: err}
+}
+
 func (m *sftpFormModel) handlePasswordInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
@@ -1410,15 +1440,26 @@ func (m *sftpFormModel) handlePasswordInput(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		return m, func() tea.Msg { return sftpDoneMsg{} }
 
 	case "enter":
-		password := m.inputBuffer
-		m.password = password
+		secret := m.inputBuffer
+		askPassphrase := m.mode == sftpPassphraseInput
+		if !askPassphrase {
+			m.password = secret
+		}
 		m.inputBuffer = ""
 		m.loading = true
 		m.mode = sftpBrowse
 		return m, func() tea.Msg {
-			client, err := sftpconfig.ConnectWithPassword(m.hostName, m.configFile, password)
+			var (
+				client *sftpconfig.SFTPClient
+				err    error
+			)
+			if askPassphrase {
+				client, err = sftpconfig.ConnectWithAuth(m.hostName, m.configFile, m.password, secret)
+			} else {
+				client, err = sftpconfig.ConnectWithPassword(m.hostName, m.configFile, secret)
+			}
 			if err != nil {
-				return sftpErrorMsg{err: err}
+				return m.connectErrorMsg(err)
 			}
 			cwd, err := client.RealPath(".")
 			if err != nil {
@@ -1546,12 +1587,18 @@ func (m *sftpFormModel) View() string {
 		return renderFormPage(m.styles, m.width, body)
 	}
 
-	if m.mode == sftpPasswordInput {
-		body := m.styles.FormTitle.Render(" SFTP - Password ") + "\n\n" +
+	if m.mode == sftpPasswordInput || m.mode == sftpPassphraseInput {
+		title := i18n.T("sftp.password_title")
+		help := i18n.T("sftp.password_help")
+		if m.mode == sftpPassphraseInput {
+			title = i18n.T("sftp.passphrase_title")
+			help = i18n.T("sftp.passphrase_help")
+		}
+		body := m.styles.FormTitle.Render(" "+title+" ") + "\n\n" +
 			fmt.Sprintf("  %s\n", m.inputPrompt) +
 			fmt.Sprintf("  %s_\n", strings.Repeat("*", len(m.inputBuffer))) +
 			"\n" +
-			m.styles.HelpText.Render("  Enter: connect • Esc: cancel")
+			m.styles.HelpText.Render(help)
 		return renderFormPage(m.styles, m.width, body)
 	}
 
