@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/zsuroy/ctty/internal/rawterm"
+	"github.com/zsuroy/ctty/internal/sessionsnippet"
 	"github.com/zsuroy/ctty/internal/telnetconfig"
 	"github.com/zsuroy/ctty/internal/telnetcred"
 )
@@ -135,8 +136,13 @@ func (b *Bridge) Run(stdin io.Reader, stdout, stderr io.Writer) error {
 
 	done := make(chan struct{}, 2)
 
+	// Device output goes through the gate so the snippet list stays readable.
+	gate := sessionsnippet.NewOutputGate(stdout)
+	picker := sessionsnippet.NewPicker(gate)
+
 	// stdin -> network. The writer loop owns all writes to conn.
 	go func() {
+		defer picker.Close()
 		buf := make([]byte, 4096)
 		for {
 			n, rerr := stdin.Read(buf)
@@ -147,10 +153,12 @@ func (b *Bridge) Run(stdin io.Reader, stdout, stderr io.Writer) error {
 					done <- struct{}{}
 					return
 				}
-				if _, werr := b.conn.Write(filterIAC(buf[:n])); werr != nil {
-					b.exit.Store(true)
-					done <- struct{}{}
-					return
+				if send := picker.Process(buf[:n]); len(send) > 0 {
+					if _, werr := b.conn.Write(filterIAC(send)); werr != nil {
+						b.exit.Store(true)
+						done <- struct{}{}
+						return
+					}
 				}
 			}
 			if rerr != nil {
@@ -170,7 +178,7 @@ func (b *Bridge) Run(stdin io.Reader, stdout, stderr io.Writer) error {
 			n, err := b.conn.Read(buf)
 			if n > 0 {
 				if out := parser.feed(buf[:n], stdout); len(out) > 0 {
-					if _, werr := stdout.Write(out); werr != nil {
+					if _, werr := gate.Write(out); werr != nil {
 						return
 					}
 					// Answer login prompts from what the user sees.
@@ -496,7 +504,7 @@ func (c *telnetExecCommand) Run() error {
 		errOut = os.Stderr
 	}
 
-	fmt.Fprintf(errOut, "Connected to %s (%s). Press Ctrl+] to disconnect.\n",
+	fmt.Fprintf(errOut, "Connected to %s (%s). Press Ctrl+] to disconnect, "+sessionsnippet.HotkeyLabel+" for saved commands.\n",
 		c.host.Name, addr)
 
 	bridge := NewBridge(conn).WithAutoLogin(AutoLoginFor(c.host))

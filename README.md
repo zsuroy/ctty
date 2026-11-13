@@ -250,7 +250,7 @@ Press `t` from the main TUI to enter the serial device manager. Available serial
 - Baud rate can be typed directly or cycled via `←/→` through presets (9600/19200/38400/57600/115200/230400/460800/921600)
 - Press `Enter` to connect with the modified parameters
 
-**Connecting:** The TUI suspends and bridges your terminal directly to the serial port. Press `Ctrl+]` to disconnect and return to the TUI.
+**Connecting:** The TUI suspends and bridges your terminal directly to the serial port. Press `Ctrl+]` to disconnect and return to the TUI. Press `Ctrl+\` to pick a saved command (from `~/.config/ctty/snippets.json`, the same list as the `x` exec view) and insert it into the session; it is typed without Enter so you can check it first.
 
 You can also launch the serial manager directly:
 ```bash
@@ -276,7 +276,7 @@ Press `T` (Shift+T) from the main TUI to open the telnet device manager — for 
 
 **Automatic login:** `a` / `e` can store a user name and password (password in the encrypted credential vault, same as SSH/FTP/WebDAV/S3). On connect, ctty auto-answers `login:` / `Username:` / `user:` / `login as:` and `Password:` / `passwd:` prompts (user name optional). It only matches real prompts at line end, answers each at most once with no retries, and falls back to manual input when unrecognized. Telnet is cleartext — this saves typing, not security.
 
-**Connecting:** The TUI suspends and bridges your terminal directly to the telnet session. Press `Ctrl+]` (classic telnet escape) to disconnect and return to the TUI. The client negotiates conservatively: it accepts ECHO / SGA / BINARY, refuses other options, and answers window-size queries with 80×24.
+**Connecting:** The TUI suspends and bridges your terminal directly to the telnet session. Press `Ctrl+]` (classic telnet escape) to disconnect and return to the TUI. Press `Ctrl+\` to pick a saved command (from `~/.config/ctty/snippets.json`, the same list as the `x` exec view) and insert it into the session; it is typed without Enter so you can check it first. The client negotiates conservatively: it accepts ECHO / SGA / BINARY, refuses other options, and answers window-size queries with 80×24.
 
 You can also connect without opening the manager:
 ```bash

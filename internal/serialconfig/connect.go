@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/zsuroy/ctty/internal/sessionsnippet"
 	"go.bug.st/serial"
 )
 
@@ -68,7 +69,7 @@ func (c *serialExecCommand) Run() error {
 		errOut = os.Stderr
 	}
 
-	fmt.Fprintf(errOut, "Connected to %s (%s @ %d baud). Press Ctrl+] to disconnect.\n",
+	fmt.Fprintf(errOut, "Connected to %s (%s @ %d baud). Press Ctrl+] to disconnect, "+sessionsnippet.HotkeyLabel+" for saved commands.\n",
 		c.dev.Name, c.dev.Device, c.dev.BaudRate)
 
 	oldState, err := setRawStdinFn()
@@ -83,7 +84,12 @@ func (c *serialExecCommand) Run() error {
 
 	errCh := make(chan error, 2)
 
+	// Device output goes through the gate so the snippet list stays readable.
+	gate := sessionsnippet.NewOutputGate(out)
+	picker := sessionsnippet.NewPicker(gate)
+
 	go func() {
+		defer picker.Close()
 		buf := make([]byte, 4096)
 		for {
 			n, rerr := in.Read(buf)
@@ -93,9 +99,10 @@ func (c *serialExecCommand) Run() error {
 					errCh <- nil
 					return
 				}
+				send := picker.Process(buf[:n])
 				written := 0
-				for written < n {
-					m, werr := port.Write(buf[written:n])
+				for written < len(send) {
+					m, werr := port.Write(send[written:])
 					if werr != nil {
 						if isPortClosed(werr) {
 							errCh <- nil
@@ -122,7 +129,7 @@ func (c *serialExecCommand) Run() error {
 	}()
 
 	go func() {
-		_, err := io.Copy(out, port)
+		_, err := io.Copy(gate, port)
 		if err != nil && isPortClosed(err) {
 			err = nil
 		}

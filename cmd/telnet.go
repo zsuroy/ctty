@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zsuroy/ctty/internal/sessionsnippet"
 	"github.com/zsuroy/ctty/internal/telnetclient"
 	"github.com/zsuroy/ctty/internal/telnetconfig"
 	"github.com/zsuroy/ctty/internal/ui"
@@ -43,7 +44,8 @@ Forms:
   ctty telnet 192.168.1.1              Connect to host on port 23
   ctty telnet 10.0.0.5:2001            Connect with an explicit port
 
-Press Ctrl-] during a session to disconnect.`,
+Press Ctrl-] during a session to disconnect, or Ctrl+\ to insert a saved command
+(from ~/.config/ctty/snippets.json, shared with the x exec view).`,
 	Args: cobra.ArbitraryArgs,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) >= 1 {
@@ -217,7 +219,7 @@ func connectTelnet(host string, port int) {
 		log.Fatalf("Error connecting to %s: %v", addr, err)
 	}
 	defer conn.Close()
-	fmt.Printf("Connected to %s. Press Ctrl-] to disconnect.\n", addr)
+	fmt.Printf("Connected to %s. Press Ctrl-] to disconnect, %s for saved commands.\n", addr, sessionsnippet.HotkeyLabel)
 	bridge := telnetclient.NewBridge(conn)
 	if err := bridge.Run(nil, nil, nil); err != nil {
 		log.Fatalf("Session error: %v", err)
@@ -233,7 +235,7 @@ func connectTelnetDevice(dev telnetconfig.TelnetHost) {
 		log.Fatalf("Error connecting to %s: %v", addr, err)
 	}
 	defer conn.Close()
-	fmt.Printf("Connected to %s (%s). Press Ctrl-] to disconnect.\n", dev.Name, addr)
+	fmt.Printf("Connected to %s (%s). Press Ctrl-] to disconnect, %s for saved commands.\n", dev.Name, addr, sessionsnippet.HotkeyLabel)
 	bridge := telnetclient.NewBridge(conn).WithAutoLogin(telnetclient.AutoLoginFor(dev))
 	if err := bridge.Run(nil, nil, nil); err != nil {
 		log.Fatalf("Session error: %v", err)
