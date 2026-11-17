@@ -149,12 +149,11 @@ var consoleOutputCPDBCS bool
 // this smeared focused form fields into duplicated labels); over-counting
 // only leaves a harmless gap, so these are budgeted at their DBCS advance.
 //
-// Arrows, bullet, em dash and return glyphs are deliberately absent: they are
-// folded to ASCII by legacyGlyphFallback, giving them a deterministic one-cell
-// advance. Charging them here too would push body rows a column past their
-// title rows' border — see legacyGlyphReplacer.
+// Arrows, bullet, em dash, ellipsis and return glyphs are deliberately absent:
+// they are folded to ASCII by legacyGlyphFallback, giving them a deterministic
+// one-cell advance. Charging them here too would push body rows a column past
+// their title rows' border — see legacyGlyphReplacer.
 var dbcsAmbiguousWide = []string{
-	"\u2026", // horizontal ellipsis (truncation)
 	"\u2013", // en dash
 	"\u00b7", // middle dot
 	"\u00ab", // left guillemet
@@ -366,6 +365,7 @@ var legacyGlyphReplacer = strings.NewReplacer(
 	// substitutes make the advance deterministic on every font.
 	"\u2022", "-", // bullet (help separators, modal titles)
 	"\u2014", "-", // em dash (help title, empty-row hints)
+	"\u2026", ".", // ellipsis (table header/cell truncation)
 	// Arrows in the help key-hint columns (→/1 open, ←/h parent) are the same
 	// class; left un-folded they render a column wider than the title rows.
 	"\u2190", "<", // leftwards arrow (select fields, help key hints)

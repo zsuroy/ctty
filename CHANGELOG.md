@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - **🔍 Telnet search bar on Chinese Windows cmd** — the zh placeholder ended with a DBCS-ambiguous ellipsis that ConHost paints two cells wide, pushing the search box's right border one column out. The placeholder now uses ASCII dots, and all search bars are re-aligned after their border is drawn (like the tables), so ambiguous glyphs typed into the field cannot overflow the frame.
+- **🪣 S3 site list header on Windows cmd** — truncated column titles (such as the zh bucket label) end in an ellipsis that ConHost paints two cells wide, pushing the header's right border out of the table. Legacy consoles now fold the ellipsis to a one-cell dot at paint time, so truncated headers and cells stay inside their border.
 
 ## [1.3.4] - 2026-11-17
 

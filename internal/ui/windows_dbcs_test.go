@@ -24,7 +24,7 @@ func TestDBCSAmbiguousDelta(t *testing.T) {
 		{"↑↓: 移动 • Enter: 连接", 0},  // arrows and bullet are ASCII-substituted
 		{"名称 ↓", 0},                // sort mark substituted
 		{"（暂无已保存的设备 — 按 a 添加）", 0}, // em dash substituted
-		{"truncated…", 1},          // ellipsis paints two cells on GBK 936
+		{"truncated…", 0},          // ellipsis is ASCII-substituted at paint time
 		{"● status ✓", 2},          // painted circle and check are DBCS-ambiguous
 		{"★ favorite snippet", 1},  // black star is a GB2312 symbol: two cells
 	}
@@ -42,6 +42,12 @@ func TestDBCSAmbiguousDelta(t *testing.T) {
 func TestLegacyGlyphFallbackBallotX(t *testing.T) {
 	if got := legacyGlyphReplacer.Replace("  \u2717 failed"); got != "  \u00d7 failed" {
 		t.Errorf("ballot X fallback = %q, want %q", got, "  \u00d7 failed")
+	}
+}
+
+func TestLegacyGlyphFallbackEllipsis(t *testing.T) {
+	if got := legacyGlyphReplacer.Replace("存储桶 (Buc…"); got != "存储桶 (Buc." {
+		t.Errorf("ellipsis fallback = %q, want %q", got, "存储桶 (Buc.")
 	}
 }
 
