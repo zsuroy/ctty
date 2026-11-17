@@ -1211,9 +1211,9 @@ func (m *telnetFormModel) renderList() string {
 	}
 	searchContent = ansi.Truncate(searchContent, searchMaxW, "")
 	if m.searchMode {
-		components = append(components, m.styles.SearchFocused.Render(searchContent))
+		components = append(components, alignJetBrainsBox(m.styles.SearchFocused.Render(searchContent)))
 	} else {
-		components = append(components, m.styles.SearchUnfocused.Render(searchContent))
+		components = append(components, alignJetBrainsBox(m.styles.SearchUnfocused.Render(searchContent)))
 	}
 	// Align AFTER the border is drawn: lipgloss pads block lines to the
 	// widest one by ansi.StringWidth, so rows carrying the ⚫ status circle

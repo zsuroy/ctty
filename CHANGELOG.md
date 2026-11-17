@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.5] - 2026-11-17
+
+### Fixed
+
+- **📂 SFTP leaked an SSH agent connection per session** — the agent connection used for public-key signers is now closed once authentication completes instead of staying open for the life of the process.
+- **🔍 Telnet search bar on Chinese Windows cmd** — the zh placeholder ended with a DBCS-ambiguous ellipsis that ConHost paints two cells wide, pushing the search box's right border one column out. The placeholder now uses ASCII dots, and all search bars are re-aligned after their border is drawn (like the tables), so ambiguous glyphs typed into the field cannot overflow the frame.
+- **🪣 S3 site list header on Windows cmd** — truncated column titles (such as the zh bucket label) end in an ellipsis that ConHost paints two cells wide, pushing the header's right border out of the table. Legacy consoles now fold the ellipsis to a one-cell dot at paint time, so truncated headers and cells stay inside their border.
+- **🪟 Native Windows cmd / PowerShell host list alignment** — classic ConHost paints ambiguous glyphs such as `●`, `✓`, and `◆` two cells wide even when the code page is not a DBCS page, so the SSH host list's right border overflowed one column and checking a host did not change the row. Legacy consoles now fold the remaining ambiguous glyphs to one-cell ASCII before layout, so the border stays aligned and selection rows no longer shift. Windows Terminal and IDE terminals are unchanged.
+
 ## [1.3.4] - 2026-11-17
 
 ### Added
@@ -14,7 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - **📂 SFTP on Windows cannot use the SSH agent (issue #52)** — the built-in SFTP client only dialed the agent over a Unix socket (`SSH_AUTH_SOCK`), so it never reached the OpenSSH named pipe `\\.\pipe\openssh-ssh-agent` on Windows. SFTP now uses that pipe when IdentityAgent / `SSH_AUTH_SOCK` are unset (and still honors `IdentityAgent none`). Encrypted identity files prompt for a key passphrase instead of being skipped, and key load/parse failures are shown instead of falling through to a server-password prompt.
-- **📂 SFTP leaked an SSH agent connection per session** — the agent connection used for public-key signers is now closed once authentication completes instead of staying open for the life of the process.
 
 - **🖥️ ConHost / JetBrains / VS Code frame and border rendering** — dynamic glyph advances and paint-time ASCII substitutes for characters ConHost cannot draw or advances differently, real-advance alignment for tables, cards, bordered forms and the standalone `ctty browse` pipeline, uniform header/body borders on DBCS code pages, and the Telnet host list's right border in JetBrains/JediTerm (a compensated status circle no longer pushes a row past the canvas).
 - **🌐 Telnet multi-select help line** — now the `telnet.help_list_multi` i18n key, rendered in Chinese on zh-CN.
