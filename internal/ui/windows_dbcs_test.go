@@ -1,6 +1,10 @@
 package ui
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/zsuroy/ctty/internal/i18n"
+)
 
 // TestDBCSAmbiguousDelta: on a DBCS-codepage ConHost (GBK 936 etc.)
 // the ambiguous-width characters that REMAIN in the frames advance two
@@ -16,13 +20,13 @@ func TestDBCSAmbiguousDelta(t *testing.T) {
 		want int
 	}{
 		{"plain ascii", 0},
-		{"← CNCA0 →", 0},        // arrows are ASCII-substituted at paint time
-		{"↑↓: 移动 • Enter: 连接", 0}, // arrows and bullet are ASCII-substituted
-		{"名称 ↓", 0},             // sort mark substituted
+		{"← CNCA0 →", 0},           // arrows are ASCII-substituted at paint time
+		{"↑↓: 移动 • Enter: 连接", 0},  // arrows and bullet are ASCII-substituted
+		{"名称 ↓", 0},                // sort mark substituted
 		{"（暂无已保存的设备 — 按 a 添加）", 0}, // em dash substituted
-		{"truncated…", 1}, // ellipsis paints two cells on GBK 936
-		{"● status ✓", 2}, // painted circle and check are DBCS-ambiguous
-		{"★ favorite snippet", 1}, // black star is a GB2312 symbol: two cells
+		{"truncated…", 1},          // ellipsis paints two cells on GBK 936
+		{"● status ✓", 2},          // painted circle and check are DBCS-ambiguous
+		{"★ favorite snippet", 1},  // black star is a GB2312 symbol: two cells
 	}
 	for _, c := range cases {
 		if got := dbcsAmbiguousDelta(c.in); got != c.want {
@@ -39,4 +43,27 @@ func TestLegacyGlyphFallbackBallotX(t *testing.T) {
 	if got := legacyGlyphReplacer.Replace("  \u2717 failed"); got != "  \u00d7 failed" {
 		t.Errorf("ballot X fallback = %q, want %q", got, "  \u00d7 failed")
 	}
+}
+
+func TestSearchPlaceholdersAvoidDBCSAmbiguousGlyphs(t *testing.T) {
+	keys := []string{
+		"search.placeholder",
+		"telnet.search_placeholder",
+		"serial.search_placeholder",
+		"sftp.search_placeholder",
+		"s3.sites_search_placeholder",
+	}
+	for _, lang := range []string{"en", "zh"} {
+		i18n.SetLang(lang)
+		for _, key := range keys {
+			text := i18n.T(key)
+			if text == key {
+				t.Fatalf("%s: missing i18n key %q", lang, key)
+			}
+			if d := dbcsAmbiguousDelta(text); d != 0 {
+				t.Errorf("%s/%s charges %d extra DBCS cells: %q", lang, key, d, text)
+			}
+		}
+	}
+	i18n.SetLang("en")
 }

@@ -598,9 +598,9 @@ func renderSearchBar(styles Styles, searchMode bool, prompt string, searchView s
 	// Width+1 display cols, pushing the search border off-screen on narrow terminals.
 	content = ansi.Truncate(content, maxW, "")
 	if searchMode {
-		return styles.SearchFocused.Render(content)
+		return alignJetBrainsBox(styles.SearchFocused.Render(content))
 	}
-	return styles.SearchUnfocused.Render(content)
+	return alignJetBrainsBox(styles.SearchUnfocused.Render(content))
 }
 
 // renderProtocolTabs renders a clean top pill-style navigation bar indicating available

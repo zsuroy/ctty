@@ -1039,7 +1039,7 @@ var messages = map[string]map[string]string{
 		"telnet.help_search":                  "  输入进行过滤 • 回车: 确认 • ESC: 返回",
 		"telnet.info_title":                   "  Telnet 设备详情",
 		"telnet.no_hosts":                     "(暂无已保存的 Telnet 设备 — 按 'a' 添加)",
-		"telnet.search_placeholder":           "输入以搜索 Telnet 设备…",
+		"telnet.search_placeholder":           "输入以搜索 Telnet 设备...",
 		"telnet.title":                        "  Telnet 设备连接",
 		"tab.ssh":                             "SSH",
 		"tab.serial":                          "串口",

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **🔍 Telnet search bar on Chinese Windows cmd** — the zh placeholder ended with a DBCS-ambiguous ellipsis that ConHost paints two cells wide, pushing the search box's right border one column out. The placeholder now uses ASCII dots, and all search bars are re-aligned after their border is drawn (like the tables), so ambiguous glyphs typed into the field cannot overflow the frame.
+
 ## [1.3.4] - 2026-11-17
 
 ### Added
