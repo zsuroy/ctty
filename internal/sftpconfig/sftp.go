@@ -71,6 +71,12 @@ var runSSHG = func(hostName, configFile string) ([]byte, error) {
 	return exec.Command("ssh", args...).Output()
 }
 
+// dialAgent is a seam for tests; it dials the platform SSH agent endpoint.
+var dialAgent = dialSSHAgent
+
+// sshDial is a seam for tests; production dials the SSH server.
+var sshDial = ssh.Dial
+
 // resolveEffectiveHost returns connection settings for hostName. When the
 // system ssh client is available it uses ssh -G for full OpenSSH-compatible
 // resolution (fixes issue #49: IdentityFile from Host * / merged config was
@@ -254,7 +260,17 @@ func ConnectWithAuth(hostName, configFile, password, passphrase string) (*SFTPCl
 	}
 	eff := resolveFrom(parsed, hostName, configFile)
 
-	sshConfig, err := buildSSHConfig(hostName, eff, passphrase)
+	authMethods, releaseAgent, err := getAuthMethods(eff, passphrase)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load SSH auth methods: %w", err)
+	}
+	// Authentication finishes during ssh.Dial, so the agent connection backing
+	// the cached signers can only be released afterwards.
+	if releaseAgent != nil {
+		defer releaseAgent()
+	}
+
+	sshConfig, err := buildSSHConfig(hostName, eff, authMethods)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build SSH config: %w", err)
 	}
@@ -282,7 +298,7 @@ func ConnectWithAuth(hostName, configFile, password, passphrase string) (*SFTPCl
 
 	addr := net.JoinHostPort(eff.hostname, eff.port)
 
-	sshClient, err := ssh.Dial("tcp", addr, sshConfig)
+	sshClient, err := sshDial("tcp", addr, sshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to %s: %w", addr, err)
 	}
@@ -295,12 +311,7 @@ func ConnectWithAuth(hostName, configFile, password, passphrase string) (*SFTPCl
 }
 
 // buildSSHConfig creates an *ssh.ClientConfig from resolved host settings.
-func buildSSHConfig(hostName string, eff effectiveHost, passphrase string) (*ssh.ClientConfig, error) {
-	authMethods, err := getAuthMethods(eff, passphrase)
-	if err != nil {
-		return nil, err
-	}
-
+func buildSSHConfig(hostName string, eff effectiveHost, authMethods []ssh.AuthMethod) (*ssh.ClientConfig, error) {
 	knownHostsPath, err := defaultKnownHostsPath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare host key verification: %w", err)
@@ -358,18 +369,20 @@ func agentAddr(identityAgent string) string {
 }
 
 // getAuthMethods returns SSH auth methods from the SSH agent and identity
-// files. eff.identityFiles is the effective ordered list (from ssh -G when
+// files, plus a releaseAgent function (nil when no agent connection was
+// opened). eff.identityFiles is the effective ordered list (from ssh -G when
 // available, so Host * defaults and multiple IdentityFile entries are honored).
 //
 // Encrypted keys require passphrase; missing files are skipped (ssh -G lists
 // default key paths even when they do not exist). Other load/parse failures
 // are returned when no usable method was found, so callers can show a real
 // error instead of falling through to a server-password prompt.
-func getAuthMethods(eff effectiveHost, passphrase string) ([]ssh.AuthMethod, error) {
+func getAuthMethods(eff effectiveHost, passphrase string) ([]ssh.AuthMethod, func(), error) {
 	var methods []ssh.AuthMethod
+	var releaseAgent func()
 
 	if socket := agentAddr(eff.identityAgent); socket != "" {
-		conn, err := dialSSHAgent(socket)
+		conn, err := dialAgent(socket)
 		if err == nil {
 			agentClient := agent.NewClient(conn)
 			signers, err := agentClient.Signers()
@@ -377,6 +390,10 @@ func getAuthMethods(eff effectiveHost, passphrase string) ([]ssh.AuthMethod, err
 				// Use cached signers instead of PublicKeysCallback to avoid
 				// re-dialing the agent on every auth attempt (which can hang).
 				methods = append(methods, ssh.PublicKeys(signers...))
+				var once sync.Once
+				releaseAgent = func() { once.Do(func() { _ = conn.Close() }) }
+			} else {
+				_ = conn.Close()
 			}
 		}
 	}
@@ -423,16 +440,19 @@ func getAuthMethods(eff effectiveHost, passphrase string) ([]ssh.AuthMethod, err
 	}
 
 	if len(methods) > 0 {
-		return methods, nil
+		return methods, releaseAgent, nil
+	}
+	if releaseAgent != nil {
+		releaseAgent()
 	}
 	if passErr != nil {
-		return nil, passErr
+		return nil, nil, passErr
 	}
 	if len(loadErrs) > 0 {
-		return nil, errors.Join(loadErrs...)
+		return nil, nil, errors.Join(loadErrs...)
 	}
 	// Don't return error if no methods found — password auth might be used
-	return methods, nil
+	return methods, nil, nil
 }
 
 func loadIdentitySigner(keyPath, passphrase string) (ssh.Signer, error) {
