@@ -5,12 +5,15 @@ import (
 	"crypto/rand"
 	"encoding/pem"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 func TestExpandPath(t *testing.T) {
@@ -42,7 +45,7 @@ func TestExpandPath(t *testing.T) {
 func TestGetAuthMethodsIdentityAgentNone(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/dummy-ssh-auth.sock")
 
-	_, err := getAuthMethods(effectiveHost{
+	_, _, err := getAuthMethods(effectiveHost{
 		name:          "alpha.example.test",
 		identityAgent: "none",
 	}, "")
@@ -109,7 +112,7 @@ func TestGetAuthMethodsLoadsIdentityFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	methods, err := getAuthMethods(effectiveHost{identityFiles: []string{keyPath}}, "")
+	methods, _, err := getAuthMethods(effectiveHost{identityFiles: []string{keyPath}}, "")
 	if err != nil {
 		t.Fatalf("getAuthMethods error: %v", err)
 	}
@@ -144,7 +147,7 @@ func TestGetAuthMethodsEncryptedKeyRequiresPassphrase(t *testing.T) {
 	keyPath := filepath.Join(dir, "id_alpha")
 	writeEd25519Key(t, keyPath, "correct-horse")
 
-	_, err := getAuthMethods(effectiveHost{
+	_, _, err := getAuthMethods(effectiveHost{
 		name:          "alpha.example.test",
 		identityAgent: "none",
 		identityFiles: []string{keyPath},
@@ -164,7 +167,7 @@ func TestGetAuthMethodsEncryptedKeyWithPassphrase(t *testing.T) {
 	keyPath := filepath.Join(dir, "id_alpha")
 	writeEd25519Key(t, keyPath, "correct-horse")
 
-	methods, err := getAuthMethods(effectiveHost{
+	methods, _, err := getAuthMethods(effectiveHost{
 		name:          "alpha.example.test",
 		identityAgent: "none",
 		identityFiles: []string{keyPath},
@@ -183,7 +186,7 @@ func TestGetAuthMethodsWrongPassphrase(t *testing.T) {
 	keyPath := filepath.Join(dir, "id_alpha")
 	writeEd25519Key(t, keyPath, "correct-horse")
 
-	_, err := getAuthMethods(effectiveHost{
+	_, _, err := getAuthMethods(effectiveHost{
 		name:          "alpha.example.test",
 		identityAgent: "none",
 		identityFiles: []string{keyPath},
@@ -207,7 +210,7 @@ func TestGetAuthMethodsInvalidKeySurfacesError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := getAuthMethods(effectiveHost{
+	_, _, err := getAuthMethods(effectiveHost{
 		name:          "alpha.example.test",
 		identityAgent: "none",
 		identityFiles: []string{keyPath},
@@ -230,7 +233,7 @@ func TestGetAuthMethodsMissingIdentityFileSkipped(t *testing.T) {
 	good := filepath.Join(dir, "id_alpha")
 	writeEd25519Key(t, good, "")
 
-	methods, err := getAuthMethods(effectiveHost{
+	methods, _, err := getAuthMethods(effectiveHost{
 		name:          "alpha.example.test",
 		identityAgent: "none",
 		identityFiles: []string{missing, good},
@@ -266,5 +269,162 @@ func TestIsPassphraseRequired(t *testing.T) {
 	err := &PassphraseRequiredError{Path: "/keys/id_alpha"}
 	if !IsPassphraseRequired(err) || !IsPassphraseRequired(errors.Join(err)) {
 		t.Fatal("expected match for PassphraseRequiredError")
+	}
+}
+
+type closeTrackingConn struct {
+	net.Conn
+	closes atomic.Int32
+}
+
+func (c *closeTrackingConn) Close() error {
+	c.closes.Add(1)
+	return c.Conn.Close()
+}
+
+func newTestAgentConn(t *testing.T, keyring agent.Agent) *closeTrackingConn {
+	t.Helper()
+	client, server := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = agent.ServeAgent(keyring, server)
+		_ = server.Close()
+	}()
+	conn := &closeTrackingConn{Conn: client}
+	t.Cleanup(func() {
+		_ = client.Close()
+		<-done
+	})
+	return conn
+}
+
+func testAgentKeyring(t *testing.T) agent.Agent {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyring := agent.NewKeyring()
+	if err := keyring.Add(agent.AddedKey{PrivateKey: priv}); err != nil {
+		t.Fatalf("add test key to agent: %v", err)
+	}
+	return keyring
+}
+
+func TestGetAuthMethodsAgentSignersStayOpenUntilRelease(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/ctty-test-agent.sock")
+	conn := newTestAgentConn(t, testAgentKeyring(t))
+	origDial := dialAgent
+	t.Cleanup(func() { dialAgent = origDial })
+	dialAgent = func(string) (net.Conn, error) { return conn, nil }
+
+	methods, releaseAgent, err := getAuthMethods(effectiveHost{
+		identityAgent: "SSH_AUTH_SOCK",
+		identityFiles: []string{filepath.Join(t.TempDir(), "absent")},
+	}, "")
+	if err != nil {
+		t.Fatalf("getAuthMethods error: %v", err)
+	}
+	if len(methods) != 1 {
+		t.Fatalf("expected one agent auth method, got %d", len(methods))
+	}
+	if releaseAgent == nil {
+		t.Fatal("releaseAgent must not be nil while agent signers are in use")
+	}
+	if got := conn.closes.Load(); got != 0 {
+		t.Fatalf("agent conn closed %d times before ssh.Dial; signers need it open", got)
+	}
+	releaseAgent()
+	if got := conn.closes.Load(); got != 1 {
+		t.Fatalf("releaseAgent closed agent conn %d times, want 1", got)
+	}
+	releaseAgent()
+	if got := conn.closes.Load(); got != 1 {
+		t.Fatalf("releaseAgent must be idempotent, closes = %d", got)
+	}
+}
+
+func TestGetAuthMethodsClosesAgentWithoutUsableSigners(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/ctty-test-agent.sock")
+	conn := newTestAgentConn(t, agent.NewKeyring())
+	origDial := dialAgent
+	t.Cleanup(func() { dialAgent = origDial })
+	dialAgent = func(string) (net.Conn, error) { return conn, nil }
+
+	methods, releaseAgent, err := getAuthMethods(effectiveHost{
+		identityAgent: "SSH_AUTH_SOCK",
+		identityFiles: []string{filepath.Join(t.TempDir(), "absent")},
+	}, "")
+	if err != nil {
+		t.Fatalf("getAuthMethods error: %v", err)
+	}
+	if len(methods) != 0 {
+		t.Fatalf("expected no auth methods, got %d", len(methods))
+	}
+	if got := conn.closes.Load(); got != 1 {
+		t.Fatalf("agent conn without signers should be closed immediately, closes = %d", got)
+	}
+	if releaseAgent != nil {
+		t.Fatal("no agent connection should remain to release")
+	}
+}
+
+func stubConnectAuth(t *testing.T, conn *closeTrackingConn) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/ctty-test-agent.sock")
+
+	origAgentDial := dialAgent
+	t.Cleanup(func() { dialAgent = origAgentDial })
+	dialAgent = func(string) (net.Conn, error) { return conn, nil }
+
+	origSSHG := runSSHG
+	t.Cleanup(func() { runSSHG = origSSHG })
+	runSSHG = func(string, string) ([]byte, error) {
+		return []byte("hostname 127.0.0.1\nport 22\n"), nil
+	}
+}
+
+func TestConnectWithAuthReleasesAgentAfterDial(t *testing.T) {
+	conn := newTestAgentConn(t, testAgentKeyring(t))
+	stubConnectAuth(t, conn)
+
+	origDial := sshDial
+	t.Cleanup(func() { sshDial = origDial })
+	sshDial = func(string, string, *ssh.ClientConfig) (*ssh.Client, error) {
+		return &ssh.Client{}, nil
+	}
+
+	client, err := ConnectWithAuth("ctty-test-host", "", "", "")
+	if err != nil {
+		t.Fatalf("ConnectWithAuth error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected a client")
+	}
+	if got := conn.closes.Load(); got != 1 {
+		t.Fatalf("agent conn must be released once dial returns, closes = %d", got)
+	}
+}
+
+func TestConnectWithAuthReleasesAgentWhenDialFails(t *testing.T) {
+	conn := newTestAgentConn(t, testAgentKeyring(t))
+	stubConnectAuth(t, conn)
+
+	dialErr := errors.New("dial refused")
+	origDial := sshDial
+	t.Cleanup(func() { sshDial = origDial })
+	sshDial = func(string, string, *ssh.ClientConfig) (*ssh.Client, error) {
+		return nil, dialErr
+	}
+
+	if _, err := ConnectWithAuth("ctty-test-host", "", "", ""); !errors.Is(err, dialErr) {
+		t.Fatalf("expected dial error, got %v", err)
+	}
+	if got := conn.closes.Load(); got != 1 {
+		t.Fatalf("agent conn must be released when dial fails, closes = %d", got)
 	}
 }
