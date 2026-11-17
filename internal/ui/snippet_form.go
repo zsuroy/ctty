@@ -495,7 +495,7 @@ func (m *snippetFormModel) renderCard(content string) string {
 		}
 		content = strings.Join(kept, "\n")
 	}
-	box := container.Width(boxWidth).Render(content)
+	box := alignJetBrainsBox(container.Width(boxWidth).Render(content))
 	if needsWidthCompensation() {
 		box = alignJetBrainsBox(box)
 	}

@@ -507,7 +507,7 @@ func (m *addFormModel) View() string {
 	contentParts = append(contentParts, bodyView, "", helpText)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, contentParts...)
-	box := container.Width(boxWidth).Render(content)
+	box := alignJetBrainsBox(container.Width(boxWidth).Render(content))
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }
 

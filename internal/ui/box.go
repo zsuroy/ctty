@@ -47,6 +47,14 @@ func alignJetBrainsBox(box string) string {
 	if !needsWidthCompensation() {
 		return box
 	}
+	// Substitute paint-time glyphs BEFORE width accounting: on the legacy
+	// console the DBCS-ambiguous glyphs frames carry (• — and the emoji
+	// substitutes) render two cells on GBK while the width functions count
+	// one, so aligning on pre-substitution widths leaves borders short of
+	// the shared column. Idempotent; RenderCanvas re-applies it harmlessly.
+	if isWindowsLegacyConsole() {
+		box = legacyGlyphFallback(box)
+	}
 	lines := strings.Split(box, "\n")
 	if len(lines) <= 2 {
 		return box

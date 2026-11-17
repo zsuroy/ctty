@@ -418,7 +418,12 @@ func (m *portForwardModel) View() string {
 	// them: an unwrapped flow badge measured 1 row but wrapped to 3 at
 	// narrow widths, and the uncounted rows pushed the bottom border past
 	// the terminal height (clipped by RenderCanvas).
-	titleText := m.styles.Header.Width(innerW).Render(i18n.T("pf.title"))
+	// The title renders WITHOUT Width on purpose: Header carries Align(Center),
+	// and Width(innerW) would let lipgloss pad by ansi widths while the GBK
+	// console paints the substituted "•"/"—" two cells wide (counted one),
+	// drifting the title row's border one column (1257-vs-1268 on cmd.exe).
+	// Natural width + JoinVertical(Left) pins it to the shared frame edge.
+	titleText := m.styles.Header.Render(legacyGlyphFallback(i18n.T("pf.title")))
 	hostInfoStr := fmt.Sprintf(i18n.T("pf.host_info"), m.hostName)
 	if m.hasHistory {
 		hostInfoStr = fmt.Sprintf(i18n.T("pf.host_info_history"), m.hostName)
@@ -448,6 +453,13 @@ func (m *portForwardModel) View() string {
 	default:
 		flowText = fmt.Sprintf(i18n.T("pf.flow_local"), lp, rh, rp)
 	}
+	// Width(innerW) must stay on this row: at narrow widths the flow text
+	// wraps to several rows and headerH has to count them, or the bottom
+	// border is clipped (TestPortForwardFormKeepsBottomBorderAtAnyWidth).
+	// Fold the DBCS-ambiguous substitutes and U+2500 separator dashes to
+	// deterministic ASCII before padding — on GBK cmd.exe they paint two
+	// cells while lipgloss budgets one, pushing this row's borders out.
+	flowText = legacyFlowGlyphFallback(flowText)
 	flowBadge := m.styles.FocusedLabel.Width(innerW).Render(flowText)
 	header := lipgloss.JoinVertical(lipgloss.Left, titleText, hostInfo, flowBadge)
 
@@ -516,6 +528,11 @@ func (m *portForwardModel) View() string {
 	contentParts = append(contentParts, bodyView, "", helpText)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, contentParts...)
-	box := container.Width(boxWidth).Render(content)
+	// alignJetBrainsBox re-fits every row in real terminal advance after the
+	// border is drawn: the title row carries the DBCS-ambiguous • (painted
+	// two cells on a GBK console, counted one by lipgloss), which otherwise
+	// pushed the title row's right border off the body rows' shared border
+	// column.
+	box := alignJetBrainsBox(container.Width(boxWidth).Render(content))
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }

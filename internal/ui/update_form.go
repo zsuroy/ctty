@@ -238,7 +238,14 @@ func (m *updateFormModel) View() string {
 			m.styles.HelpText.Render(i18n.T("update.confirm_keys")))
 
 	case updateRunning:
-		spinner := updateSpinnerFrames[m.frame]
+		// The braille spinner frames are not in any ConHost font and
+		// paint as tofu there; the legacy console gets the classic
+		// ASCII spinner instead (same one-cell advance, still rotates).
+		frames := updateSpinnerFrames
+		if isWindowsLegacyConsole() {
+			frames = []string{"|", "/", "-", "\\"}
+		}
+		spinner := frames[m.frame%len(frames)]
 		bar := progressBar(m.percent, max(10, min(32, m.width-20)))
 		lines = append(lines, title, "",
 			spinner+" "+m.progress,

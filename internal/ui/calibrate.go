@@ -35,9 +35,6 @@ var layoutGlyphs = func() []string {
 	return append(glyphs,
 		"\U000025CF", // filled circle (picker mark)
 		"\U000025CB", // hollow circle (picker mark)
-		"\U00002191", // up arrow (help)
-		"\U00002193", // down arrow (help)
-		"\U00002022", // bullet (help)
 	)
 }()
 

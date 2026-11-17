@@ -112,6 +112,18 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
+	// The Windows legacy console gets a one-column safety margin: every
+	// size consumer in the UI (this model and all sub-forms, which only
+	// ever receive the message through here) budgets against width-1, so
+	// no frame ever writes into the last column. That column is where
+	// ConHost's auto-return (see setupWindowsConsoleOutput) and any
+	// width-reporting slack would otherwise push right borders off their
+	// corners and scroll titles off the top.
+	if sizeMsg, ok := msg.(tea.WindowSizeMsg); ok && isWindowsLegacyConsole() && sizeMsg.Width > 1 {
+		sizeMsg.Width--
+		msg = sizeMsg
+	}
+
 	// Handle different message types
 	switch msg := msg.(type) {
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -35,20 +36,59 @@ var probeGlyphs = []struct {
 // because per-terminal width tables are guesses: a glyph can advance wider
 // or narrower than ansi.StringWidth counts, and only the terminal itself
 // knows which. (The TUI runs this same measurement at startup.)
-func runProbeTerminal(out io.Writer) error {
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+// probeConsole joins the console's input and output sides. On Windows
+// they are separate handles: cursor-position reports are input events and
+// only arrive on CONIN$, while probing output goes to CONOUT$ — opening
+// CONOUT$ for both directions (as this command used to) can never read a
+// report back. term.MakeRaw likewise belongs on the input handle and
+// term.GetSize on the output handle.
+type probeConsole struct {
+	in  *os.File
+	out *os.File
+}
+
+func (c *probeConsole) Read(p []byte) (int, error)  { return c.in.Read(p) }
+func (c *probeConsole) Write(p []byte) (int, error) { return c.out.Write(p) }
+func (c *probeConsole) Close() {
+	c.in.Close()
+	if c.out != c.in {
+		c.out.Close()
+	}
+}
+
+func openProbeConsole() (*probeConsole, error) {
+	if tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0); err == nil {
+		return &probeConsole{in: tty, out: tty}, nil
+	}
+	if runtime.GOOS != "windows" {
+		return nil, fmt.Errorf("open /dev/tty failed")
+	}
+	in, err := os.OpenFile("CONIN$", os.O_RDWR, 0)
 	if err != nil {
-		return fmt.Errorf("open /dev/tty: %w", err)
+		return nil, err
+	}
+	out, err := os.OpenFile("CONOUT$", os.O_RDWR, 0)
+	if err != nil {
+		in.Close()
+		return nil, err
+	}
+	return &probeConsole{in: in, out: out}, nil
+}
+
+func runProbeTerminal(out io.Writer) error {
+	tty, err := openProbeConsole()
+	if err != nil {
+		return fmt.Errorf("open terminal device: %w", err)
 	}
 	defer tty.Close()
 
-	oldState, err := term.MakeRaw(int(tty.Fd()))
+	oldState, err := term.MakeRaw(int(tty.in.Fd()))
 	if err != nil {
 		return fmt.Errorf("set raw mode: %w", err)
 	}
-	defer term.Restore(int(tty.Fd()), oldState)
+	defer term.Restore(int(tty.in.Fd()), oldState)
 
-	w, h, err := term.GetSize(int(tty.Fd()))
+	w, h, err := term.GetSize(int(tty.out.Fd()))
 	if err != nil {
 		return fmt.Errorf("get terminal size: %w", err)
 	}
@@ -93,15 +133,15 @@ func runProbeTerminal(out io.Writer) error {
 	if _, err := fmt.Fprintf(tty, "\x1b[2K\x1b[1;1H"); err != nil {
 		return err
 	}
-	term.Restore(int(tty.Fd()), oldState)
+	term.Restore(int(tty.in.Fd()), oldState)
 
 	fmt.Fprint(out, report.String())
 	return nil
 }
 
 var probeTerminalCmd = &cobra.Command{
-	Use:           "probe-terminal",
-	Short:         "Measure real glyph advances in this terminal (debugging)",
+	Use:   "probe-terminal",
+	Short: "Measure real glyph advances in this terminal (debugging)",
 	Long: "Measures the real column advance of the glyphs the TUI layout depends on, using cursor-position reports (ESC[6n), and checks whether the terminal wraps at the width it reports.\n" +
 		"Run it inside the terminal that renders incorrectly and paste the output when reporting a layout bug.",
 	Hidden:        true,

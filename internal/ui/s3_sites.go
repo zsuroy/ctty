@@ -221,22 +221,22 @@ func (m *s3SitesModel) siteDisplayName(s s3config.S3Site) string {
 			if dur, exists := m.latencies[s.Name]; exists {
 				ms := dur.Milliseconds()
 				if ms < 50 {
-					name = "🟢 " + name
+					name = statusCircle("🟢") + " " + name
 				} else if ms < 150 {
-					name = "🟡 " + name
+					name = statusCircle("🟡") + " " + name
 				} else {
-					name = "🟠 " + name
+					name = statusCircle("🟠") + " " + name
 				}
 			} else {
-				name = "🟢 " + name
+				name = statusCircle("🟢") + " " + name
 			}
 		} else {
-			name = "🔴 " + name
+			name = statusCircle("🔴") + " " + name
 		}
 	} else if m.probing {
-		name = "🔵 " + name
+		name = statusCircle("🔵") + " " + name
 	} else {
-		name = "⚫ " + name
+		name = statusCircle("⚫") + " " + name
 	}
 	return prefix + name
 }
@@ -434,7 +434,7 @@ func (m *s3SitesModel) renderInfoView() string {
 		helpText,
 	)
 
-	box := container.Width(boxWidth).Render(content)
+	box := alignJetBrainsBox(container.Width(boxWidth).Render(content))
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }
 
@@ -614,7 +614,7 @@ func (m *s3SitesModel) rebuildTable() {
 	if rem < 20 {
 		rem = 20
 	}
-	nameW := plainS3ColumnWidth(m.filtered, 15, 28, func(s s3config.S3Site) string { return "[ ] ⚫ " + s.Name })
+	nameW := plainS3ColumnWidth(m.filtered, 15, 28, func(s s3config.S3Site) string { return "[ ] " + statusCircle("⚫") + " " + s.Name })
 	endpointW := plainS3ColumnWidth(m.filtered, 18, 36, func(s s3config.S3Site) string { return s.Endpoint })
 	bucketW := plainS3ColumnWidth(m.filtered, 10, 20, func(s s3config.S3Site) string { return s.Bucket })
 	tagsW := rem - nameW - endpointW - bucketW
