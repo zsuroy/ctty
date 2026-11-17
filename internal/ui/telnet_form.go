@@ -27,6 +27,7 @@ type telnetFormModel struct {
 	width             int
 	height            int
 	table             table.Model
+	tableRows         int
 	hosts             []telnetconfig.TelnetHost
 	filtered          []telnetconfig.TelnetHost
 	mode              telnetMode
@@ -413,18 +414,11 @@ func (m *telnetFormModel) buildTable() {
 		BorderBottom(true).
 		Bold(false)
 
-	// renderTable() is hand-rolled (unlike bubbles' native table View): it
-	// spends table.Height() on DATA rows alone and draws a two-line header
-	// (titles + bottom border) on top of them. The old budget charged the
-	// header only once (the "1 +" below, following bubbles semantics), so
-	// a full table overflowed the frame by 1 row (height >= 20) or 2 rows
-	// (height < 20); the over-tall frame then scrolled the title and the
-	// protocol tabs off the top of the screen — the Telnet page appeared
-	// to have no title at all. Budget the data rows against renderList's
-	// real fixed overhead instead:
-	//   title 1 + search box 3 + table border 2 + header 2 = 8,
-	//   +1 when the protocol tabs are shown (height >= 18 and width >= 64),
-	//   +help: 2 lines at height >= 20, otherwise 1 (also 1 in search mode).
+	// renderTable() draws the header itself, so this budget covers data rows
+	// only. bubbles' WithHeight() subtracts the header from its argument, so
+	// the row count is kept in tableRows instead of being read back via
+	// Height(). Frame overhead: title 1 + search 3 + table border 2 + header
+	// 2 = 8, plus protocol tabs and the help footer.
 	overhead := 8
 	if m.height >= 18 && m.width >= 64 {
 		overhead++
@@ -442,6 +436,7 @@ func (m *telnetFormModel) buildTable() {
 	if tableHeight > availHeight {
 		tableHeight = availHeight
 	}
+	m.tableRows = tableHeight
 
 	t := table.New(
 		table.WithColumns(columns),
@@ -1076,7 +1071,7 @@ func (m *telnetFormModel) renderTable() string {
 
 	cursor := m.table.Cursor()
 	hostCount := len(m.filtered)
-	viewport := m.table.Height()
+	viewport := m.tableRows
 	if viewport < 1 {
 		viewport = 1
 	}

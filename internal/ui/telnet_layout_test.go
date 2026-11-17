@@ -460,3 +460,19 @@ func TestTelnetListFitsHeightAndKeepsTitle(t *testing.T) {
 		}
 	}
 }
+
+func TestTelnetListShowsAllSavedHosts(t *testing.T) {
+	i18n.SetLang("en")
+	hosts := []telnetconfig.TelnetHost{
+		{Name: "doom", Host: "doom.w-graj.net", Port: 666},
+		{Name: "myrouter", Host: "10.0.0.1", Port: 23, Tags: []string{"lab", "cisco"}},
+		{Name: "telehack", Host: "telehack.com", Port: 23, Tags: []string{"#dev"}},
+	}
+	m := newTestTelnetForm(80, 24, hosts)
+	out := m.View()
+	for _, h := range hosts {
+		if !strings.Contains(out, h.Name) {
+			t.Errorf("telnet list at 80x24 is missing %q", h.Name)
+		}
+	}
+}
