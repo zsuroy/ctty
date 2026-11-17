@@ -200,7 +200,7 @@ func (m *infoFormModel) View() string {
 		actionText,
 	)
 
-	box := container.Width(boxWidth).Render(content)
+	box := alignJetBrainsBox(container.Width(boxWidth).Render(content))
 	return lipgloss.Place(
 		m.width,
 		m.height,

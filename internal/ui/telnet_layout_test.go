@@ -426,3 +426,37 @@ func TestTelnetAddFormEnterSavesFromConfirmField(t *testing.T) {
 		t.Fatal("expected at least one host after save")
 	}
 }
+
+// TestTelnetListFitsHeightAndKeepsTitle guards the list frame's height
+// budget: renderTable spends table.Height() on data rows and draws a
+// two-line header on top, and the old budget charged that header only
+// once, so a full table made the frame 1-2 rows taller than the terminal
+// and the title (and tabs) scrolled off the top — on the Win10 cmd.exe
+// screenshots the Telnet page appeared to have no title at all. A full
+// list must fit exactly within the terminal height, title on line one.
+func TestTelnetListFitsHeightAndKeepsTitle(t *testing.T) {
+	i18n.SetLang("en")
+	hosts := make([]telnetconfig.TelnetHost, 0, 40)
+	for i := 0; i < 40; i++ {
+		hosts = append(hosts, telnetconfig.TelnetHost{
+			Name: "dev", Host: "192.168.1.1", Port: 23,
+		})
+	}
+	for _, height := range []int{30, 24, 21, 20, 19, 18, 16} {
+		m := newTestTelnetForm(100, height, hosts)
+		view := m.View()
+		lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+		if len(lines) > height {
+			t.Errorf("height=%d: frame has %d lines, exceeds the terminal\n%s", height, len(lines), view)
+		}
+		if !strings.Contains(ansi.Strip(lines[0]), i18n.T("telnet.title")) && !strings.Contains(view, i18n.T("telnet.title")) {
+			t.Errorf("height=%d: title %q missing from frame\n%s", height, i18n.T("telnet.title"), view)
+		}
+		// The frame must also be exactly the budgeted size going in:
+		// title + tabs/search/header/help overhead plus the table's data
+		// rows may not exceed the height (fillTerminal only pads).
+		if got := len(strings.Split(m.renderList(), "\n")); got > height {
+			t.Errorf("height=%d: renderList has %d lines before canvas padding", height, got)
+		}
+	}
+}

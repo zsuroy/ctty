@@ -148,7 +148,7 @@ func (m *fileSelectorModel) View() string {
 	if len(m.files) == 0 {
 		errMsg := m.styles.ErrorText.Width(innerW).Render(i18n.T("file_selector.empty"))
 		content := lipgloss.JoinVertical(lipgloss.Left, titleText, "", errMsg, "", helpText)
-		box := container.Width(boxWidth).Render(content)
+		box := alignJetBrainsBox(container.Width(boxWidth).Render(content))
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 	}
 
@@ -189,6 +189,6 @@ func (m *fileSelectorModel) View() string {
 
 	listContent := strings.Join(items, "\n")
 	content := lipgloss.JoinVertical(lipgloss.Left, titleText, "", listContent, "", helpText)
-	box := container.Width(boxWidth).Render(content)
+	box := alignJetBrainsBox(container.Width(boxWidth).Render(content))
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }

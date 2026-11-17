@@ -69,7 +69,11 @@ func (m *helpModel) Update(msg tea.Msg) (*helpModel, tea.Cmd) {
 }
 
 func (m *helpModel) View() string {
-	title := m.styles.Header.Render(i18n.T("help.title"))
+	// The help title carries the DBCS-ambiguous • and —: lipgloss pads them
+	// at two cells while the canvas paints the legacy substitutes ("-") at
+	// one, leaving the title row one column short of every other border.
+	// Substitute before the style renders so padding and painting agree.
+	title := m.styles.Header.Render(legacyGlyphFallback(i18n.T("help.title")))
 
 	col1 := lipgloss.JoinVertical(lipgloss.Left,
 		m.styles.FocusedLabel.Render(i18n.T("help.cat_nav")),
@@ -266,9 +270,18 @@ func (m *helpModel) View() string {
 		contentMaxW = 10
 	}
 
+	// Center header rows INSIDE a fixed-width row rather than via
+	// JoinVertical(Center): every row then paints exactly contentMaxW columns
+	// so the frame stays continuous while the text looks centered. Ambiguous
+	// glyphs are substituted before padding so lipgloss's budget matches the
+	// GBK console's painted advance.
+	centerRow := func(s string) string {
+		return lipgloss.NewStyle().Width(contentMaxW).Align(lipgloss.Center).Render(s)
+	}
+
 	versionStr := m.styles.HelpText.Faint(true).Render("v" + m.version)
-	titleTrunc := ansi.Truncate(title+" "+versionStr, contentMaxW, "")
-	repoTrunc := ansi.Truncate(m.styles.HelpText.Faint(true).Render(version.RepoURL()), contentMaxW, "")
+	titleTrunc := centerRow(ansi.Truncate(title+" "+versionStr, contentMaxW, ""))
+	repoTrunc := centerRow(ansi.Truncate(m.styles.HelpText.Faint(true).Render(version.RepoURL()), contentMaxW, ""))
 
 	var box string
 	for {
@@ -283,24 +296,38 @@ func (m *helpModel) View() string {
 		}
 		visibleContent := strings.Join(truncatedLines, "\n")
 
-		promptText := i18n.T("help.close_prompt")
-		if len(contentLines) > viewportHeight {
-			promptText = "↑/↓/PgUp/PgDn: scroll • " + promptText
-		}
-		promptTrunc := ansi.Truncate(m.styles.HelpText.Render(promptText), contentMaxW, "")
+	promptText := i18n.T("help.close_prompt")
+	if len(contentLines) > viewportHeight {
+		promptText = "↑/↓/PgUp/PgDn: scroll • " + promptText
+	}
+	promptText = legacyGlyphFallback(promptText)
+	promptTrunc := centerRow(ansi.Truncate(m.styles.HelpText.Render(promptText), contentMaxW, ""))
 
-		parts := []string{titleTrunc, repoTrunc}
-		if !compact {
-			parts = append(parts, "")
-		}
-		parts = append(parts, visibleContent)
-		if !compact {
-			parts = append(parts, "")
-		}
-		parts = append(parts, promptTrunc)
+	parts := []string{titleTrunc, repoTrunc}
+	if !compact {
+		parts = append(parts, "")
+	}
+	parts = append(parts, visibleContent)
+	if !compact {
+		parts = append(parts, "")
+	}
+	parts = append(parts, promptTrunc)
 
-		inner := lipgloss.JoinVertical(lipgloss.Center, parts...)
-		box = boxStyle.MaxWidth(totalWidth).Render(inner)
+	// JoinVertical(Left) pins every row to one left edge for a continuous
+	// frame; centerRow already centered the header rows within contentMaxW.
+	// The modal itself is centered by Place below.
+	inner := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	// Clamp the joined key-hint columns to contentMaxW: on narrow terminals
+	// their combined width overflows the box and boxStyle's right border
+	// falls outside the frame (the missing border beside the help title).
+	var clamped []string
+	for _, ln := range strings.Split(inner, "\n") {
+		clamped = append(clamped, ansi.Truncate(ln, contentMaxW, ""))
+	}
+	inner = strings.Join(clamped, "\n")
+	// Re-fit every row in real terminal advance after the border is drawn,
+	// so ambiguous glyphs cannot push the title row's border off the body's.
+	box = alignJetBrainsBox(boxStyle.MaxWidth(totalWidth).Render(inner))
 		if lipgloss.Height(box) <= totalHeight || viewportHeight <= 1 {
 			break
 		}

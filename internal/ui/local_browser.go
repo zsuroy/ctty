@@ -110,6 +110,15 @@ func NewLocalBrowserForm(styles Styles, width, height int, startDir string) *loc
 // RunLocalBrowserMode runs the standalone local file browser TUI.
 func RunLocalBrowserMode(startDir, currentVersion string, noUpdateCheck bool) error {
 	i18n.Init("")
+	// Calibrate and enable the legacy-console compensation exactly like the
+	// other entry points: this entry runs standalone (ctty browse), and
+	// without them the painted glyph substitutes (◆ ● ○, ASCII arrows) and
+	// the real-advance alignment never applied here — the path line, table
+	// frame and help lines overflowed or underfilled their borders on GBK
+	// consoles. The view adapts to the real window via WindowSizeMsg.
+	calibrateTerminalGlyphs()
+	restore := setupWindowsConsoleOutput()
+	defer restore()
 	m := NewLocalBrowserForm(NewStyles(80), 80, 24, startDir)
 	_ = currentVersion
 	_ = noUpdateCheck
@@ -755,7 +764,7 @@ func (m *localBrowserModel) renderInfoView() string {
 		helpText,
 	)
 
-	box := container.Width(boxWidth).Render(content)
+	box := alignJetBrainsBox(container.Width(boxWidth).Render(content))
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }
 
@@ -780,7 +789,7 @@ func (m *localBrowserModel) View() string {
 	if m.searchMode {
 		tableStyle = m.styles.TableUnfocused
 	}
-	panes := tableStyle.Width(pw).Render(m.table.View())
+	panes := alignJetBrainsBox(tableStyle.Width(pw).Render(m.table.View()))
 
 	var extras []string
 	if m.statusActive() {
@@ -826,5 +835,11 @@ func (m *localBrowserModel) View() string {
 		)
 		return renderConfirmModal(m.width, m.height, box)
 	}
-	return base
+	// This standalone view never goes through the main TUI's canvas, so the
+	// paint-time glyph substitution (📄 → ▶, ← → ↑ ↓ → ASCII on legacy
+	// consoles) and the row-tail clearing that the main views get from
+	// RenderCanvas would never apply — ambiguous-width glyphs then render
+	// past their StringWidth budgets and the frame borders desync on GBK
+	// consoles. Run the same canvas pass here.
+	return RenderCanvas(m.width, m.height, base)
 }

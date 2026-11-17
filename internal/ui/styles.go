@@ -186,7 +186,11 @@ func renderFormPage(styles Styles, termWidth int, body string) string {
 	if box < 12 {
 		box = 12
 	}
-	return styles.App.Render(styles.FormContainer.Width(box).Render(body))
+	// alignJetBrainsBox re-fits every row in real terminal advance after the
+	// border is drawn: huh's help lines carry ambiguous-width arrows (← → ↑ ↓)
+	// that ConHost advances two cells while lipgloss pads one, so uncorrected
+	// rows overflow their border (wrap → duplicated labels) or lose it.
+	return styles.App.Render(alignJetBrainsBox(styles.FormContainer.Width(box).Render(body)))
 }
 
 // Application ASCII title

@@ -180,13 +180,31 @@ func renderConfirmBox(styles Styles, width int, lines ...string) string {
 func renderCardBox(container lipgloss.Style, width int, lines ...string) string {
 	const maxConfirmBoxInner = 72
 
-	inner := 0
+	// Budget the card in BOTH width metrics. lipgloss wraps a row whose
+	// StringWidth exceeds the width minus padding, so the StringWidth max
+	// keeps every row unwrapped; on DBCS-codepage ConHost ambiguous-width
+	// glyphs (◆ substituted for the picker title emoji, • help separators)
+	// advance a cell wider still, so the real-advance max (terminalDisplay-
+	// Width) is budgeted too. That second bound is what guarantees the
+	// widest-excess row enough StringWidth padding for the alignJetBrainsBox
+	// trim to pull its border back into one shared column — a card sized by
+	// StringWidth alone leaves that trim short by the excess, and stray
+	// border fragments survive outside the card corners.
+	maxSw := 0
+	maxReal := 0
 	for _, ln := range lines {
-		if w := lipgloss.Width(ln); w > inner {
-			inner = w
+		if w := lipgloss.Width(ln); w > maxSw {
+			maxSw = w
+		}
+		if w := terminalDisplayWidth(ln); w > maxReal {
+			maxReal = w
 		}
 	}
-	inner += 4               // container horizontal padding (2+2)
+	widest := maxSw
+	if maxReal > widest {
+		widest = maxReal
+	}
+	inner := widest + 4      // container horizontal padding (2+2)
 	terminalCap := width - 6 // border(2) + one column of margin
 	if inner > terminalCap { // the terminal always wins…
 		inner = terminalCap

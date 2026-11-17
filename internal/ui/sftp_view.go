@@ -1818,7 +1818,7 @@ func (m *sftpFormModel) renderInfoView() string {
 		helpText,
 	)
 
-	box := container.Width(boxWidth).Render(content)
+	box := alignJetBrainsBox(container.Width(boxWidth).Render(content))
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }
 

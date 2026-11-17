@@ -136,7 +136,7 @@ func (m *moveFormModel) View() string {
 		titleText := m.styles.Header.Render(i18n.T("move.processing"))
 		helpText := m.styles.HelpText.Render(fmt.Sprintf("Moving host '%s' to selected config file...", m.hostName))
 		content := lipgloss.JoinVertical(lipgloss.Left, titleText, "", helpText)
-		box := container.Width(boxWidth).Render(content)
+		box := alignJetBrainsBox(container.Width(boxWidth).Render(content))
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 
 	default:

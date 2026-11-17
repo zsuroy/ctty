@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **🪟 Windows console / Git Bash layout support** — glyph-width compensation, per-font startup calibration (`CONOUT$`/`CONIN$` with static ConHost fallbacks), row-tail clearing, and DBCS ambiguous-width budgeting for `cmd.exe`/PowerShell (ConHost) and Git Bash/mintty. Windows Terminal and IDE terminals keep the normal Unicode path.
+
 ### Fixed
 
 - **📂 SFTP on Windows cannot use the SSH agent (issue #52)** — the built-in SFTP client only dialed the agent over a Unix socket (`SSH_AUTH_SOCK`), so it never reached the OpenSSH named pipe `\\.\pipe\openssh-ssh-agent` on Windows. SFTP now uses that pipe when IdentityAgent / `SSH_AUTH_SOCK` are unset (and still honors `IdentityAgent none`). Encrypted identity files prompt for a key passphrase instead of being skipped, and key load/parse failures are shown instead of falling through to a server-password prompt.
+
+- **🖥️ ConHost / JetBrains / VS Code frame and border rendering** — dynamic glyph advances and paint-time ASCII substitutes for characters ConHost cannot draw or advances differently, real-advance alignment for tables, cards, bordered forms and the standalone `ctty browse` pipeline, uniform header/body borders on DBCS code pages, and the Telnet host list's right border in JetBrains/JediTerm (a compensated status circle no longer pushes a row past the canvas).
+- **🌐 Telnet multi-select help line** — now the `telnet.help_list_multi` i18n key, rendered in Chinese on zh-CN.
 
 ## [1.3.3] - 2026-11-09
 

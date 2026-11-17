@@ -364,22 +364,22 @@ func (m *telnetFormModel) hostDisplayName(h telnetconfig.TelnetHost) string {
 			if dur, exists := m.latencies[h.Name]; exists {
 				ms := dur.Milliseconds()
 				if ms < 50 {
-					name = "🟢 " + name
+					name = statusCircle("🟢") + " " + name
 				} else if ms < 150 {
-					name = "🟡 " + name
+					name = statusCircle("🟡") + " " + name
 				} else {
-					name = "🟠 " + name
+					name = statusCircle("🟠") + " " + name
 				}
 			} else {
-				name = "🟢 " + name
+				name = statusCircle("🟢") + " " + name
 			}
 		} else {
-			name = "🔴 " + name
+			name = statusCircle("🔴") + " " + name
 		}
 	} else if m.probing {
-		name = "🔵 " + name
+		name = statusCircle("🔵") + " " + name
 	} else {
-		name = "⚫ " + name
+		name = statusCircle("⚫") + " " + name
 	}
 	return prefix + name
 }
@@ -413,17 +413,32 @@ func (m *telnetFormModel) buildTable() {
 		BorderBottom(true).
 		Bold(false)
 
-	availHeight := m.height - 9
-	if m.height < 20 {
-		availHeight = m.height - 7
-	}
+	// renderTable() is hand-rolled (unlike bubbles' native table View): it
+	// spends table.Height() on DATA rows alone and draws a two-line header
+	// (titles + bottom border) on top of them. The old budget charged the
+	// header only once (the "1 +" below, following bubbles semantics), so
+	// a full table overflowed the frame by 1 row (height >= 20) or 2 rows
+	// (height < 20); the over-tall frame then scrolled the title and the
+	// protocol tabs off the top of the screen — the Telnet page appeared
+	// to have no title at all. Budget the data rows against renderList's
+	// real fixed overhead instead:
+	//   title 1 + search box 3 + table border 2 + header 2 = 8,
+	//   +1 when the protocol tabs are shown (height >= 18 and width >= 64),
+	//   +help: 2 lines at height >= 20, otherwise 1 (also 1 in search mode).
+	overhead := 8
 	if m.height >= 18 && m.width >= 64 {
-		availHeight--
+		overhead++
 	}
-	if availHeight < 2 {
-		availHeight = 2
+	if m.height >= 20 && !m.searchMode {
+		overhead += 2
+	} else {
+		overhead++
 	}
-	tableHeight := 1 + len(rows)
+	availHeight := m.height - overhead
+	if availHeight < 1 {
+		availHeight = 1
+	}
+	tableHeight := len(rows)
 	if tableHeight > availHeight {
 		tableHeight = availHeight
 	}
@@ -989,7 +1004,7 @@ func (m *telnetFormModel) renderInfo() string {
 		helpText,
 	)
 
-	box := container.Width(boxWidth).Render(content)
+	box := alignJetBrainsBox(container.Width(boxWidth).Render(content))
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, box)
 }
 
@@ -1112,11 +1127,20 @@ func (m *telnetFormModel) renderTable() string {
 	}
 	result := headerRow + "\n" + strings.Join(renderedRows, "\n")
 	if tableContentWidth > 0 {
-		var truncatedLines []string
+		var fittedLines []string
 		for _, line := range strings.Split(result, "\n") {
-			truncatedLines = append(truncatedLines, ansi.Truncate(line, tableContentWidth, ""))
+			// fitTableRowWidth, not ansi.Truncate: on DBCS-codepage ConHost
+			// the ● status circle (substituted for the color emoji) advances
+			// two cells while the StringWidth-based cell padding budgets one,
+			// so highlighted rows render one column wider than the table and
+			// their selection background bleeds past the right border. It
+			// trims that overshoot but never pads a row up: on JetBrains the
+			// ⚫ circle advances narrower than StringWidth counts, and padding
+			// it up here pushed the row's StringWidth past the canvas, where
+			// the renderer truncated the right border away.
+			fittedLines = append(fittedLines, fitTableRowWidth(line, tableContentWidth))
 		}
-		result = strings.Join(truncatedLines, "\n")
+		result = strings.Join(fittedLines, "\n")
 	}
 	return result
 }
@@ -1209,7 +1233,7 @@ func (m *telnetFormModel) renderList() string {
 	if m.searchMode {
 		components = append(components, renderHelpText(m.styles, i18n.T("telnet.help_search"), m.width))
 	} else {
-		helpExtra := " • Space: select • Ctrl+A: all • w: tags • p: probe"
+		helpExtra := i18n.T("telnet.help_list_multi")
 		if m.height < 20 {
 			components = append(components, renderHelpText(m.styles, i18n.T("telnet.help_list")+helpExtra, m.width))
 		} else {
