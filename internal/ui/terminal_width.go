@@ -149,6 +149,12 @@ var consoleOutputCPDBCS bool
 // this smeared focused form fields into duplicated labels); over-counting
 // only leaves a harmless gap, so these are budgeted at their DBCS advance.
 //
+// Legacy frames fold every glyph in this table to ASCII via
+// legacyAmbiguousReplacer before layout, so native cmd/PowerShell do not
+// depend on the output code page for these symbols. The table remains a
+// safety net for raw strings measured before that pass and documents the
+// DBCS advance for tests.
+//
 // Arrows, bullet, em dash, ellipsis and return glyphs are deliberately absent:
 // they are folded to ASCII by legacyGlyphFallback, giving them a deterministic
 // one-cell advance. Charging them here too would push body rows a column past
@@ -291,9 +297,10 @@ func fitTableRowWidth(s string, width int) string {
 // Windows legacy console the color-emoji circles are not in any font
 // ConHost can fall back to and render as empty tofu boxes, so they are
 // swapped for U+25CF (filled circle, present in the console fonts) tinted
-// with the matching ANSI foreground color. The substitute advances
-// exactly 1 column, matching windowsLegacyGlyphDelta's budgeting for the
-// original emoji; everywhere else the emoji is returned unchanged.
+// with the matching ANSI foreground color. legacyGlyphFallback then folds
+// that U+25CF to ASCII *, which keeps native cmd/PowerShell at one column
+// regardless of the output code page. Everywhere else the emoji is returned
+// unchanged.
 func statusCircle(emoji string) string {
 	if !isWindowsLegacyConsole() {
 		return emoji
@@ -324,14 +331,18 @@ func statusCircle(emoji string) string {
 // safety net for everything else that reaches a frame — picker titles,
 // modal headers, i18n strings — mapping each missing glyph to a
 // single-cell substitute present in the console fonts, so no tofu boxes
-// survive to the screen. All substitutes advance 1 column; the budgeted
-// originals are counted as 1 column too via windowsLegacyGlyphDelta
-// where they are layout-critical.
+// survive to the screen.
+//
+// The emoji substitutes still include East-Asian-Ambiguous glyphs (● ✓ ◆ ■)
+// that ConHost paints two cells wide even when the output code page is not
+// one of the DBCS pages (932/936/949/950). A second pass folds those to ASCII
+// before any width is measured; otherwise native cmd/PowerShell budgets them
+// as one cell and every status/selection row drifts one column.
 func legacyGlyphFallback(s string) string {
 	if !isWindowsLegacyConsole() {
 		return s
 	}
-	return legacyGlyphReplacer.Replace(s)
+	return legacyAmbiguousReplacer.Replace(legacyGlyphReplacer.Replace(s))
 }
 
 var legacyGlyphReplacer = strings.NewReplacer(
@@ -376,6 +387,27 @@ var legacyGlyphReplacer = strings.NewReplacer(
 	// paints one, leaving those rows short of the shared border column.
 	"\u23ce", "R", // return symbol (connect key hints)
 	"\u21b5", "R", // downwards arrow with corner (download key hints)
+)
+
+// legacyAmbiguousReplacer folds every glyph in dbcsAmbiguousWide to a
+// deterministic one-cell ASCII form on the legacy console. It is applied as a
+// second pass after the emoji substitutions above so chained mappings (🟢 ->
+// ● -> *) are handled. Windows Terminal, Git Bash, JetBrains and VS Code
+// never run this pass and keep their native glyphs.
+var legacyAmbiguousReplacer = strings.NewReplacer(
+	"\u2013", "-", // en dash
+	"\u00b7", ".", // middle dot
+	"\u00ab", "<", // left guillemet
+	"\u00bb", ">", // right guillemet (also the ⚡ substitute)
+	"\u2605", "*", // black star
+	"\u2606", "*", // white star
+	"\u25c6", "*", // black diamond (label-tag / globe / cloud substitute)
+	"\u25cf", "*", // filled circle (status-circle / picker mark)
+	"\u25cb", "o", // hollow circle (hourglass / picker mark)
+	"\u2713", "x", // check mark (heavy-check substitute)
+	"\u00d7", "x", // multiplication sign (cross-mark / ballot-X substitute)
+	"\u25b6", ">", // right triangle (folder substitute)
+	"\u25a0", "#", // black square (laptop / package substitute)
 )
 
 // flowGlyphReplacer folds the remaining flow-row glyphs that are not covered

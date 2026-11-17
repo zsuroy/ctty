@@ -5,13 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.3.5] - 2026-11-17
 
 ### Fixed
 
 - **📂 SFTP leaked an SSH agent connection per session** — the agent connection used for public-key signers is now closed once authentication completes instead of staying open for the life of the process.
 - **🔍 Telnet search bar on Chinese Windows cmd** — the zh placeholder ended with a DBCS-ambiguous ellipsis that ConHost paints two cells wide, pushing the search box's right border one column out. The placeholder now uses ASCII dots, and all search bars are re-aligned after their border is drawn (like the tables), so ambiguous glyphs typed into the field cannot overflow the frame.
 - **🪣 S3 site list header on Windows cmd** — truncated column titles (such as the zh bucket label) end in an ellipsis that ConHost paints two cells wide, pushing the header's right border out of the table. Legacy consoles now fold the ellipsis to a one-cell dot at paint time, so truncated headers and cells stay inside their border.
+- **🪟 Native Windows cmd / PowerShell host list alignment** — classic ConHost paints ambiguous glyphs such as `●`, `✓`, and `◆` two cells wide even when the code page is not a DBCS page, so the SSH host list's right border overflowed one column and checking a host did not change the row. Legacy consoles now fold the remaining ambiguous glyphs to one-cell ASCII before layout, so the border stays aligned and selection rows no longer shift. Windows Terminal and IDE terminals are unchanged.
 
 ## [1.3.4] - 2026-11-17
 

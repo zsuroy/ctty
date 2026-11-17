@@ -11,8 +11,9 @@ import (
 // cells, one more than ansi.StringWidth counts. The glyphs that caused
 // the worst overflow (← → ↑ ↓ arrows, the bullet and em dash) are
 // substituted with ASCII at paint time (legacyGlyphReplacer) and charge
-// nothing; the painted emoji substitutes (● ✓ ◆ …) stay in the frames
-// and charge one column each.
+// nothing. The table is retained for raw strings measured before
+// legacyGlyphFallback; rendered legacy frames fold these to ASCII and
+// charge nothing.
 func TestDBCSAmbiguousDelta(t *testing.T) {
 	ResetGlyphCalibration() // the heuristic only charges unmeasured glyphs
 	cases := []struct {
@@ -37,17 +38,61 @@ func TestDBCSAmbiguousDelta(t *testing.T) {
 
 // TestLegacyGlyphFallbackBallotX: the peek error row prefixes its
 // message with U+2717 (✗), which ConHost fonts do not carry — it
-// reached the screen as a tofu box. The legacy fallback replacer must
-// map it to the multiplication sign like the other cross marks.
+// reached the screen as a tofu box. The legacy fallback chain maps it
+// to the multiplication sign and then to ASCII x.
 func TestLegacyGlyphFallbackBallotX(t *testing.T) {
-	if got := legacyGlyphReplacer.Replace("  \u2717 failed"); got != "  \u00d7 failed" {
-		t.Errorf("ballot X fallback = %q, want %q", got, "  \u00d7 failed")
+	got := legacyAmbiguousReplacer.Replace(legacyGlyphReplacer.Replace("  \u2717 failed"))
+	if got != "  x failed" {
+		t.Errorf("ballot X fallback = %q, want %q", got, "  x failed")
 	}
 }
 
 func TestLegacyGlyphFallbackEllipsis(t *testing.T) {
 	if got := legacyGlyphReplacer.Replace("存储桶 (Buc…"); got != "存储桶 (Buc." {
 		t.Errorf("ellipsis fallback = %q, want %q", got, "存储桶 (Buc.")
+	}
+}
+
+func TestLegacyAmbiguousGlyphsFoldToASCII(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"●", "*"},
+		{"○", "o"},
+		{"✓", "x"},
+		{"◆", "*"},
+		{"■", "#"},
+		{"▶", ">"},
+		{"★", "*"},
+		{"☆", "*"},
+		{"–", "-"},
+		{"·", "."},
+		{"«", "<"},
+		{"»", ">"},
+		{"×", "x"},
+	}
+	for _, c := range cases {
+		if got := legacyAmbiguousReplacer.Replace(c.in); got != c.want {
+			t.Errorf("legacyAmbiguousReplacer.Replace(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestLegacyEmojiSubstitutesFoldToASCII covers the two-step chain: raw
+// emoji -> legacy substitute (● ✓ ○ ◆) -> ASCII. strings.Replacer does not
+// rescan its own output, so the second pass is required for these.
+func TestLegacyEmojiSubstitutesFoldToASCII(t *testing.T) {
+	in := "🟢 ✅ ⏳ " + labelTagEmoji
+	got := legacyAmbiguousReplacer.Replace(legacyGlyphReplacer.Replace(in))
+	if got != "* x o *" {
+		t.Errorf("legacy emoji fallback = %q, want %q", got, "* x o *")
+	}
+}
+
+func TestLegacyFoldedGlyphsHaveNoDBCSDelta(t *testing.T) {
+	if got := dbcsAmbiguousDelta(legacyAmbiguousReplacer.Replace("● ✓ ★ ◆ ■")); got != 0 {
+		t.Errorf("folded glyph delta = %d, want 0", got)
 	}
 }
 
