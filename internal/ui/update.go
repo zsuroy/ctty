@@ -472,7 +472,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 
-				return m, tea.ExecProcess(sshCmd, func(err error) tea.Msg {
+				return m, execProcess(sshCmd, func(err error) tea.Msg {
 					return tea.Quit()
 				})
 			}
@@ -512,13 +512,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case serialConnectMsg:
 		m.serialForm = nil
 		if m.serialOnly {
-			return m, tea.Exec(serialconfig.NewExecCommand(msg.device), func(err error) tea.Msg {
+			return m, execInTerminal(serialconfig.NewExecCommand(msg.device), func(err error) tea.Msg {
 				return tea.Quit()
 			})
 		}
 		m.viewMode = ViewList
 		m.table.Focus()
-		return m, tea.Exec(serialconfig.NewExecCommand(msg.device), func(err error) tea.Msg {
+		return m, execInTerminal(serialconfig.NewExecCommand(msg.device), func(err error) tea.Msg {
 			return serialConnectDoneMsg{err: err}
 		})
 
@@ -622,14 +622,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.telnetOnly {
 			// Launched via 'ctty telnet <target>' — exit entirely when
 			// the session ends, matching direct-connect expectations.
-			return m, tea.Exec(telnetclient.NewExecCommand(msg.host), func(err error) tea.Msg {
+			return m, execInTerminal(telnetclient.NewExecCommand(msg.host), func(err error) tea.Msg {
 				return tea.Quit()
 			})
 		}
 		// Opened from the main SSH host list ('T' key) — resume the TUI.
 		m.viewMode = ViewList
 		m.table.Focus()
-		return m, tea.Exec(telnetclient.NewExecCommand(msg.host), func(err error) tea.Msg {
+		return m, execInTerminal(telnetclient.NewExecCommand(msg.host), func(err error) tea.Msg {
 			return telnetDoneMsg{}
 		})
 
@@ -850,7 +850,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			sshCmd = exec.Command("ssh", "-o", "StrictHostKeyChecking=accept-new", msg.hostName, msg.command)
 		}
 		sshCmd.Env = buildSSHEnv(msg.hostName)
-		return m, tea.ExecProcess(sshCmd, func(err error) tea.Msg {
+		return m, execProcess(sshCmd, func(err error) tea.Msg {
 			return tea.Quit()
 		})
 
@@ -1225,7 +1225,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					sshCmd = exec.Command("ssh", "-o", "StrictHostKeyChecking=accept-new", targetHost.Name)
 				}
 				sshCmd.Env = buildSSHEnv(targetHost.Name)
-				return m, tea.ExecProcess(sshCmd, func(err error) tea.Msg {
+				return m, execProcess(sshCmd, func(err error) tea.Msg {
 					return tea.Quit()
 				})
 			}
@@ -1402,7 +1402,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// Set up SSH_ASKPASS for zero-touch auto-login with saved passwords
 				sshCmd.Env = buildSSHEnv(hostName)
 
-				return m, tea.ExecProcess(sshCmd, func(err error) tea.Msg {
+				return m, execProcess(sshCmd, func(err error) tea.Msg {
 					return tea.Quit()
 				})
 			}
@@ -1706,7 +1706,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 				}
 				cmd := exec.Command(editor, cfgPath)
-				return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+				return m, execProcess(cmd, func(err error) tea.Msg {
 					return reloadConfigMsg{}
 				})
 			}

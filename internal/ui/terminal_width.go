@@ -8,6 +8,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/zsuroy/ctty/internal/winterm"
 )
 
 // Status emoji used in the host list ping column and modals (quick peek /
@@ -117,13 +119,7 @@ func isWindowsGitBashTerminal() bool {
 // heuristics double-charged their glyphs (a JetBrains label tag measured +2
 // instead of +1 under a DBCS code page).
 func isWindowsLegacyConsole() bool {
-	if runtime.GOOS != "windows" {
-		return false
-	}
-	if isWindowsTerminal() || isWindowsGitBashTerminal() || isJetBrainsTerminal() || isVSCodeTerminal() {
-		return false
-	}
-	return true
+	return winterm.IsLegacyConsole()
 }
 
 // needsWidthCompensation reports whether the current terminal advances

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.6] - 2026-11-18
+
+### Fixed
+
+- **🪟 Garbled output after failed SSH on Windows** — OpenSSH restores stale console modes on its failed-auth path, clearing processed output/VT so Bubble Tea's resume/quit escape sequences print literally. Interactive children now restore the console input mode and TUI output mode (VT/processed, plus legacy ConHost newline handling); the non-TUI `ctty <host>` fallback restores the shell's original modes. Affects cmd, PowerShell, and Windows Terminal.
+
 ## [1.3.5] - 2026-11-17
 
 ### Fixed
