@@ -14,6 +14,7 @@ import (
 	"github.com/zsuroy/ctty/internal/history"
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/ui"
+	"github.com/zsuroy/ctty/internal/winterm"
 
 	"github.com/spf13/cobra"
 )
@@ -221,7 +222,12 @@ func connectToHost(hostName string, remoteCommand []string) {
 	sshCmd.Stdout = os.Stdout
 	sshCmd.Stderr = os.Stderr
 
+	// ssh.exe can leave stale console modes on its failed-auth path. This is
+	// the non-TUI fallback used on Windows (syscall.Exec is unsupported), so
+	// restore the shell's input/output modes before exiting.
+	restoreConsole := winterm.PrepareForCLIChild()
 	err = sshCmd.Run()
+	restoreConsole()
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
