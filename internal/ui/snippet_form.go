@@ -1,10 +1,7 @@
 package ui
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -12,13 +9,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/zsuroy/ctty/internal/i18n"
+	"github.com/zsuroy/ctty/internal/snippets"
 )
 
-// Snippet represents a saved remote command snippet.
-type Snippet struct {
-	Name    string `json:"name"`
-	Command string `json:"command"`
-}
+// Snippet is a saved command snippet (shared with the in-session picker).
+type Snippet = snippets.Snippet
 
 // snippetMode controls the sub-state within the snippet view.
 type snippetMode int
@@ -61,60 +56,12 @@ type snippetSubmitMsg struct {
 // snippetCloseMsg is sent when the user cancels.
 type snippetCloseMsg struct{}
 
-// Built-in common snippets shown at the top of the list.
-var builtinSnippets = []Snippet{
-	{Name: "docker ps", Command: "docker ps"},
-	{Name: "df -h", Command: "df -h"},
-	{Name: "free -m", Command: "free -m"},
-	{Name: "uptime", Command: "uptime"},
-	{Name: "top (batch)", Command: "top -bn1 | head -20"},
-	{Name: "last logins", Command: "last -10"},
-	{Name: "processes", Command: "ps aux --sort=-%mem | head -15"},
-	{Name: "disk usage", Command: "du -sh /* 2>/dev/null | sort -rh | head -10"},
-}
+// builtinSnippets are shown at the top of the list.
+var builtinSnippets = snippets.Builtin
 
-// snippetsFilePath returns the path to the user's saved snippets file.
-func snippetsFilePath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".config", "ctty", "snippets.json")
-}
+func loadSnippets() []Snippet { return snippets.Load() }
 
-// loadSnippets loads user-saved snippets from disk.
-func loadSnippets() []Snippet {
-	path := snippetsFilePath()
-	if path == "" {
-		return nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var snippets []Snippet
-	if err := json.Unmarshal(data, &snippets); err != nil {
-		return nil
-	}
-	return snippets
-}
-
-// saveSnippets persists user snippets to disk.
-func saveSnippets(snippets []Snippet) error {
-	path := snippetsFilePath()
-	if path == "" {
-		return fmt.Errorf("cannot determine home directory")
-	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(snippets, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0600)
-}
+func saveSnippets(list []Snippet) error { return snippets.Save(list) }
 
 // NewSnippetForm creates a new snippet execution form for the given host.
 func NewSnippetForm(styles Styles, width, height int, hostName, configFile string) *snippetFormModel {
