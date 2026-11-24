@@ -51,7 +51,7 @@ func expectSilence(t *testing.T, ch <-chan []byte, label string) {
 
 func TestFeedPassthrough(t *testing.T) {
 	p := &parser{}
-	got := p.feed([]byte("login: "), nil)
+	got := p.feed([]byte("login: "))
 	if want := "login: "; string(got) != want {
 		t.Fatalf("feed passthrough = %q, want %q", got, want)
 	}
@@ -59,7 +59,7 @@ func TestFeedPassthrough(t *testing.T) {
 
 func TestFeedIACUnescape(t *testing.T) {
 	p := &parser{}
-	got := p.feed([]byte{'a', iacIAC, iacIAC, 'b'}, nil)
+	got := p.feed([]byte{'a', iacIAC, iacIAC, 'b'})
 	if len(got) != 3 || got[0] != 'a' || got[1] != 0xFF || got[2] != 'b' {
 		t.Fatalf("IAC IAC not unescaped to single 0xFF: %v", got)
 	}
@@ -67,11 +67,11 @@ func TestFeedIACUnescape(t *testing.T) {
 
 func TestFeedSplitSequenceAcrossChunks(t *testing.T) {
 	conn := newChanConn()
-	p := &parser{bridge: NewBridge(conn)}
-	if out := p.feed([]byte{'x', iacIAC}, nil); string(out) != "x" {
+	p := &parser{reply: conn}
+	if out := p.feed([]byte{'x', iacIAC}); string(out) != "x" {
 		t.Fatalf("first chunk should hold only display bytes, got %q", out)
 	}
-	if out := p.feed([]byte{iacWILL, optECHO}, nil); len(out) != 0 {
+	if out := p.feed([]byte{iacWILL, optECHO}); len(out) != 0 {
 		t.Fatalf("negotiation bytes must not leak to display, got %q", out)
 	}
 	if p.state != stateData {
@@ -82,53 +82,88 @@ func TestFeedSplitSequenceAcrossChunks(t *testing.T) {
 
 func TestAnswerWILLECHOAccepted(t *testing.T) {
 	conn := newChanConn()
-	p := &parser{bridge: NewBridge(conn)}
-	p.answer(iacWILL, optECHO, nil)
+	p := &parser{reply: conn}
+	p.answer(iacWILL, optECHO)
 	expectReply(t, conn.out, []byte{iacIAC, iacDO, optECHO}, "WILL ECHO")
 }
 
 func TestAnswerDOSGAAccepted(t *testing.T) {
 	conn := newChanConn()
-	p := &parser{bridge: NewBridge(conn)}
-	p.answer(iacDO, optSGA, nil)
+	p := &parser{reply: conn}
+	p.answer(iacDO, optSGA)
 	expectReply(t, conn.out, []byte{iacIAC, iacWILL, optSGA}, "DO SGA")
 }
 
 func TestAnswerDOUnknownRefused(t *testing.T) {
 	conn := newChanConn()
-	p := &parser{bridge: NewBridge(conn)}
-	p.answer(iacDO, optTTYPE, nil)
+	p := &parser{reply: conn}
+	p.answer(iacDO, optTTYPE)
 	expectReply(t, conn.out, []byte{iacIAC, iacWONT, optTTYPE}, "DO TTYPE")
 }
 
 func TestAnswerWILLUnknownRefused(t *testing.T) {
 	conn := newChanConn()
-	p := &parser{bridge: NewBridge(conn)}
-	p.answer(iacWILL, optNEWENV, nil)
+	p := &parser{reply: conn}
+	p.answer(iacWILL, optNEWENV)
 	expectReply(t, conn.out, []byte{iacIAC, iacDONT, optNEWENV}, "WILL NEW-ENV")
 }
 
 func TestSubnegSwallowedAndNAWSAnswered(t *testing.T) {
 	conn := newChanConn()
-	p := &parser{bridge: NewBridge(conn)}
+	p := &parser{reply: conn}
 
 	// TTYPE subnegotiation: swallowed silently, no reply sent.
 	seq := []byte{iacIAC, iacSB, optTTYPE, 0, 'x', 't', 'e', 'r', 'm', iacIAC, iacSE}
-	if out := p.feed(seq, nil); len(out) != 0 {
+	if out := p.feed(seq); len(out) != 0 {
 		t.Fatalf("subnegotiation leaked %q to display", out)
 	}
 	expectSilence(t, conn.out, "TTYPE")
 
 	// NAWS: answered with conventional 80x24 (IAC-escaped payload).
-	if out := p.feed([]byte{iacIAC, iacSB, optNAWS}, nil); len(out) != 0 {
+	if out := p.feed([]byte{iacIAC, iacSB, optNAWS}); len(out) != 0 {
 		t.Fatalf("SB header leaked %q", out)
 	}
-	if out := p.feed([]byte{iacIAC, iacSE}, nil); len(out) != 0 {
+	if out := p.feed([]byte{iacIAC, iacSE}); len(out) != 0 {
 		t.Fatalf("SE leaked %q", out)
 	}
 	expectReply(t, conn.out,
 		[]byte{iacIAC, iacSB, optNAWS, 0x00, 80, 0x00, 24, iacIAC, iacSE},
 		"NAWS")
+}
+
+func TestSessionNAWSUsesRecordedSize(t *testing.T) {
+	conn := newChanConn()
+	s := NewSession(conn)
+	// The session starts at the conventional 80x24...
+	s.Feed([]byte{iacIAC, iacSB, optNAWS})
+	s.Feed([]byte{iacIAC, iacSE})
+	expectReply(t, conn.out,
+		[]byte{iacIAC, iacSB, optNAWS, 0x00, 80, 0x00, 24, iacIAC, iacSE},
+		"NAWS default")
+	// ...and SetSize updates later answers.
+	s.SetSize(100, 40)
+	s.Feed([]byte{iacIAC, iacSB, optNAWS})
+	s.Feed([]byte{iacIAC, iacSE})
+	expectReply(t, conn.out,
+		[]byte{iacIAC, iacSB, optNAWS, 0x00, 100, 0x00, 40, iacIAC, iacSE},
+		"NAWS after SetSize")
+	// Non-positive sizes are ignored so layout transients cannot
+	// advertise a zero-size terminal.
+	s.SetSize(0, 0)
+	s.Feed([]byte{iacIAC, iacSB, optNAWS})
+	s.Feed([]byte{iacIAC, iacSE})
+	expectReply(t, conn.out,
+		[]byte{iacIAC, iacSB, optNAWS, 0x00, 100, 0x00, 40, iacIAC, iacSE},
+		"NAWS ignores non-positive SetSize")
+}
+
+func TestSessionFeedFiltersNegotiation(t *testing.T) {
+	conn := newChanConn()
+	s := NewSession(conn)
+	if out := s.Feed([]byte{'x', iacIAC, iacWILL, optECHO, 'y'}); string(out) != "xy" {
+		t.Fatalf("session Feed leaked negotiation bytes: %q", out)
+	}
+	expectReply(t, conn.out, []byte{iacIAC, iacDO, optECHO}, "session WILL ECHO")
 }
 
 func TestEncodeNAWS(t *testing.T) {
@@ -141,25 +176,44 @@ func TestEncodeNAWS(t *testing.T) {
 	}
 }
 
-func TestFilterIAC(t *testing.T) {
+func TestStuffIAC(t *testing.T) {
 	tests := []struct {
 		name string
 		in   []byte
 		want []byte
 	}{
 		{"plain text", []byte("hi"), []byte("hi")},
-		{"doubled IAC becomes literal", []byte{'a', 0xFF, 0xFF, 'b'}, []byte{'a', 0xFF, 'b'}},
-		{"lone trailing IAC dropped", []byte{'a', 0xFF}, []byte{'a'}},
-		{"escape prefix dropped", []byte{'a', 0xFF, iacDO, 0x01}, []byte{'a', 0x01}},
+		{"single IAC doubled", []byte{'a', 0xFF, 'b'}, []byte{'a', 0xFF, 0xFF, 'b'}},
+		{"trailing IAC doubled", []byte{'a', 0xFF}, []byte{'a', 0xFF, 0xFF}},
+		{"IAC command sequence is data, not command", []byte{'a', 0xFF, iacDO, 0x01},
+			[]byte{'a', 0xFF, 0xFF, iacDO, 0x01}},
+		{"multiple IACs", []byte{0xFF, 0xFF}, []byte{0xFF, 0xFF, 0xFF, 0xFF}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := filterIAC(append([]byte{}, tt.in...))
+			got := stuffIAC(append([]byte{}, tt.in...))
 			if !bytes.Equal(got, tt.want) {
-				t.Fatalf("filterIAC(%v) = %v, want %v", tt.in, got, tt.want)
+				t.Fatalf("stuffIAC(%v) = %v, want %v", tt.in, got, tt.want)
 			}
 		})
 	}
+}
+
+func TestSessionWriteStuffIACAndLineEnding(t *testing.T) {
+	conn := newChanConn()
+	s := NewSession(conn)
+
+	// Write doubles data 0xFF so it cannot be read as an IAC command.
+	if _, err := s.Write([]byte{'a', 0xFF, 'b'}); err != nil {
+		t.Fatal(err)
+	}
+	expectReply(t, conn.out, []byte{'a', 0xFF, 0xFF, 'b'}, "Write stuffs IAC")
+
+	// WriteLine appends the NVT CRLF and still stuffs IAC in the payload.
+	if _, err := s.WriteLine([]byte{'p', 0xFF}); err != nil {
+		t.Fatal(err)
+	}
+	expectReply(t, conn.out, []byte{'p', 0xFF, 0xFF, '\r', '\n'}, "WriteLine CRLF + stuff")
 }
 
 func TestContainsDisconnect(t *testing.T) {

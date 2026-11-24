@@ -136,7 +136,11 @@ func TestTelnetAddForm_Submit(t *testing.T) {
 
 	// Enter tags
 	form.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("lab,cisco")})
-	// Press Enter to go to confirm
+	// Press Enter to go to mode, then on to confirm
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if form.form.GetFocusedField().GetKey() != "mode" {
+		t.Fatalf("expected focus on mode, got %s", form.form.GetFocusedField().GetKey())
+	}
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if form.form.GetFocusedField().GetKey() != "confirm" {
 		t.Fatalf("expected focus on confirm, got %s", form.form.GetFocusedField().GetKey())
@@ -156,8 +160,8 @@ func TestTelnetAddForm_ConfirmNavigationAndAutoScroll(t *testing.T) {
 	_ = form.Init()
 
 	// Advance through all fields to confirm:
-	// name -> host -> port -> user -> password -> tags -> confirm
-	for i := 0; i < 6; i++ {
+	// name -> host -> port -> user -> password -> tags -> mode -> confirm
+	for i := 0; i < 7; i++ {
 		form.Update(tea.KeyMsg{Type: tea.KeyTab})
 	}
 	if form.form.GetFocusedField().GetKey() != "confirm" {
@@ -170,16 +174,16 @@ func TestTelnetAddForm_ConfirmNavigationAndAutoScroll(t *testing.T) {
 		t.Fatalf("expected view to contain Save button, got:\n%s", view)
 	}
 
-	// Up key on confirm should move back to tags
+	// Up key on confirm should move back to mode
 	form.Update(tea.KeyMsg{Type: tea.KeyUp})
-	if form.form.GetFocusedField().GetKey() != "tags" {
-		t.Fatalf("expected Up on confirm to go to tags, got %s", form.form.GetFocusedField().GetKey())
+	if form.form.GetFocusedField().GetKey() != "mode" {
+		t.Fatalf("expected Up on confirm to go to mode, got %s", form.form.GetFocusedField().GetKey())
 	}
 
-	// Down key on tags should move back to confirm
+	// Down key on mode should move back to confirm
 	form.Update(tea.KeyMsg{Type: tea.KeyDown})
 	if form.form.GetFocusedField().GetKey() != "confirm" {
-		t.Fatalf("expected Down on tags to go to confirm, got %s", form.form.GetFocusedField().GetKey())
+		t.Fatalf("expected Down on mode to go to confirm, got %s", form.form.GetFocusedField().GetKey())
 	}
 
 	// Down key on confirm should wrap around to name
@@ -390,5 +394,45 @@ func TestTelnetAddFormVaultFailureRollsBackConfig(t *testing.T) {
 	}
 	if pass, ok := telnetcred.GetPassword("rpi"); !ok || pass != "s3cret" {
 		t.Fatalf("after retry vault password=%q,%v want s3cret,true", pass, ok)
+	}
+}
+
+func TestTelnetAddFormPersistsConnectMode(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+
+	f := newTelnetAddForm(NewStyles(80), 80, 24, nil)
+	f.nameVal = "Board"
+	f.hostVal = "10.0.0.5"
+	f.modeVal = telnetconfig.ModeRaw
+	f.submit()
+	if f.err != "" {
+		t.Fatalf("submit failed: %s", f.err)
+	}
+	host, ok := telnetconfig.Find("Board")
+	if !ok {
+		t.Fatal("host was not saved")
+	}
+	if host.Mode != telnetconfig.ModeRaw {
+		t.Fatalf("saved mode = %q, want %q", host.Mode, telnetconfig.ModeRaw)
+	}
+}
+
+func TestTelnetAddFormDefaultsToInherit(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+
+	f := newTelnetAddForm(NewStyles(80), 80, 24, nil)
+	if f.modeVal != telnetconfig.ModeInherit {
+		t.Fatalf("default mode = %q, want inherit", f.modeVal)
+	}
+	f.nameVal = "Plain"
+	f.hostVal = "10.0.0.9"
+	f.submit()
+	host, ok := telnetconfig.Find("Plain")
+	if !ok || host.Mode != telnetconfig.ModeInherit {
+		t.Fatalf("mode = %q, want inherit (empty)", host.Mode)
 	}
 }

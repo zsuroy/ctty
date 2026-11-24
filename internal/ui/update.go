@@ -16,6 +16,7 @@ import (
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
 	"github.com/zsuroy/ctty/internal/telnetclient"
+	"github.com/zsuroy/ctty/internal/telnetconfig"
 	"github.com/zsuroy/ctty/internal/ui/theme"
 	"github.com/zsuroy/ctty/internal/version"
 
@@ -111,6 +112,13 @@ func (m Model) Init() tea.Cmd {
 		cmds = append(cmds, func() tea.Msg { return serialConnectMsg{device: dev} })
 	}
 
+	// 'ctty telnet <name|host>' connects straight away instead of parking
+	// the user on the device list they just typed a target to skip.
+	if m.pendingTelnet != nil {
+		host := *m.pendingTelnet
+		cmds = append(cmds, func() tea.Msg { return telnetConnectMsg{host: host} })
+	}
+
 	return tea.Batch(cmds...)
 }
 
@@ -144,6 +152,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			var monitorCmd tea.Cmd
 			m.serialMonitor, monitorCmd = m.serialMonitor.Update(msg)
+			return m, monitorCmd
+		}
+	}
+
+	// While the in-app telnet assistant is on screen it owns the keyboard
+	// and its own connection; only its two exit messages go through the
+	// normal dispatch below.
+	if m.viewMode == ViewTelnetMonitor && m.telnetMonitor != nil {
+		switch msg.(type) {
+		case telnetMonitorDoneMsg, telnetMonitorSwitchMsg:
+		default:
+			if sizeMsg, ok := msg.(tea.WindowSizeMsg); ok {
+				m.width = sizeMsg.Width
+				m.height = sizeMsg.Height
+				m.styles = NewStyles(m.width)
+			}
+			var monitorCmd tea.Cmd
+			m.telnetMonitor, monitorCmd = m.telnetMonitor.Update(msg)
 			return m, monitorCmd
 		}
 	}
@@ -611,6 +637,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.serialMonitor.closePort()
 			m.serialMonitor = nil
 		}
+		if m.telnetMonitor != nil {
+			m.telnetMonitor.closePort()
+			m.telnetMonitor = nil
+		}
 		m.serialForm = nil
 		m.telnetForm = nil
 		m.ftpSitesForm = nil
@@ -696,24 +726,69 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case telnetConnectMsg:
-		// Suspend the TUI and run the interactive telnet bridge; the
-		// terminal is released to normal (raw) mode for the session.
+		// How this connection opens is a setting, not a hard-coded split:
+		// the CLI flag wins, then the host's own mode, then the global
+		// start mode, and only then the per-entry default (raw for
+		// 'ctty telnet', the monitor inside the TUI).
 		m.telnetForm = nil
-		if m.telnetOnly {
-			// Launched via 'ctty telnet <target>' — exit entirely when
-			// the session ends, matching direct-connect expectations.
+		if m.telnetConnectMode(msg.host) == telnetconfig.ModeRaw {
+			// Suspend the TUI and run the interactive telnet bridge; the
+			// terminal is released to normal (raw) mode for the session.
 			return m, execInTerminal(telnetclient.NewExecCommand(msg.host), func(err error) tea.Msg {
-				return tea.Quit()
+				return telnetMonitorDoneMsg{err: err}
 			})
 		}
-		// Opened from the main SSH host list ('T' key) — resume the TUI.
+		monitor := newTelnetMonitor(m.styles, m.width, m.height, msg.host)
+		m.telnetMonitor = monitor
+		m.viewMode = ViewTelnetMonitor
+		// Mouse reporting is a console affordance (wheel = scroll the
+		// receive pane). It is switched on for this page only, so every other
+		// view keeps the terminal's native drag-select.
+		return m, tea.Batch(monitor.Init(), monitorMouseCmd(true))
+
+	case telnetMonitorDoneMsg:
+		mouseCmd := tea.Cmd(nil)
+		if m.telnetMonitor != nil {
+			m.telnetMonitor.closePort()
+			m.telnetMonitor = nil
+			mouseCmd = monitorMouseCmd(false)
+		}
+		// 'ctty telnet' launched straight into the assistant: Esc means
+		// quit the program, not fall back to a host list the user never
+		// opened. Keep this in sync with the raw bridge path so the
+		// connection is always closed before the process exits.
+		if m.telnetOnly {
+			return m, tea.Batch(mouseCmd, tea.Quit)
+		}
+		m.viewMode = ViewTelnet
+		m.telnetForm = NewTelnetForm(m.styles, m.width, m.height)
+		if msg.err != nil {
+			m.telnetForm.setStatus("Telnet: " + msg.err.Error())
+		} else {
+			m.telnetForm.setStatus(i18n.T("telnet.monitor.disconnected"))
+		}
+		return m, mouseCmd
+
+	case telnetMonitorSwitchMsg:
+		if m.telnetMonitor == nil {
+			m.viewMode = ViewTelnet
+			m.telnetForm = NewTelnetForm(m.styles, m.width, m.height)
+			return m, nil
+		}
+		host := m.telnetMonitor.dev
+		m.telnetMonitor.closePort()
+		m.telnetMonitor = nil
 		m.viewMode = ViewList
 		m.table.Focus()
-		return m, execInTerminal(telnetclient.NewExecCommand(msg.host), func(err error) tea.Msg {
-			return telnetDoneMsg{}
-		})
+		return m, tea.Batch(monitorMouseCmd(false), execInTerminal(telnetclient.NewExecCommand(host), func(err error) tea.Msg {
+			return telnetMonitorDoneMsg{err: err}
+		}))
 
 	case telnetDoneMsg:
+		if m.telnetMonitor != nil {
+			m.telnetMonitor.closePort()
+			m.telnetMonitor = nil
+		}
 		m.telnetForm = nil
 		if m.telnetOnly {
 			// Launched via 'ctty telnet' — exit entirely
