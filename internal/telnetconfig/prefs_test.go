@@ -232,6 +232,37 @@ func TestTelnetPrefsDisplayRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTelnetPrefsQuickLabelRoundTrip(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	p := DefaultTelnetPrefs()
+	if !p.ShowQuickLabel {
+		t.Fatal("telnet has always echoed quick-command labels; default must be on")
+	}
+	// Explicit off must survive a save/load round trip.
+	p.ShowQuickLabel = false
+	if err := SaveTelnetPrefs(p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadTelnetPrefs()
+	if err != nil || got.ShowQuickLabel {
+		t.Fatalf("show_quick_label = %v err=%v, want false", got.ShowQuickLabel, err)
+	}
+	// A config written before the key existed keeps the historical on default.
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	cfgDir := filepath.Join(dir, "ctty")
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "telnet-prefs.json"), []byte(`{"hex_view":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	old, err := LoadTelnetPrefs()
+	if err != nil || !old.ShowQuickLabel {
+		t.Fatalf("legacy prefs = %+v err=%v, want quick label on", old, err)
+	}
+}
+
 func TestTelnetPrefsQuickKeyDefaultsAndNormalize(t *testing.T) {
 	if p := DefaultTelnetPrefs(); p.QuickKey != QuickKeyAuto {
 		t.Fatalf("default quick key = %q, want auto", p.QuickKey)

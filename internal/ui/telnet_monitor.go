@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	telnetSettingsCount = 9
+	telnetSettingsCount = 10
 )
 
 // Settings rows, in display order. Kept as an index enum so the value editor
@@ -35,6 +35,7 @@ const (
 const (
 	telnetSettingViewMode = iota
 	telnetSettingShowPrefix
+	telnetSettingShowQuickLabel
 	telnetSettingAnsiColor
 	telnetSettingShowTime
 	telnetSettingLogAppend
@@ -124,22 +125,23 @@ type telnetMonitorModel struct {
 	// pendingCR remembers that the last received byte was a bare CR, so the
 	// next byte decides whether it was half of a CRLF or a line break on its
 	// own. It lives across reads because a chunk can end right between them.
-	pendingCR   bool
-	rxOffset    int
-	pendingAt   time.Time
-	rxCount     int
-	txCount     int
-	hexView     bool // receive pane display mode: false = ASCII (default), true = HEX
-	showPrefix  bool // paint "RX < " / "TX > " on monitor rows; off by default
-	ansiColor   bool // render peer SGR colours in the ASCII pane; on by default
-	hexAscii    bool
-	hexSend     bool
-	showTime    bool
-	crlf        bool // legacy mirror of lineEnd == "crlf"
-	lineEnd     string
-	repeat      bool
-	interval    time.Duration
-	lastPayload []byte
+	pendingCR      bool
+	rxOffset       int
+	pendingAt      time.Time
+	rxCount        int
+	txCount        int
+	hexView        bool // receive pane display mode: false = ASCII (default), true = HEX
+	showPrefix     bool // paint "RX < " / "TX > " on monitor rows; off by default
+	showQuickLabel bool // paint "[label] " on quick-command TX echoes; on by default
+	ansiColor      bool // render peer SGR colours in the ASCII pane; on by default
+	hexAscii       bool
+	hexSend        bool
+	showTime       bool
+	crlf           bool // legacy mirror of lineEnd == "crlf"
+	lineEnd        string
+	repeat         bool
+	interval       time.Duration
+	lastPayload    []byte
 	// lastAddLineEnding remembers how lastPayload was framed when it was
 	// sent. F5 loops replay it, so a hex frame must not pick up a CRLF just
 	// because the user switched send mode in the meantime.
@@ -237,20 +239,21 @@ func newTelnetMonitor(styles Styles, width, height int, dev telnetconfig.TelnetH
 	prefs, prefsErr := telnetconfig.LoadTelnetPrefs()
 
 	m := &telnetMonitorModel{
-		styles:     styles,
-		dev:        dev,
-		rx:         viewport.New(40, 5),
-		rxFollow:   true,
-		input:      input,
-		interval:   prefs.Interval(),
-		maxLines:   prefs.MaxLines,
-		hexView:    prefs.HexView,
-		showPrefix: prefs.ShowPrefix,
-		ansiColor:  prefs.AnsiColor,
-		hexAscii:   prefs.HexAscii,
-		hexSend:    prefs.HexSend,
-		showTime:   prefs.ShowTime,
-		crlf:       true,
+		styles:         styles,
+		dev:            dev,
+		rx:             viewport.New(40, 5),
+		rxFollow:       true,
+		input:          input,
+		interval:       prefs.Interval(),
+		maxLines:       prefs.MaxLines,
+		hexView:        prefs.HexView,
+		showPrefix:     prefs.ShowPrefix,
+		showQuickLabel: prefs.ShowQuickLabel,
+		ansiColor:      prefs.AnsiColor,
+		hexAscii:       prefs.HexAscii,
+		hexSend:        prefs.HexSend,
+		showTime:       prefs.ShowTime,
+		crlf:           true,
 		// telnet NVT fixes the line ending at CRLF; the legacy LineEnding
 		// preference is ignored so an old "none" config cannot silently drop
 		// the Enter that every network CLI expects.
@@ -1229,6 +1232,7 @@ func (m *telnetMonitorModel) livePrefs() telnetconfig.TelnetPrefs {
 	}
 	p.HexView = m.hexView
 	p.ShowPrefix = m.showPrefix
+	p.ShowQuickLabel = m.showQuickLabel
 	p.AnsiColor = m.ansiColor
 	p.HexAscii = m.hexAscii
 	p.HexSend = m.hexSend
@@ -1274,6 +1278,7 @@ func (m *telnetMonitorModel) updateSettings(key tea.KeyMsg) (*telnetMonitorModel
 		m.prefs = p
 		m.hexView = p.HexView
 		m.showPrefix = p.ShowPrefix
+		m.showQuickLabel = p.ShowQuickLabel
 		m.ansiColor = p.AnsiColor
 		m.ansiFilter.keepSGR = m.ansiColor
 		m.refreshAnsiViews()
@@ -1318,6 +1323,8 @@ func (m *telnetMonitorModel) adjustSetting(sel, delta int) {
 		m.prefs.HexView = !m.prefs.HexView
 	case telnetSettingShowPrefix:
 		m.prefs.ShowPrefix = !m.prefs.ShowPrefix
+	case telnetSettingShowQuickLabel:
+		m.prefs.ShowQuickLabel = !m.prefs.ShowQuickLabel
 	case telnetSettingAnsiColor:
 		m.prefs.AnsiColor = !m.prefs.AnsiColor
 	case telnetSettingShowTime:
@@ -1886,6 +1893,7 @@ func (m *telnetMonitorModel) settingsRows() []telnetSettingsRow {
 	return []telnetSettingsRow{
 		{i18n.T("telnet.settings.view_mode"), telnetModeWord(p.HexView, i18n.T("telnet.settings.view_hex"), i18n.T("telnet.settings.view_ascii"))},
 		{i18n.T("telnet.settings.show_prefix"), telnetOnOff(p.ShowPrefix)},
+		{i18n.T("telnet.settings.show_quick_label"), telnetOnOff(p.ShowQuickLabel)},
 		{i18n.T("telnet.settings.ansi_color"), telnetOnOff(p.AnsiColor)},
 		{i18n.T("telnet.settings.show_time"), telnetOnOff(p.ShowTime)},
 		{i18n.T("telnet.settings.log_append"), telnetOnOff(p.LogAppend)},
@@ -2765,7 +2773,7 @@ func (m *telnetMonitorModel) renderTxEntry(e telnetRxEntry) []string {
 		stamp = e.at.Format("[15:04:05.000] ")
 	}
 	head := m.txPrefix()
-	if e.label != "" {
+	if m.showQuickLabel && e.label != "" {
 		head += "[" + e.label + "] "
 	}
 	raw := e.raw
