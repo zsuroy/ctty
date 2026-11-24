@@ -33,6 +33,7 @@ type telnetAddFormModel struct {
 	userVal     string
 	passwordVal string
 	tagsVal     string
+	modeVal     string
 	confirmVal  bool
 
 	done      bool
@@ -46,6 +47,7 @@ func newTelnetAddForm(styles Styles, width, height int, initial *telnetconfig.Te
 		height:     height,
 		editing:    initial,
 		portVal:    strconv.Itoa(telnetconfig.DefaultPort),
+		modeVal:    telnetconfig.ModeInherit,
 		confirmVal: true,
 	}
 
@@ -62,6 +64,7 @@ func newTelnetAddForm(styles Styles, width, height int, initial *telnetconfig.Te
 			m.passwordVal = pass
 		}
 		m.tagsVal = strings.Join(initial.Tags, ", ")
+		m.modeVal = telnetconfig.NormalizeMode(initial.Mode)
 	}
 
 	m.buildForm()
@@ -148,6 +151,17 @@ func (m *telnetAddFormModel) buildForm() {
 				Prompt("> ").
 				Placeholder("lab,network").
 				Value(&m.tagsVal),
+
+			huh.NewSelect[string]().
+				Key("mode").
+				Title(strings.TrimSpace(strings.TrimSuffix(i18n.T("telnet.field_mode"), ":"))).
+				Inline(true).
+				Options(
+					huh.NewOption(i18n.T("telnet.mode_inherit"), telnetconfig.ModeInherit),
+					huh.NewOption(i18n.T("telnet.mode_assistant"), telnetconfig.ModeAssistant),
+					huh.NewOption(i18n.T("telnet.mode_raw"), telnetconfig.ModeRaw),
+				).
+				Value(&m.modeVal),
 
 			huh.NewConfirm().
 				Key("confirm").
@@ -303,6 +317,7 @@ func (m *telnetAddFormModel) submit() {
 		Port: port,
 		User: strings.TrimSpace(m.userVal),
 		Tags: tags,
+		Mode: telnetconfig.NormalizeMode(m.modeVal),
 	}
 
 	// Snapshot the device list before writing telnet.json. If the vault
@@ -371,6 +386,8 @@ func (m *telnetAddFormModel) getFieldTitle(key string) string {
 		return strings.TrimSpace(strings.TrimSuffix(i18n.T("form.password"), ":"))
 	case "tags":
 		return strings.TrimSpace(strings.TrimSuffix(i18n.T("table.col.tags"), ":"))
+	case "mode":
+		return strings.TrimSpace(strings.TrimSuffix(i18n.T("telnet.field_mode"), ":"))
 	case "confirm":
 		return i18n.T("form.btn_save")
 	default:

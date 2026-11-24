@@ -34,6 +34,7 @@ type settingsFormModel struct {
 	webdavLayoutVal string
 	s3LayoutVal     string
 	serialModeVal   string
+	telnetModeVal   string
 	confirmSave     bool
 
 	prevTheme string
@@ -66,6 +67,7 @@ func NewSettingsForm(styles Styles, width, height int, appConfig *config.AppConf
 	webdavLayoutVal := string(config.NormalizeWebDAVLayout(cfg.WebDAVLayout))
 	s3LayoutVal := string(config.NormalizeS3Layout(cfg.S3Layout))
 	serialModeVal := config.NormalizeSerialStartMode(cfg.SerialStartMode)
+	telnetModeVal := config.NormalizeTelnetStartMode(cfg.TelnetStartMode)
 
 	m := &settingsFormModel{
 		styles:          styles,
@@ -81,6 +83,7 @@ func NewSettingsForm(styles Styles, width, height int, appConfig *config.AppConf
 		webdavLayoutVal: webdavLayoutVal,
 		s3LayoutVal:     s3LayoutVal,
 		serialModeVal:   serialModeVal,
+		telnetModeVal:   telnetModeVal,
 		confirmSave:     true,
 		prevTheme:       themeVal,
 	}
@@ -192,6 +195,17 @@ func (m *settingsFormModel) buildForm() {
 					huh.NewOption(i18n.T("settings.serial_mode_raw"), config.SerialStartRaw),
 				).
 				Value(&m.serialModeVal),
+
+			huh.NewSelect[string]().
+				Key("telnet_mode").
+				Title(i18n.T("settings.telnet_mode_label")).
+				Inline(true).
+				Options(
+					huh.NewOption(i18n.T("settings.telnet_mode_auto"), config.TelnetStartAuto),
+					huh.NewOption(i18n.T("settings.telnet_mode_assistant"), config.TelnetStartAssistant),
+					huh.NewOption(i18n.T("settings.telnet_mode_raw"), config.TelnetStartRaw),
+				).
+				Value(&m.telnetModeVal),
 
 			huh.NewConfirm().
 				Key("save").
@@ -339,6 +353,7 @@ func (m *settingsFormModel) saveSettings() tea.Cmd {
 		m.appConfig.WebDAVLayout = config.WebDAVLayout(m.webdavLayoutVal)
 		m.appConfig.S3Layout = config.S3Layout(m.s3LayoutVal)
 		m.appConfig.SerialStartMode = config.NormalizeSerialStartMode(m.serialModeVal)
+		m.appConfig.TelnetStartMode = config.NormalizeTelnetStartMode(m.telnetModeVal)
 
 		_ = config.SaveAppConfig(&m.appConfig)
 		i18n.Init(m.appConfig.Language)
@@ -423,6 +438,8 @@ func (m *settingsFormModel) View() string {
 					titleKey = i18n.T("settings.sftp_layout_label")
 				case "serial_mode":
 					titleKey = i18n.T("settings.serial_mode_label")
+				case "telnet_mode":
+					titleKey = i18n.T("settings.telnet_mode_label")
 				case "save":
 					titleKey = i18n.T("settings.save_prompt")
 				}

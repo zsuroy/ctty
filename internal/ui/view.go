@@ -58,6 +58,10 @@ func (m Model) View() string {
 		if m.telnetForm != nil {
 			content = m.telnetForm.View()
 		}
+	case ViewTelnetMonitor:
+		if m.telnetMonitor != nil {
+			content = m.telnetMonitor.View()
+		}
 	case ViewSFTP:
 		if m.sftpForm != nil {
 			content = m.sftpForm.View()

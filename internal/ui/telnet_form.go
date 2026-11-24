@@ -898,6 +898,18 @@ func (m *telnetFormModel) handleInfoKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// telnetModeLabel renders a stored connect mode for display. Inherit means
+// "follow the settings page", so it reads as such rather than as a mode.
+func telnetModeLabel(mode string) string {
+	switch telnetconfig.NormalizeMode(mode) {
+	case telnetconfig.ModeAssistant:
+		return i18n.T("telnet.mode_assistant")
+	case telnetconfig.ModeRaw:
+		return i18n.T("telnet.mode_raw")
+	}
+	return i18n.T("telnet.mode_inherit")
+}
+
 func (m *telnetFormModel) renderInfo() string {
 	if m.infoIndex < 0 || m.infoIndex >= len(m.filtered) {
 		return ""
@@ -914,6 +926,10 @@ func (m *telnetFormModel) renderInfo() string {
 	if user := strings.TrimSpace(h.User); user != "" {
 		rows = append(rows, [2]string{i18n.T("form.user") + ":", user})
 	}
+	rows = append(rows, [2]string{
+		strings.TrimSpace(i18n.T("telnet.field_mode")) + ":",
+		telnetModeLabel(h.Mode),
+	})
 	// Memoize the vault lookup by device name: View() runs on every frame
 	// and GetPassword decrypts on each call, so only re-read it when the
 	// info panel switches to a different device (or is re-entered above).

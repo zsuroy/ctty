@@ -4,11 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"os"
-	"strconv"
 	"strings"
 
+	"github.com/zsuroy/ctty/internal/config"
 	"github.com/zsuroy/ctty/internal/telnetclient"
 	"github.com/zsuroy/ctty/internal/telnetconfig"
 	"github.com/zsuroy/ctty/internal/ui"
@@ -17,6 +16,13 @@ import (
 )
 
 var telnetFormat string
+
+// Direct-connect flags for 'ctty telnet <name|host>'.
+var (
+	telnetRaw     bool
+	telnetMonitor bool
+	telnetPort    int
+)
 
 // telnetCmd opens the telnet device manager, queries saved devices, or connects.
 //
@@ -27,7 +33,7 @@ var telnetFormat string
 //	ctty telnet <name>                  → connect to a saved device by name
 //	ctty telnet <host[:port]>           → one-off direct connection
 var telnetCmd = &cobra.Command{
-	Use:   "telnet [list|search|info|host|name]",
+	Use:   "telnet [list|search|info|<name|host[:port]>]",
 	Short: "Open telnet device manager, query devices, or connect",
 	Long: `Open the telnet device manager TUI, query saved devices, or connect.
 
@@ -35,15 +41,22 @@ Telnet targets are lab equipment, console servers, and legacy network gear.
 Traffic (including passwords) is transmitted in cleartext — use SSH where possible.
 
 Forms:
-  ctty telnet                          List and manage saved telnet devices (TUI)
-  ctty telnet list [--format json]     List saved devices
+  ctty telnet                                  List and manage saved telnet devices (TUI)
+  ctty telnet <name|host[:port]> [--raw|--monitor] [--port N]
+                                               Connect straight away
+  ctty telnet list [--format json]             List saved devices
   ctty telnet search [query] [--format json]
   ctty telnet info <name> [--format json]
-  ctty telnet core-sw                  Connect to a saved device by name
-  ctty telnet 192.168.1.1              Connect to host on port 23
-  ctty telnet 10.0.0.5:2001            Connect with an explicit port
 
-Press Ctrl-] during a session to disconnect.`,
+Direct connect resolves a saved device name first and otherwise treats the
+argument as an address (host[:port], bracketed IPv6 supported), using --port
+when given. --raw keeps the plain terminal passthrough (Ctrl-] disconnects);
+--monitor opens the assistant monitor. Without a flag the saved device mode
+wins, then the "Telnet connect mode" setting, then the standalone default
+(raw).
+
+Press Ctrl-] during a raw session to disconnect; the assistant closes with
+Esc.`,
 	Args: cobra.ArbitraryArgs,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) >= 1 {
@@ -94,18 +107,53 @@ Press Ctrl-] during a session to disconnect.`,
 		}
 
 		target := args[0]
+		runTelnetDirect(target)
+	},
+}
 
-		// Saved-name match wins over raw address interpretation.
-		if dev, ok := telnetconfig.Find(target); ok {
-			connectTelnetDevice(dev)
-			return
-		}
+// runTelnetDirect resolves the target — saved device name first, then a
+// host[:port] address — and opens it in the resolved mode. --raw/--monitor
+// override the saved device's mode and the global setting; a standalone CLI
+// connect defaults to raw so scripts keep the classic passthrough.
+func runTelnetDirect(target string) {
+	if telnetRaw && telnetMonitor {
+		fmt.Fprintf(os.Stderr, "Error: --raw and --monitor are mutually exclusive\n")
+		os.Exit(2)
+	}
+	var dev telnetconfig.TelnetHost
+	if saved, ok := telnetconfig.Find(target); ok {
+		dev = saved
+	} else {
 		host, port, err := telnetclient.ParseHostPort(target, telnetconfig.DefaultPort)
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		}
-		connectTelnet(host, port)
-	},
+		dev = telnetconfig.TelnetHost{Host: host, Port: port}
+	}
+	if telnetPort > 0 {
+		dev.Port = telnetPort
+	}
+
+	override := ""
+	if telnetRaw {
+		override = telnetconfig.ModeRaw
+	} else if telnetMonitor {
+		override = telnetconfig.ModeAssistant
+	}
+	globalMode := ""
+	if cfg, err := config.LoadAppConfig(); err == nil && cfg != nil {
+		globalMode = cfg.TelnetStartMode
+	}
+
+	mode := telnetconfig.ResolveMode(override, dev.Mode, globalMode, true)
+	if mode == telnetconfig.ModeRaw {
+		connectTelnetDevice(dev)
+		return
+	}
+	if err := ui.RunTelnetConnect(dev, override, AppVersion, noUpdateCheck); err != nil {
+		log.Fatalf("Error running telnet assistant: %v", err)
+	}
+	fmt.Println()
 }
 
 func completeTelnetNames(toComplete string) []string {
@@ -209,23 +257,10 @@ func outputTelnetHosts(hosts []telnetconfig.TelnetHost) {
 	}
 }
 
-// connectTelnet dials and runs the interactive bridge until disconnect.
-func connectTelnet(host string, port int) {
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	conn, err := telnetclient.Dial(addr)
-	if err != nil {
-		log.Fatalf("Error connecting to %s: %v", addr, err)
-	}
-	defer conn.Close()
-	fmt.Printf("Connected to %s. Press Ctrl-] to disconnect.\n", addr)
-	bridge := telnetclient.NewBridge(conn)
-	if err := bridge.Run(nil, nil, nil); err != nil {
-		log.Fatalf("Session error: %v", err)
-	}
-}
-
-// connectTelnetDevice connects to a saved device, answering its login
-// prompts automatically from the configured user and vault password.
+// connectTelnetDevice dials and runs the interactive bridge until disconnect,
+// answering login prompts automatically when the device (or ad-hoc address)
+// has credentials configured. Ad-hoc addresses have no name and no vault
+// entry, so they stay fully manual — same rules as the TUI.
 func connectTelnetDevice(dev telnetconfig.TelnetHost) {
 	addr := dev.Addr()
 	conn, err := telnetclient.Dial(addr)
@@ -233,7 +268,11 @@ func connectTelnetDevice(dev telnetconfig.TelnetHost) {
 		log.Fatalf("Error connecting to %s: %v", addr, err)
 	}
 	defer conn.Close()
-	fmt.Printf("Connected to %s (%s). Press Ctrl-] to disconnect.\n", dev.Name, addr)
+	if dev.Name != "" {
+		fmt.Printf("Connected to %s (%s). Press Ctrl-] to disconnect.\n", dev.Name, addr)
+	} else {
+		fmt.Printf("Connected to %s. Press Ctrl-] to disconnect.\n", addr)
+	}
 	bridge := telnetclient.NewBridge(conn).WithAutoLogin(telnetclient.AutoLoginFor(dev))
 	if err := bridge.Run(nil, nil, nil); err != nil {
 		log.Fatalf("Session error: %v", err)
@@ -243,4 +282,7 @@ func connectTelnetDevice(dev telnetconfig.TelnetHost) {
 func init() {
 	RootCmd.AddCommand(telnetCmd)
 	telnetCmd.Flags().StringVar(&telnetFormat, "format", "", "Output format: json (for list/search/info)")
+	telnetCmd.Flags().BoolVar(&telnetRaw, "raw", false, "Open the plain terminal passthrough (Ctrl-] disconnects)")
+	telnetCmd.Flags().BoolVar(&telnetMonitor, "monitor", false, "Open the assistant monitor")
+	telnetCmd.Flags().IntVar(&telnetPort, "port", 0, "Override the port for a direct host[:port] connect")
 }

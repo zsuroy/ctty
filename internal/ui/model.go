@@ -8,6 +8,7 @@ import (
 	"github.com/zsuroy/ctty/internal/history"
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
+	"github.com/zsuroy/ctty/internal/telnetconfig"
 	"github.com/zsuroy/ctty/internal/version"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -60,6 +61,7 @@ const (
 	ViewSnippet
 	ViewUpdate
 	ViewTelnet
+	ViewTelnetMonitor
 	ViewFTP
 	ViewFTPBrowse
 	ViewWebDAV
@@ -136,6 +138,7 @@ type Model struct {
 	serialForm       *serialFormModel
 	serialMonitor    *serialMonitorModel
 	telnetForm       *telnetFormModel
+	telnetMonitor    *telnetMonitorModel
 	sftpForm         *sftpFormModel
 	ftpSitesForm     *ftpSitesModel
 	ftpForm          *ftpFormModel
@@ -157,12 +160,16 @@ type Model struct {
 	serialForceMode string                     // CLI override for the connect UI: ModeRaw / ModeAssistant, or "" to resolve normally
 	pendingSerial   *serialconfig.SerialDevice // direct connect requested by the CLI, connects on Init
 	telnetOnly      bool                       // true when launched via 'ctty telnet' — same exit semantics
-	ftpOnly         bool                       // true when launched via 'ctty ftp'
-	ftpFromSites    bool                       // browser opened from site manager (Esc returns to list)
-	webdavOnly      bool                       // true when launched via 'ctty webdav'
-	webdavFromSites bool                       // browser opened from site manager (Esc returns to list)
-	s3Only          bool                       // true when launched via 'ctty s3'
-	s3FromSites     bool                       // browser opened from site manager (Esc returns to list)
+	// telnetForceMode is the CLI's --raw/--monitor override ('' when unset);
+	// pendingTelnet is a host to dial right after Init (CLI direct connect).
+	telnetForceMode string
+	pendingTelnet   *telnetconfig.TelnetHost
+	ftpOnly         bool // true when launched via 'ctty ftp'
+	ftpFromSites    bool // browser opened from site manager (Esc returns to list)
+	webdavOnly      bool // true when launched via 'ctty webdav'
+	webdavFromSites bool // browser opened from site manager (Esc returns to list)
+	s3Only          bool // true when launched via 'ctty s3'
+	s3FromSites     bool // browser opened from site manager (Esc returns to list)
 
 	// Error handling
 	errorMessage string

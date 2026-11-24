@@ -75,6 +75,11 @@ func Dial(addr string) (net.Conn, error) {
 type Bridge struct {
 	conn net.Conn
 
+	// session is the shared protocol core. Both pump goroutines use the
+	// same instance so inbound negotiation state persists across reads and
+	// every outbound byte goes through its IAC-stuffing Write path.
+	session *Session
+
 	// auto, when set, answers login prompts from the session's display
 	// stream until its rules are exhausted or the deadline passes.
 	auto *AutoLogin
@@ -87,7 +92,7 @@ type Bridge struct {
 
 // NewBridge wraps conn in an interactive telnet bridge.
 func NewBridge(conn net.Conn) *Bridge {
-	return &Bridge{conn: conn}
+	return &Bridge{conn: conn, session: NewSession(conn)}
 }
 
 // WithAutoLogin attaches automatic login-prompt answering to the session.
@@ -147,7 +152,7 @@ func (b *Bridge) Run(stdin io.Reader, stdout, stderr io.Writer) error {
 					done <- struct{}{}
 					return
 				}
-				if _, werr := b.conn.Write(filterIAC(buf[:n])); werr != nil {
+				if _, werr := b.session.Write(buf[:n]); werr != nil {
 					b.exit.Store(true)
 					done <- struct{}{}
 					return
@@ -164,17 +169,18 @@ func (b *Bridge) Run(stdin io.Reader, stdout, stderr io.Writer) error {
 	// network -> stdout, with inline IAC handling.
 	go func() {
 		defer func() { done <- struct{}{} }()
-		parser := &parser{bridge: b}
 		buf := make([]byte, 8192)
 		for !b.exit.Load() {
 			n, err := b.conn.Read(buf)
 			if n > 0 {
-				if out := parser.feed(buf[:n], stdout); len(out) > 0 {
+				if out := b.session.Feed(buf[:n]); len(out) > 0 {
 					if _, werr := stdout.Write(out); werr != nil {
 						return
 					}
 					// Answer login prompts from what the user sees.
-					b.auto.Observe(out, b.conn)
+					// Answers go through Session so 0xFF in a credential
+					// is stuffed instead of injecting a telnet command.
+					b.auto.Observe(out, b.session)
 				}
 			}
 			if err != nil {
@@ -203,43 +209,109 @@ func (b *Bridge) containsDisconnect(chunk []byte) bool {
 	return false
 }
 
-// filterIAC strips IAC sequences a user could not plausibly intend to
-// send manually: doubled IAC becomes a single literal 0xFF, any other
-// escape prefix typed by accident is dropped.
-func filterIAC(chunk []byte) []byte {
-	out := chunk[:0]
-	for i := 0; i < len(chunk); i++ {
-		c := chunk[i]
-		if c != iacIAC {
-			out = append(out, c)
-			continue
-		}
-		if i+1 < len(chunk) {
-			next := chunk[i+1]
-			if next == iacIAC {
-				out = append(out, iacIAC)
-				i++
-				continue
-			}
-			if next >= iacSE { // command byte: swallow the whole pair
-				i++
-				continue
-			}
-		}
-		// Trailing lone IAC: swallowed.
-	}
-	return out
-}
-
 // parser accumulates a partial inbound stream and emits display-ready
 // bytes while consuming and answering telnet control sequences.
 type parser struct {
-	bridge *Bridge
+	reply  io.Writer // negotiation replies go back to the peer here
 	state  parserState
 	cmd    byte   // pending IAC command byte (WILL/WONT/DO/DONT/SB)
 	opt    byte   // option being negotiated or subnegotiated
 	iacBuf []byte // subnegotiation accumulator
 	sawCR  bool
+
+	// width/height are the window dimensions advertised to the peer in
+	// NAWS replies (RFC 1073). Zero values fall back to the conventional
+	// 80x24 so a bare parser keeps the historical bridge behavior.
+	width  int
+	height int
+}
+
+// Session negotiates and filters one telnet connection's inbound byte
+// stream. It is the shared protocol core of the interactive bridge and
+// the assistant monitor: Feed returns display-ready bytes, and every
+// negotiation reply (refusal-first policy, plus NAWS at the recorded
+// window size) is written back to the connection.
+type Session struct {
+	parser
+}
+
+// NewSession creates a session whose negotiation replies go to conn.
+// The advertised window starts at the conventional 80x24; SetSize
+// updates it for later NAWS answers.
+func NewSession(conn io.Writer) *Session {
+	return &Session{parser{reply: conn, width: 80, height: 24}}
+}
+
+// Feed consumes one inbound network chunk and returns display bytes.
+func (s *Session) Feed(chunk []byte) []byte { return s.parser.feed(chunk) }
+
+// Write sends application data to the peer as RFC 854 NVT data. Every data
+// byte 0xFF is stuffed as IAC IAC on the wire so the peer reads one literal
+// 0xFF rather than treating it as the start of a telnet command. This is the
+// single canonical outbound path: the monitor, automatic login and the raw
+// bridge all use it, so no caller can accidentally inject an IAC command.
+//
+// It deliberately does NOT translate newlines — that is WriteLine's job —
+// because raw byte streams may legitimately contain CR/LF that must pass
+// through untouched.
+func (s *Session) Write(data []byte) (int, error) {
+	wire := stuffIAC(data)
+	if s.reply == nil {
+		return 0, io.ErrClosedPipe
+	}
+	if _, err := s.reply.Write(wire); err != nil {
+		return 0, err
+	}
+	return len(data), nil
+}
+
+// WriteLine sends one line of application data terminated by the NVT line
+// ending CRLF (RFC 854). Commands typed into a telnet terminal are lines:
+// the peer's shell or CLI only executes them once it sees CR LF. Callers
+// should never append their own line ending.
+func (s *Session) WriteLine(line []byte) (int, error) {
+	frame := make([]byte, 0, len(line)+2)
+	frame = append(frame, line...)
+	frame = append(frame, '\r', '\n')
+	return s.Write(frame)
+}
+
+// stuffIAC doubles every data byte 0xFF (IAC) per RFC 854. A lone 0xFF in
+// application data must travel as IAC IAC; otherwise the peer consumes the
+// following byte as a command. Returns a fresh slice so callers' buffers
+// are never mutated.
+func stuffIAC(data []byte) []byte {
+	if len(data) == 0 {
+		return data
+	}
+	extra := 0
+	for _, b := range data {
+		if b == iacIAC {
+			extra++
+		}
+	}
+	if extra == 0 {
+		out := make([]byte, len(data))
+		copy(out, data)
+		return out
+	}
+	out := make([]byte, 0, len(data)+extra)
+	for _, b := range data {
+		if b == iacIAC {
+			out = append(out, iacIAC)
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+// SetSize records the window dimensions advertised via NAWS.
+// Non-positive values are ignored so transient layout states cannot
+// advertise a zero-size terminal.
+func (s *Session) SetSize(w, h int) {
+	if w > 0 && h > 0 {
+		s.width, s.height = w, h
+	}
 }
 
 type parserState int
@@ -253,7 +325,7 @@ const (
 )
 
 // feed consumes a network chunk and returns the printable remainder.
-func (p *parser) feed(chunk []byte, stderr io.Writer) []byte {
+func (p *parser) feed(chunk []byte) []byte {
 	out := make([]byte, 0, len(chunk))
 	for i := range chunk {
 		c := chunk[i]
@@ -288,7 +360,7 @@ func (p *parser) feed(chunk []byte, stderr io.Writer) []byte {
 				p.state = stateData
 			}
 		case stateOpt:
-			p.answer(p.cmd, c, stderr)
+			p.answer(p.cmd, c)
 			p.state = stateData
 		case stateSB:
 			if c == iacIAC {
@@ -299,7 +371,7 @@ func (p *parser) feed(chunk []byte, stderr io.Writer) []byte {
 		case stateSBIAC:
 			switch c {
 			case iacSE:
-				p.handleSubneg(p.iacBuf, stderr)
+				p.handleSubneg(p.iacBuf)
 				p.state = stateData
 			case iacIAC:
 				p.iacBuf = append(p.iacBuf, iacIAC)
@@ -321,7 +393,7 @@ func (p *parser) feed(chunk []byte, stderr io.Writer) []byte {
 //   - DO/WILL BINARY(0): accept — passes 8-bit data untouched.
 //   - Everything else: refuse with WONT/DONT so the server falls back
 //     to plain NVT behavior we can safely render.
-func (p *parser) answer(cmd, opt byte, stderr io.Writer) {
+func (p *parser) answer(cmd, opt byte) {
 	accept := false
 	switch opt {
 	case optSGA:
@@ -355,30 +427,35 @@ func (p *parser) answer(cmd, opt byte, stderr io.Writer) {
 		reply = []byte{iacIAC, resp, opt}
 	}
 	if reply != nil {
-		_, _ = p.bridge.conn.Write(reply)
+		_, _ = p.reply.Write(reply)
 	}
-	_ = stderr // reserved for negotiation debug tracing
 }
 
 // handleSubnegotiation consumes SB ... SE payloads. Only NAWS matters:
 // answering it keeps some console servers from stalling at login. All
 // other subnegotiations (TTYPE, NEW-ENVIRON probes...) are ignored,
 // which is valid because we refused their enabling options.
-func (p *parser) handleSubneg(buf []byte, stderr io.Writer) {
+func (p *parser) handleSubneg(buf []byte) {
 	if len(buf) == 0 {
 		return
 	}
 	switch buf[0] {
 	case optNAWS:
-		// Report a conventional 80x24 window. Widths/heights are sent
-		// as 16-bit values where 255 must be escaped as IAC IAC.
-		w, h := encodeNAWS(80), encodeNAWS(24)
-		payload := append([]byte{iacIAC, iacSB, optNAWS}, w...)
-		payload = append(payload, h...)
+		// Report the recorded window size, falling back to the
+		// conventional 80x24. Widths/heights are sent as 16-bit values
+		// where 255 must be escaped as IAC IAC.
+		w, h := p.width, p.height
+		if w <= 0 {
+			w = 80
+		}
+		if h <= 0 {
+			h = 24
+		}
+		payload := append([]byte{iacIAC, iacSB, optNAWS}, encodeNAWS(w)...)
+		payload = append(payload, encodeNAWS(h)...)
 		payload = append(payload, iacIAC, iacSE)
-		_, _ = p.bridge.conn.Write(payload)
+		_, _ = p.reply.Write(payload)
 	}
-	_ = stderr
 }
 
 // encodeNAWS renders one NAWS dimension with mandatory IAC escaping.
@@ -503,6 +580,7 @@ func (c *telnetExecCommand) Run() error {
 	if err := bridge.Run(c.stdin, out, errOut); err != nil {
 		return fmt.Errorf("telnet session: %w", err)
 	}
-	fmt.Fprintln(errOut, "\nDisconnected.")
+	// The bridge already prints "Disconnected." on its way out; printing it
+	// here again showed the line twice on the exec path (monitor F8 switch).
 	return nil
 }

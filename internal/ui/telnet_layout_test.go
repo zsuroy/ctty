@@ -395,7 +395,9 @@ func TestTelnetAddFormEnterSavesFromConfirmField(t *testing.T) {
 	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = res.(*telnetFormModel)
 
-	// Enter → advance to confirm
+	// Enter → advance to mode, then to confirm
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(*telnetFormModel)
 	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = res.(*telnetFormModel)
 

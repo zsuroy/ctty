@@ -28,6 +28,7 @@ type TelnetHost struct {
 	Port int      `json:"port"`           // Defaults to 23
 	User string   `json:"user,omitempty"` // Login name sent at login prompts; empty for password-only devices
 	Tags []string `json:"tags,omitempty"` // Optional organizational tags
+	Mode string   `json:"mode,omitempty"` // Connect mode: inherit (follow settings), assistant or raw
 }
 
 // Config is the on-disk JSON structure for saved telnet hosts.
@@ -221,6 +222,7 @@ func (h *TelnetHost) normalize() {
 	if h.Port <= 0 || h.Port > 65535 {
 		h.Port = DefaultPort
 	}
+	h.Mode = NormalizeMode(h.Mode)
 	tags := h.Tags[:0]
 	for _, t := range h.Tags {
 		if t = strings.TrimSpace(t); t != "" {

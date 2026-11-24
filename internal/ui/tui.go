@@ -12,6 +12,7 @@ import (
 	"github.com/zsuroy/ctty/internal/history"
 	"github.com/zsuroy/ctty/internal/i18n"
 	"github.com/zsuroy/ctty/internal/serialconfig"
+	"github.com/zsuroy/ctty/internal/telnetconfig"
 	"github.com/zsuroy/ctty/internal/ui/theme"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -309,6 +310,21 @@ func RunTelnetMode(currentVersion string, noUpdateCheck bool) error {
 	m.telnetForm = NewTelnetForm(m.styles, m.width, m.height)
 	m.viewMode = ViewTelnet
 	m.telnetOnly = true
+
+	return runTUIModel(m, "error running TUI")
+}
+
+// RunTelnetConnect dials a telnet host straight into the assistant monitor.
+// mode is the CLI's --raw/--monitor override ('' resolves through the normal
+// precedence: this entry point is standalone, so no override means raw).
+func RunTelnetConnect(host telnetconfig.TelnetHost, mode, currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
+	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
+	m.telnetForm = NewTelnetForm(m.styles, m.width, m.height)
+	m.viewMode = ViewTelnet
+	m.telnetOnly = true
+	m.telnetForceMode = telnetconfig.NormalizeMode(mode)
+	m.pendingTelnet = &host
 
 	return runTUIModel(m, "error running TUI")
 }

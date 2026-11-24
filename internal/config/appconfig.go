@@ -105,14 +105,22 @@ type AppConfig struct {
 	// assistant monitor from the TUI); SerialStartAssistant / SerialStartRaw
 	// force one everywhere. A device's own mode still wins over this.
 	SerialStartMode string `json:"serial_start_mode,omitempty"`
+	// TelnetStartMode picks how telnet hosts open by default:
+	// TelnetStartAuto keeps the per-entry default (raw for 'ctty telnet',
+	// assistant monitor from the TUI); TelnetStartAssistant / TelnetStartRaw
+	// force one everywhere. A host's own mode still wins over this.
+	TelnetStartMode string `json:"telnet_start_mode,omitempty"`
 }
 
-// Default serial start modes. "auto" preserves the historical split so an
+// Default start modes. "auto" preserves the historical split so an
 // upgraded config keeps behaving exactly as before.
 const (
 	SerialStartAuto      = "auto"
 	SerialStartAssistant = "assistant"
 	SerialStartRaw       = "raw"
+	TelnetStartAuto      = "auto"
+	TelnetStartAssistant = "assistant"
+	TelnetStartRaw       = "raw"
 )
 
 // NormalizeSerialStartMode maps stored values onto a known start mode,
@@ -125,6 +133,18 @@ func NormalizeSerialStartMode(mode string) string {
 		return SerialStartRaw
 	}
 	return SerialStartAuto
+}
+
+// NormalizeTelnetStartMode maps stored values onto a known start mode,
+// falling back to auto for empty or legacy values.
+func NormalizeTelnetStartMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case TelnetStartAssistant:
+		return TelnetStartAssistant
+	case TelnetStartRaw:
+		return TelnetStartRaw
+	}
+	return TelnetStartAuto
 }
 
 // IsUpdateCheckEnabled returns true if the update check is enabled (default: true)
@@ -152,6 +172,7 @@ func GetDefaultAppConfig() AppConfig {
 		SFTPLayout:      SFTPLayoutDual,
 		WebDAVLayout:    WebDAVLayoutDual,
 		SerialStartMode: SerialStartAuto,
+		TelnetStartMode: TelnetStartAuto,
 	}
 }
 
