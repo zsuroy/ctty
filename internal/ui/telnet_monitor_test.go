@@ -646,6 +646,61 @@ func TestTelnetQuickCmdLabelShownInTxLine(t *testing.T) {
 	}
 }
 
+func TestTelnetQuickLabelSwitchHidesBracketPrefix(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := telnetNewTestMonitor(80, 24)
+	m.conn = &fakeConn{}
+	m.quickCmds = []telnetconfig.TelnetQuickCmd{{Label: "AT+RST", Value: "AT+RST"}}
+	if !m.showQuickLabel {
+		t.Fatal("quick-command labels must be on by default")
+	}
+	m.fireQuick(0)
+	if !strings.Contains(m.rxLines[0], "[AT+RST]") {
+		t.Fatalf("default TX line = %q, want [AT+RST]", m.rxLines)
+	}
+
+	m.showQuickLabel = false
+	m.fireQuick(0)
+	if strings.Contains(m.rxLines[1], "[AT+RST]") {
+		t.Fatalf("TX line with label hidden = %q", m.rxLines[1])
+	}
+	if !strings.Contains(m.rxLines[1], "AT+RST") {
+		t.Fatalf("payload itself was dropped: %q", m.rxLines[1])
+	}
+	// The switch redraws entries already on screen, like F1/F3 do.
+	m.rebuildRx()
+	for _, line := range m.rxLines {
+		if strings.Contains(line, "[AT+RST]") {
+			t.Fatalf("stale label survived rebuild: %q", m.rxLines)
+		}
+	}
+}
+
+func TestTelnetQuickLabelSettingAppliesAndPersists(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := telnetNewTestMonitor(80, 24)
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyF10})
+	for i := 0; i < telnetSettingShowQuickLabel; i++ {
+		m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if m.settingsSel != telnetSettingShowQuickLabel {
+		t.Fatalf("selection = %d, want row %d", m.settingsSel, telnetSettingShowQuickLabel)
+	}
+	m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyRight})
+	if m.prefs.ShowQuickLabel || !m.showQuickLabel {
+		t.Fatalf("draft = %v, live = %v; draft must toggle off while live stays on",
+			m.prefs.ShowQuickLabel, m.showQuickLabel)
+	}
+	m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	got, err := telnetconfig.LoadTelnetPrefs()
+	if err != nil || got.ShowQuickLabel {
+		t.Fatalf("persisted show_quick_label = %v err=%v, want false", got.ShowQuickLabel, err)
+	}
+	if m.showQuickLabel {
+		t.Fatal("applied quick-label switch must turn it off")
+	}
+}
+
 func TestTelnetEmptyHintAndHistPreview(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dev := telnetconfig.TelnetHost{Name: "console", Host: "10.0.0.5"}

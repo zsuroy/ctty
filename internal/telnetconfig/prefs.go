@@ -12,20 +12,23 @@ import (
 // assistant. They are loaded when the assistant opens and saved from the
 // F10 settings page; the raw passthrough path never reads them.
 type TelnetPrefs struct {
-	HexView    bool   `json:"hex_view"`    // receive pane renders hex when true; ASCII is the default
-	ShowPrefix bool   `json:"show_prefix"` // paint "RX < " / "TX > " on monitor rows; off by default
-	AnsiColor  bool   `json:"ansi_color"`  // render peer SGR colour codes; on by default
-	HexSend    bool   `json:"hex_send"`    // send box parses hex by default
-	ShowTime   bool   `json:"show_time"`   // timestamp receive lines by default
-	Crlf       bool   `json:"crlf"`        // legacy: true means line_ending=crlf
-	LineEnding string `json:"line_ending"` // "crlf", "cr", "lf", "lfcr" or "none"
-	HexAscii   bool   `json:"hex_ascii"`   // HEX+ASCII aligned view
-	LogDir     string `json:"log_dir"`     // empty = user home
-	LogAppend  bool   `json:"log_append"`  // append to an existing log file
-	PageKey    string `json:"page_key"`    // "alt" or "ctrl": modifier for quick-bar paging
-	QuickKey   string `json:"quick_key"`   // "auto", "alt" or "option": modifier for Alt/Option+1..8 direct send
-	IntervalMs int    `json:"interval_ms"` // default loop-send interval
-	MaxLines   int    `json:"max_lines"`   // receive buffer line cap
+	HexView    bool `json:"hex_view"`    // receive pane renders hex when true; ASCII is the default
+	ShowPrefix bool `json:"show_prefix"` // paint "RX < " / "TX > " on monitor rows; off by default
+	// Distinct from ShowPrefix: this controls the "[label] " tag on TX echoes
+	// of quick commands, which telnet has always painted. On by default.
+	ShowQuickLabel bool   `json:"show_quick_label"`
+	AnsiColor      bool   `json:"ansi_color"`  // render peer SGR colour codes; on by default
+	HexSend        bool   `json:"hex_send"`    // send box parses hex by default
+	ShowTime       bool   `json:"show_time"`   // timestamp receive lines by default
+	Crlf           bool   `json:"crlf"`        // legacy: true means line_ending=crlf
+	LineEnding     string `json:"line_ending"` // "crlf", "cr", "lf", "lfcr" or "none"
+	HexAscii       bool   `json:"hex_ascii"`   // HEX+ASCII aligned view
+	LogDir         string `json:"log_dir"`     // empty = user home
+	LogAppend      bool   `json:"log_append"`  // append to an existing log file
+	PageKey        string `json:"page_key"`    // "alt" or "ctrl": modifier for quick-bar paging
+	QuickKey       string `json:"quick_key"`   // "auto", "alt" or "option": modifier for Alt/Option+1..8 direct send
+	IntervalMs     int    `json:"interval_ms"` // default loop-send interval
+	MaxLines       int    `json:"max_lines"`   // receive buffer line cap
 }
 
 const (
@@ -69,17 +72,18 @@ func ResolveQuickKey(v, goos string) string {
 // NVT end-of-line, so it is also the assistant's default send suffix.
 func DefaultTelnetPrefs() TelnetPrefs {
 	return TelnetPrefs{
-		HexView:    false,
-		ShowPrefix: false,
-		AnsiColor:  true,
-		HexSend:    false,
-		ShowTime:   false,
-		Crlf:       true,
-		LineEnding: "crlf",
-		PageKey:    "alt",
-		QuickKey:   QuickKeyAuto,
-		IntervalMs: DefaultIntervalMs,
-		MaxLines:   DefaultMaxLines,
+		HexView:        false,
+		ShowPrefix:     false,
+		ShowQuickLabel: true,
+		AnsiColor:      true,
+		HexSend:        false,
+		ShowTime:       false,
+		Crlf:           true,
+		LineEnding:     "crlf",
+		PageKey:        "alt",
+		QuickKey:       QuickKeyAuto,
+		IntervalMs:     DefaultIntervalMs,
+		MaxLines:       DefaultMaxLines,
 	}
 }
 
@@ -165,25 +169,30 @@ func LoadTelnetPrefs() (TelnetPrefs, error) {
 	var shadow struct {
 		HexView    bool `json:"hex_view"`
 		ShowPrefix bool `json:"show_prefix"`
-		// Pointer so a config written before this key existed keeps the
-		// true default instead of decoding a missing key as false.
-		AnsiColor  *bool  `json:"ansi_color"`
-		HexSend    bool   `json:"hex_send"`
-		ShowTime   bool   `json:"show_time"`
-		Crlf       *bool  `json:"crlf"`
-		LineEnding string `json:"line_ending"`
-		HexAscii   bool   `json:"hex_ascii"`
-		LogDir     string `json:"log_dir"`
-		LogAppend  bool   `json:"log_append"`
-		PageKey    string `json:"page_key"`
-		QuickKey   string `json:"quick_key"`
-		IntervalMs int    `json:"interval_ms"`
-		MaxLines   int    `json:"max_lines"`
+		// Pointers so a config written before these keys existed keeps the
+		// true defaults instead of decoding a missing key as false.
+		ShowQuickLabel *bool  `json:"show_quick_label"`
+		AnsiColor      *bool  `json:"ansi_color"`
+		HexSend        bool   `json:"hex_send"`
+		ShowTime       bool   `json:"show_time"`
+		Crlf           *bool  `json:"crlf"`
+		LineEnding     string `json:"line_ending"`
+		HexAscii       bool   `json:"hex_ascii"`
+		LogDir         string `json:"log_dir"`
+		LogAppend      bool   `json:"log_append"`
+		PageKey        string `json:"page_key"`
+		QuickKey       string `json:"quick_key"`
+		IntervalMs     int    `json:"interval_ms"`
+		MaxLines       int    `json:"max_lines"`
 	}
 	if err := json.Unmarshal(data, &shadow); err != nil {
 		return DefaultTelnetPrefs(), fmt.Errorf("parsing telnet preferences: %w", err)
 	}
 	p.HexView, p.ShowPrefix, p.HexSend, p.ShowTime = shadow.HexView, shadow.ShowPrefix, shadow.HexSend, shadow.ShowTime
+	p.ShowQuickLabel = DefaultTelnetPrefs().ShowQuickLabel
+	if shadow.ShowQuickLabel != nil {
+		p.ShowQuickLabel = *shadow.ShowQuickLabel
+	}
 	p.AnsiColor = DefaultTelnetPrefs().AnsiColor
 	if shadow.AnsiColor != nil {
 		p.AnsiColor = *shadow.AnsiColor
