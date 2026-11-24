@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,7 @@ const (
 	quickCmdCols  = 4
 	rxMark        = "RX < "
 	txMark        = "TX > "
-	settingsCount = 10
+	settingsCount = 13
 )
 
 // Settings rows, in display order. Kept as an index enum so the value editor
@@ -43,6 +44,9 @@ const (
 	settingLogAppend
 	settingLogDir
 	settingPageKey
+	settingQuickKey
+	settingShowPrefix
+	settingShowQuickLabel
 	settingInterval
 	settingMaxLines
 )
@@ -114,20 +118,22 @@ type serialMonitorModel struct {
 	// pendingCR remembers that the last received byte was a bare CR, so the
 	// next byte decides whether it was half of a CRLF or a line break on its
 	// own. It lives across reads because a chunk can end right between them.
-	pendingCR   bool
-	rxOffset    int
-	pendingAt   time.Time
-	rxCount     int
-	txCount     int
-	hexView     bool
-	hexAscii    bool
-	hexSend     bool
-	showTime    bool
-	crlf        bool // legacy mirror of lineEnd == "crlf"
-	lineEnd     string
-	repeat      bool
-	interval    time.Duration
-	lastPayload []byte
+	pendingCR      bool
+	rxOffset       int
+	pendingAt      time.Time
+	rxCount        int
+	txCount        int
+	hexView        bool
+	hexAscii       bool
+	hexSend        bool
+	showTime       bool
+	showPrefix     bool // paint "RX < " / "TX > " on monitor rows
+	showQuickLabel bool // paint "[label] " on quick-command TX echoes
+	crlf           bool // legacy mirror of lineEnd == "crlf"
+	lineEnd        string
+	repeat         bool
+	interval       time.Duration
+	lastPayload    []byte
 	// lastAddLineEnding remembers how lastPayload was framed when it was
 	// sent. F5 loops replay it, so a hex frame must not pick up a CRLF just
 	// because the user switched send mode in the meantime.
@@ -163,6 +169,7 @@ type serialMonitorModel struct {
 	quickPage    int // current page (0-based), 8 slots each
 	quickLoadErr error
 	pageKey      string // "alt" or "ctrl": which modifier pages the quick bar
+	quickKey     string // effective modifier for Alt/Option+1..8, resolved from prefs.QuickKey
 
 	// Quick-command editor (F9).
 	quickEditing   bool
@@ -224,28 +231,31 @@ func newSerialMonitor(styles Styles, width, height int, dev serialconfig.SerialD
 	prefs, prefsErr := serialconfig.LoadSerialPrefs()
 
 	m := &serialMonitorModel{
-		styles:       styles,
-		dev:          dev,
-		rx:           viewport.New(40, 5),
-		rxFollow:     true,
-		input:        input,
-		interval:     prefs.Interval(),
-		maxLines:     prefs.MaxLines,
-		hexView:      prefs.HexView,
-		hexAscii:     prefs.HexAscii,
-		hexSend:      prefs.HexSend,
-		showTime:     prefs.ShowTime,
-		crlf:         prefs.Crlf,
-		lineEnd:      prefs.LineEnding,
-		pageKey:      prefs.PageKey,
-		status:       i18n.T("serial.monitor.connected"),
-		quickCmds:    cmds,
-		quickLoadErr: err,
-		quickInput:   quickInput,
-		quickLabelIn: quickLabelIn,
-		searchInput:  searchInput,
-		rxRateSince:  time.Now(),
-		prefs:        prefs,
+		styles:         styles,
+		dev:            dev,
+		rx:             viewport.New(40, 5),
+		rxFollow:       true,
+		input:          input,
+		interval:       prefs.Interval(),
+		maxLines:       prefs.MaxLines,
+		hexView:        prefs.HexView,
+		hexAscii:       prefs.HexAscii,
+		hexSend:        prefs.HexSend,
+		showTime:       prefs.ShowTime,
+		showPrefix:     prefs.ShowPrefix,
+		showQuickLabel: prefs.ShowQuickLabel,
+		crlf:           prefs.Crlf,
+		lineEnd:        prefs.LineEnding,
+		pageKey:        prefs.PageKey,
+		quickKey:       serialconfig.ResolveQuickKey(prefs.QuickKey, runtime.GOOS),
+		status:         i18n.T("serial.monitor.connected"),
+		quickCmds:      cmds,
+		quickLoadErr:   err,
+		quickInput:     quickInput,
+		quickLabelIn:   quickLabelIn,
+		searchInput:    searchInput,
+		rxRateSince:    time.Now(),
+		prefs:          prefs,
 	}
 	if prefsErr != nil {
 		// Config file is malformed; defaults are already applied. Surface a
@@ -413,10 +423,16 @@ func (m *serialMonitorModel) Update(msg tea.Msg) (*serialMonitorModel, tea.Cmd) 
 }
 
 func (m *serialMonitorModel) updateKeys(key tea.KeyMsg) (*serialMonitorModel, tea.Cmd) {
-	k := key.String()
-	// Alt+1..8 fires a quick command on the current page directly, without
-	// moving input focus. The digit is the 1-based slot within the page.
-	if n, ok := altQuickIndex(k); ok {
+	k := m.macOptionArrow(key.String())
+	// Alt/Option+1..8 fires a quick command on the current page directly,
+	// without moving input focus. Read the raw KeyMsg first: some terminals
+	// encode Alt+digit in a way whose String() is empty, and the string path
+	// alone would miss it.
+	if n, ok := serialQuickDigitFromKey(key); ok {
+		m.fireQuick(m.quickPage*quickCmdCount + n)
+		return m, nil
+	}
+	if n, ok := m.serialQuickIndex(k); ok {
 		m.fireQuick(m.quickPage*quickCmdCount + n)
 		return m, nil
 	}
@@ -747,10 +763,36 @@ func (m *serialMonitorModel) changeQuickPage(delta int) {
 // mirrors the active pageKey setting so the hint never advertises a key that
 // is currently ignored.
 func (m *serialMonitorModel) pageKeyToken() string {
-	if m.pageKey == "ctrl" {
-		return "Ctrl"
+	return pageKeyLabel(m.pageKey, m.quickKey)
+}
+
+// quickKeyToken is the modifier name shown in the help line. It follows the
+// resolved quickKey so a Mac reads "Option+#" while Windows/Linux read
+// "Alt+#" — the hint never names a key the current mode ignores.
+func (m *serialMonitorModel) quickKeyToken() string {
+	return pageKeyLabel("alt", m.quickKey)
+}
+
+// macOptionArrow normalises the arrow keys macOS terminals emit for
+// Option+←/→/↑/↓. Stock text editing sends CSI 1;5 C/D/A/B, which Bubble Tea
+// decodes as ctrl+*; "Option as Meta" sends CSI 1;3 and arrives as alt+*.
+// Some terminals use ESC b / ESC f for word left/right. In Option mode they
+// must all mean the same thing, or paging/scrolling silently does nothing.
+func (m *serialMonitorModel) macOptionArrow(k string) string {
+	if m.quickKey != serialconfig.QuickKeyOption || m.pageKey == "ctrl" {
+		return k // ctrl+arrow is a real binding in these modes
 	}
-	return "Alt"
+	switch k {
+	case "ctrl+left", "alt+b":
+		return "alt+left"
+	case "ctrl+right", "alt+f":
+		return "alt+right"
+	case "ctrl+up":
+		return "alt+up"
+	case "ctrl+down":
+		return "alt+down"
+	}
+	return k
 }
 
 // altQuickIndex maps Bubble Tea's Alt+digit key strings to a 0-based slot on
@@ -760,6 +802,50 @@ func altQuickIndex(k string) (int, bool) {
 	if len(k) == 5 && strings.HasPrefix(k, "alt+") {
 		if n := k[4] - '0'; n >= 1 && n <= quickCmdCount {
 			return int(n) - 1, true
+		}
+	}
+	return 0, false
+}
+
+// serialQuickDigitFromKey reads an Alt+digit straight off the KeyMsg instead
+// of going through String(). ConHost builds can report the digit as a raw
+// Type byte with no Runes, which makes Key.String() return an empty string;
+// matching only the rendered form silently drops the shortcut there.
+func serialQuickDigitFromKey(key tea.KeyMsg) (int, bool) {
+	if !key.Alt {
+		return 0, false
+	}
+	var r rune
+	switch {
+	case key.Type == tea.KeyRunes && len(key.Runes) == 1:
+		r = key.Runes[0]
+	case key.Type > 0 && key.Type < 128:
+		r = rune(key.Type)
+	default:
+		return 0, false
+	}
+	if r >= '1' && r <= rune('0'+quickCmdCount) {
+		return int(r - '1'), true
+	}
+	return 0, false
+}
+
+// serialQuickIndex maps a key string to a 0-based slot. "alt" keeps the
+// historical behaviour (a real Alt+digit); "option" additionally accepts the
+// Unicode glyphs stock macOS sends for ⌥1..⌥8, with or without the ESC
+// prefix that "Option as Meta" adds. All encodings fire the same slot.
+func (m *serialMonitorModel) serialQuickIndex(k string) (int, bool) {
+	if idx, ok := altQuickIndex(k); ok {
+		return idx, true
+	}
+	if m.quickKey == serialconfig.QuickKeyOption {
+		if idx, ok := macOptionDigits[k]; ok {
+			return idx, true
+		}
+		if strings.HasPrefix(k, "alt+") {
+			if idx, ok := macOptionDigits[strings.TrimPrefix(k, "alt+")]; ok {
+				return idx, true
+			}
 		}
 	}
 	return 0, false
@@ -1137,6 +1223,8 @@ func (m *serialMonitorModel) livePrefs() serialconfig.SerialPrefs {
 	p.HexAscii = m.hexAscii
 	p.HexSend = m.hexSend
 	p.ShowTime = m.showTime
+	p.ShowPrefix = m.showPrefix
+	p.ShowQuickLabel = m.showQuickLabel
 	p.LineEnding = m.lineEnd
 	p.IntervalMs = int(m.interval / time.Millisecond)
 	p.MaxLines = m.maxLines
@@ -1174,6 +1262,8 @@ func (m *serialMonitorModel) updateSettings(key tea.KeyMsg) (*serialMonitorModel
 		m.hexSend = p.HexSend
 		m.syncSendPrompt()
 		m.showTime = p.ShowTime
+		m.showPrefix = p.ShowPrefix
+		m.showQuickLabel = p.ShowQuickLabel
 		m.setLineEnd(p.LineEnding)
 		// A saved send-mode change has to reach the quick slots too, just as
 		// F2 does, or the bar contradicts the newly applied TX mode.
@@ -1181,6 +1271,9 @@ func (m *serialMonitorModel) updateSettings(key tea.KeyMsg) (*serialMonitorModel
 		m.interval = p.Interval()
 		m.maxLines = p.MaxLines
 		m.pageKey = p.PageKey
+		// Resolve "auto" against this machine so the saved setting takes
+		// effect immediately instead of only after a restart.
+		m.quickKey = serialconfig.ResolveQuickKey(p.QuickKey, runtime.GOOS)
 		// Display-mode changes apply to the content already on screen.
 		if len(m.rxEntries) > m.maxLines {
 			m.rxEntries = m.rxEntries[len(m.rxEntries)-m.maxLines:]
@@ -1235,6 +1328,20 @@ func (m *serialMonitorModel) adjustSetting(sel, delta int) {
 		} else {
 			m.prefs.PageKey = "alt"
 		}
+	case settingQuickKey:
+		// auto -> alt -> option -> auto; auto resolves per OS.
+		switch m.prefs.QuickKey {
+		case serialconfig.QuickKeyAuto:
+			m.prefs.QuickKey = serialconfig.QuickKeyAlt
+		case serialconfig.QuickKeyAlt:
+			m.prefs.QuickKey = serialconfig.QuickKeyOption
+		default:
+			m.prefs.QuickKey = serialconfig.QuickKeyAuto
+		}
+	case settingShowPrefix:
+		m.prefs.ShowPrefix = !m.prefs.ShowPrefix
+	case settingShowQuickLabel:
+		m.prefs.ShowQuickLabel = !m.prefs.ShowQuickLabel
 	case settingInterval:
 		m.prefs.IntervalMs += delta * 100
 	case settingMaxLines:
@@ -1426,13 +1533,13 @@ func (m *serialMonitorModel) View() string {
 
 	helpRows := []string{
 		m.styles.HelpText.Align(lipgloss.Left).Width(inner).
-			Render(fitMonitorRow("  "+fmt.Sprintf(i18n.T("serial.monitor.help_short"), m.pageKeyToken()), inner)),
+			Render(fitMonitorRow("  "+fmt.Sprintf(i18n.T("serial.monitor.help_short"), m.quickKeyToken(), m.pageKeyToken()), inner)),
 	}
 	if m.helpExpanded {
 		helpRows = []string{
 			m.styles.HelpText.Align(lipgloss.Left).Width(inner).Render(fitMonitorRow("  "+i18n.T("serial.monitor.help1"), inner)),
 			m.styles.HelpText.Align(lipgloss.Left).Width(inner).Render(fitMonitorRow("  "+fmt.Sprintf(i18n.T("serial.monitor.help2"), m.pageKeyToken()), inner)),
-			m.styles.HelpText.Align(lipgloss.Left).Width(inner).Render(fitMonitorRow("  "+i18n.T("serial.monitor.help3"), inner)),
+			m.styles.HelpText.Align(lipgloss.Left).Width(inner).Render(fitMonitorRow("  "+fmt.Sprintf(i18n.T("serial.monitor.help3"), m.quickKeyToken()), inner)),
 		}
 	}
 	contentParts := []string{
@@ -1842,7 +1949,10 @@ func (m *serialMonitorModel) settingsRows() []settingsRow {
 		{i18n.T("serial.settings.hex_ascii"), onOff(p.HexAscii)},
 		{i18n.T("serial.settings.log_append"), onOff(p.LogAppend)},
 		{i18n.T("serial.settings.log_dir"), logDirLabel(p.LogDir)},
-		{i18n.T("serial.settings.page_key"), strings.ToUpper(p.PageKey)},
+		{i18n.T("serial.settings.page_key"), pageKeyLabel(p.PageKey, p.QuickKey)},
+		{i18n.T("serial.settings.quick_key"), quickKeyLabel(p.QuickKey)},
+		{i18n.T("serial.settings.show_prefix"), onOff(p.ShowPrefix)},
+		{i18n.T("serial.settings.show_quick_label"), onOff(p.ShowQuickLabel)},
 		{i18n.T("serial.settings.interval"), fmt.Sprintf("%d ms", p.IntervalMs)},
 		{i18n.T("serial.settings.max_lines"), fmt.Sprintf("%d", p.MaxLines)},
 	}
@@ -1867,6 +1977,24 @@ func modeWord(hex bool, hexWord, plainWord string) string {
 		return hexWord
 	}
 	return plainWord
+}
+
+// rxPrefix / txPrefix are the single source of truth for the direction
+// marker. With the F10 "Show TX/RX prefix" switch off they return an empty
+// string, so both the renderer and the line-budget math reserve zero columns
+// instead of silently disagreeing.
+func (m *serialMonitorModel) rxPrefix() string {
+	if !m.showPrefix {
+		return ""
+	}
+	return rxMark
+}
+
+func (m *serialMonitorModel) txPrefix() string {
+	if !m.showPrefix {
+		return ""
+	}
+	return txMark
 }
 
 func renderOpenFailure(msg string, w, h int) string {
@@ -2363,7 +2491,7 @@ func (m *serialMonitorModel) lineBudget() int {
 	if m.showTime {
 		budget -= len("[15:04:05.000] ")
 	}
-	budget -= len(rxMark)
+	budget -= len(m.rxPrefix())
 	if budget < 8 {
 		budget = 8
 	}
@@ -2480,7 +2608,7 @@ func (m *serialMonitorModel) renderEntry(e rxEntry) []string {
 			if end > len(e.raw) {
 				end = len(e.raw)
 			}
-			line := rxMark + hexText(e.raw[i:end])
+			line := m.rxPrefix() + hexText(e.raw[i:end])
 			if m.showTime {
 				line = e.at.Format("[15:04:05.000] ") + line
 			}
@@ -2508,7 +2636,7 @@ func (m *serialMonitorModel) renderEntry(e rxEntry) []string {
 				end = len(seg)
 			}
 			text := asciiFold(seg[i:end])
-			line := rxMark + text
+			line := m.rxPrefix() + text
 			if m.showTime {
 				line = e.at.Format("[15:04:05.000] ") + line
 			}
@@ -2565,8 +2693,8 @@ func (m *serialMonitorModel) renderTxEntry(e rxEntry) []string {
 	if m.showTime {
 		stamp = e.at.Format("[15:04:05.000] ")
 	}
-	head := txMark
-	if e.label != "" {
+	head := m.txPrefix()
+	if m.showQuickLabel && e.label != "" {
 		head += "[" + e.label + "] "
 	}
 	raw := e.raw
