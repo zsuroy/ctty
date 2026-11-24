@@ -409,6 +409,8 @@ func TestSerialMonitorFrameFitsCanvas(t *testing.T) {
 
 func TestSerialMonitorTitleHasSingleCttyBrand(t *testing.T) {
 	m := newTestMonitor(80, 24)
+	// This test asserts the Alt wording; "auto" resolves to Option on macOS.
+	m.quickKey = serialconfig.QuickKeyAlt
 	frame := RenderCanvas(80, 24, m.View())
 	if !strings.Contains(frame, "[ctty]") {
 		t.Fatal("serial monitor should show the ctty badge")
@@ -671,6 +673,61 @@ func TestSerialQuickCmdLabelShownInTxLine(t *testing.T) {
 	}
 }
 
+func TestSerialQuickLabelSwitchHidesBracketPrefix(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newTestMonitor(80, 24)
+	m.port = &fakeSerialPort{}
+	m.quickCmds = []serialconfig.QuickCmd{{Label: "AT+RST", Value: "AT+RST"}}
+	if !m.showQuickLabel {
+		t.Fatal("quick-command labels must be on by default")
+	}
+	m.fireQuick(0)
+	if !strings.Contains(m.rxLines[0], "[AT+RST]") {
+		t.Fatalf("default TX line = %q, want [AT+RST]", m.rxLines)
+	}
+
+	m.showQuickLabel = false
+	m.fireQuick(0)
+	if strings.Contains(m.rxLines[1], "[AT+RST]") {
+		t.Fatalf("TX line with label hidden = %q", m.rxLines[1])
+	}
+	if !strings.Contains(m.rxLines[1], "AT+RST") {
+		t.Fatalf("payload itself was dropped: %q", m.rxLines[1])
+	}
+	// The switch redraws entries already on screen, like F1/F3 do.
+	m.rebuildRx()
+	for _, line := range m.rxLines {
+		if strings.Contains(line, "[AT+RST]") {
+			t.Fatalf("stale label survived rebuild: %q", m.rxLines)
+		}
+	}
+}
+
+func TestSerialQuickLabelSettingAppliesAndPersists(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newTestMonitor(80, 24)
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyF10})
+	for i := 0; i < settingShowQuickLabel; i++ {
+		m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if m.settingsSel != settingShowQuickLabel {
+		t.Fatalf("selection = %d, want row %d", m.settingsSel, settingShowQuickLabel)
+	}
+	m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyRight})
+	if m.prefs.ShowQuickLabel || !m.showQuickLabel {
+		t.Fatalf("draft = %v, live = %v; draft must toggle off while live stays on",
+			m.prefs.ShowQuickLabel, m.showQuickLabel)
+	}
+	m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	got, err := serialconfig.LoadSerialPrefs()
+	if err != nil || got.ShowQuickLabel {
+		t.Fatalf("persisted show_quick_label = %v err=%v, want false", got.ShowQuickLabel, err)
+	}
+	if m.showQuickLabel {
+		t.Fatal("applied quick-label switch must turn it off")
+	}
+}
+
 func TestSerialEmptyHintAndHistPreview(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dev := serialconfig.SerialDevice{Name: "console", Device: "COM3", BaudRate: 115200, DataBits: 8, Parity: "none", StopBits: 1}
@@ -705,7 +762,8 @@ func makeQuickLabels(n int) []serialconfig.QuickCmd {
 func TestQuickPagingNavigation(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	m := newTestMonitor(80, 24)
-	m.quickCmds = makeQuickLabels(20) // 3 pages: 0-7, 8-15, 16-19
+	m.quickKey = serialconfig.QuickKeyAlt // Ctrl+arrow is an Option alias only in Option mode
+	m.quickCmds = makeQuickLabels(20)     // 3 pages: 0-7, 8-15, 16-19
 	m.clampQuick()
 
 	if got := m.quickPageCount(); got != 3 {
@@ -773,6 +831,7 @@ func TestQuickPagingNavigation(t *testing.T) {
 func TestQuickPageKeySwitch(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	m := newTestMonitor(80, 24)
+	m.quickKey = serialconfig.QuickKeyAlt
 	m.quickCmds = makeQuickLabels(20)
 	m.clampQuick()
 	m.quickFocus = false
@@ -2470,5 +2529,180 @@ func TestSerialQuickEditorToggleMatchesGlobal(t *testing.T) {
 	m.updateEditor(tea.KeyMsg{Type: tea.KeyF2})
 	if m.quickCmds[0].Hex || m.quickCmds[0].Value != "AT" {
 		t.Fatalf("editor F2 = %+v, want AT", m.quickCmds[0])
+	}
+}
+
+func TestSerialMacOptionArrowPagesQuickBar(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newTestMonitor(80, 24)
+	m.quickCmds = makeQuickLabels(9) // two pages
+	m.quickKey = serialconfig.QuickKeyOption
+	m.pageKey = "alt"
+
+	// Stock macOS text editing sends CSI 1;5 C/D, which Bubble Tea decodes
+	// as ctrl+arrow.
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyCtrlRight})
+	if m.quickPage != 1 {
+		t.Fatalf("Option+Right (ctrl+right token) left page at %d, want 1", m.quickPage)
+	}
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyCtrlLeft})
+	if m.quickPage != 0 {
+		t.Fatalf("Option+Left (ctrl+left token) left page at %d, want 0", m.quickPage)
+	}
+	// ESC b/f (word left/right) is another common mapping.
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}, Alt: true})
+	if m.quickPage != 1 {
+		t.Fatalf("ESC f left page at %d, want 1", m.quickPage)
+	}
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}, Alt: true})
+	if m.quickPage != 0 {
+		t.Fatalf("ESC b left page at %d, want 0", m.quickPage)
+	}
+	// "Option as Meta" sends CSI 1;3, reported as alt+arrow.
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyRight, Alt: true})
+	if m.quickPage != 1 {
+		t.Fatalf("alt+right left page at %d, want 1", m.quickPage)
+	}
+	// Ctrl stays Ctrl when the page modifier is set to Ctrl.
+	m.pageKey = "ctrl"
+	m.quickPage = 0
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyCtrlRight})
+	if m.quickPage != 1 {
+		t.Fatalf("Ctrl page mode ignored ctrl+right, page = %d", m.quickPage)
+	}
+}
+
+func TestSerialOptionQuickAcceptsAllDigitEncodings(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newTestMonitor(80, 24)
+	m.setLineEnd("none")
+	port := &fakeSerialPort{}
+	m.port = port
+	m.quickKey = serialconfig.QuickKeyOption
+	m.quickCmds = []serialconfig.QuickCmd{
+		{Label: "one", Value: "V1"},
+		{Label: "two", Value: "V2"},
+	}
+
+	// Plain glyph (default macOS), ESC+glyph ("Option as Meta"), and
+	// ESC+digit (ASCII layout / Esc+) must all fire the same slots.
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'¡'}})
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'™'}, Alt: true})
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}, Alt: true})
+	want := []string{"V1", "V2", "V1"}
+	if len(port.writes) != len(want) {
+		t.Fatalf("writes = %q, want %q", port.writes, want)
+	}
+	for i := range want {
+		if string(port.writes[i]) != want[i] {
+			t.Fatalf("write %d = %q, want %q", i, port.writes[i], want[i])
+		}
+	}
+}
+
+func TestSerialAltDigitFromRawKeyType(t *testing.T) {
+	for _, tc := range []struct {
+		key  tea.KeyMsg
+		want int
+		ok   bool
+	}{
+		{tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}, Alt: true}, 2, true},
+		{tea.KeyMsg{Type: tea.KeyType('8'), Alt: true}, 7, true},
+		{tea.KeyMsg{Type: tea.KeyType('9'), Alt: true}, 0, false},
+		{tea.KeyMsg{Type: tea.KeyType('1')}, 0, false},
+	} {
+		idx, ok := serialQuickDigitFromKey(tc.key)
+		if idx != tc.want || ok != tc.ok {
+			t.Fatalf("key %+v -> (%d,%v), want (%d,%v)", tc.key, idx, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestSerialPrefixSettingDefaultsOnAndToggles(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newTestMonitor(80, 24)
+	m.appendRx([]byte("OK\r\n"))
+	if len(m.rxLines) == 0 || !strings.HasPrefix(m.rxLines[0], rxMark) {
+		t.Fatalf("serial prefixes are on by default, got %q", m.rxLines)
+	}
+	budgetWithPrefix := m.lineBudget()
+
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyF10})
+	for i := 0; i < settingShowPrefix; i++ {
+		m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if m.settingsSel != settingShowPrefix {
+		t.Fatalf("selection = %d, want prefix row %d", m.settingsSel, settingShowPrefix)
+	}
+	m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyRight})
+	if m.prefs.ShowPrefix || !m.showPrefix {
+		t.Fatal("arrow key must only change the draft, not the live session")
+	}
+	m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.showPrefix {
+		t.Fatal("saved setting not applied to the live session")
+	}
+	got, err := serialconfig.LoadSerialPrefs()
+	if err != nil || got.ShowPrefix {
+		t.Fatalf("persisted show_prefix = %v err=%v, want false", got.ShowPrefix, err)
+	}
+	if strings.Contains(m.rxLines[0], rxMark) || !strings.Contains(m.rxLines[0], "OK") {
+		t.Fatalf("existing rows were not repainted: %q", m.rxLines)
+	}
+	if m.lineBudget() <= budgetWithPrefix {
+		t.Fatalf("line budget must grow when the prefix is hidden: %d -> %d", budgetWithPrefix, m.lineBudget())
+	}
+	m.appendRx([]byte("NEXT\r\n"))
+	if strings.Contains(m.rxLines[len(m.rxLines)-1], rxMark) {
+		t.Fatalf("new rows should have no prefix: %q", m.rxLines)
+	}
+}
+
+func TestSerialQuickKeySettingAppliesImmediately(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newTestMonitor(80, 24)
+	if m.prefs.QuickKey != serialconfig.QuickKeyAuto {
+		t.Fatalf("default quick key = %q, want auto", m.prefs.QuickKey)
+	}
+	liveBefore := m.quickKey
+	m, _ = m.updateKeys(tea.KeyMsg{Type: tea.KeyF10})
+	for i := 0; i < settingQuickKey; i++ {
+		m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if m.settingsSel != settingQuickKey {
+		t.Fatalf("selection = %d, want quick key row %d", m.settingsSel, settingQuickKey)
+	}
+	m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyRight})
+	if m.prefs.QuickKey != serialconfig.QuickKeyAlt || m.quickKey != liveBefore {
+		t.Fatal("draft change must not alter the live session")
+	}
+	m, _ = m.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	got, err := serialconfig.LoadSerialPrefs()
+	if err != nil || got.QuickKey != serialconfig.QuickKeyAlt {
+		t.Fatalf("persisted quick_key = %q err=%v, want alt", got.QuickKey, err)
+	}
+	if m.quickKey != serialconfig.QuickKeyAlt {
+		t.Fatalf("applied quick key = %q, want alt", m.quickKey)
+	}
+}
+
+func TestSerialSettingsRowsFitMonitorWithNewRows(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newTestMonitor(80, 24)
+	m.settingsOpen = true
+	view := ansi.Strip(m.settingsView())
+	lines := strings.Split(view, "\n")
+	if len(lines) > 24 {
+		t.Fatalf("settings panel has %d rows, exceeds 24-line monitor", len(lines))
+	}
+	for _, line := range lines {
+		if w := ansi.StringWidth(line); w > 80 {
+			t.Fatalf("settings row wraps at 80 cells: %q", line)
+		}
+	}
+	for _, row := range m.settingsRows() {
+		if !strings.Contains(view, row.label) {
+			t.Fatalf("settings panel is missing row %q", row.label)
+		}
 	}
 }

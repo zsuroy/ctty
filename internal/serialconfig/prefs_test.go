@@ -21,6 +21,54 @@ func TestSerialPrefsDefaults(t *testing.T) {
 	if p.PageKey != "alt" {
 		t.Fatalf("default page key = %q, want alt", p.PageKey)
 	}
+	if p.QuickKey != QuickKeyAuto {
+		t.Fatalf("default quick key = %q, want auto", p.QuickKey)
+	}
+	if !p.ShowPrefix {
+		t.Fatal("serial has always painted RX/TX prefixes; default must be on")
+	}
+	if !p.ShowQuickLabel {
+		t.Fatal("serial has always echoed quick-command labels; default must be on")
+	}
+	if ResolveQuickKey(QuickKeyAuto, "darwin") != QuickKeyOption ||
+		ResolveQuickKey(QuickKeyAuto, "windows") != QuickKeyAlt ||
+		ResolveQuickKey(QuickKeyAuto, "linux") != QuickKeyAlt {
+		t.Fatal("auto quick key must resolve to Option on macOS and Alt elsewhere")
+	}
+}
+
+func TestSerialPrefsQuickKeyAndPrefixLegacy(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	path := filepath.Join(dir, "ctty", "serial-prefs.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// A config written before these fields existed keeps the historical
+	// prefix behaviour and gets the platform-dependent quick key.
+	if err := os.WriteFile(path, []byte(`{"hex_view":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := LoadSerialPrefs()
+	if err != nil || !p.ShowPrefix || !p.ShowQuickLabel || p.QuickKey != QuickKeyAuto {
+		t.Fatalf("legacy prefs = %+v err=%v, want both labels on and quick key auto", p, err)
+	}
+
+	// Explicit values must survive both directions.
+	p.QuickKey = QuickKeyOption
+	p.ShowPrefix = false
+	p.ShowQuickLabel = false
+	if err := SaveSerialPrefs(p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadSerialPrefs()
+	if err != nil || got.QuickKey != QuickKeyOption || got.ShowPrefix || got.ShowQuickLabel {
+		t.Fatalf("saved prefs = %+v err=%v, want option/no prefix/no quick label", got, err)
+	}
+
+	if v := (SerialPrefs{QuickKey: "garbage"}).Normalize().QuickKey; v != QuickKeyAuto {
+		t.Fatalf("invalid quick key normalized to %q, want auto", v)
+	}
 }
 
 func TestSerialPrefsPageKeyNormalize(t *testing.T) {
@@ -76,6 +124,9 @@ func TestSerialPrefsLoadSaveRoundTrip(t *testing.T) {
 	p.HexView = true
 	p.HexSend = true
 	p.ShowTime = true
+	p.ShowPrefix = false
+	p.ShowQuickLabel = false
+	p.QuickKey = QuickKeyOption
 	p.IntervalMs = 500
 	p.MaxLines = 4000
 	if err := SaveSerialPrefs(p); err != nil {
