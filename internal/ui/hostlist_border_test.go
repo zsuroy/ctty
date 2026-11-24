@@ -378,10 +378,10 @@ func TestJetBrainsUpdateSuccessModalBorderAlignment(t *testing.T) {
 				t.Fatalf("check mark: terminalDisplayWidth=%d ansi.StringWidth=%d want ansi-1", tw, sw)
 			}
 
-		form := NewUpdateForm(NewStyles(100), 100, 30, "1.0.0", "1.0.1", "")
-		form.phase = updateDone
-		modal := form.View()
-		assertPlacedModalBordersAligned(t, "updateSuccessModal", modal, form.width)
+			form := NewUpdateForm(NewStyles(100), 100, 30, "1.0.0", "1.0.1", "")
+			form.phase = updateDone
+			modal := form.View()
+			assertPlacedModalBordersAligned(t, "updateSuccessModal", modal, form.width)
 		})
 	}
 }
@@ -410,13 +410,13 @@ func TestJetBrainsTagPickerModalBorderAlignment(t *testing.T) {
 				{Name: "web-1", Hostname: "10.0.1.1", Tags: []string{"web", "prod"}},
 				{Name: "db-1", Hostname: "10.0.2.1", Tags: []string{"db"}},
 			}
-		m := NewModel(hosts, "", false, "v1.3.0", true)
-		m.ready = true
-		m.width = 100
-		m.height = 30
-		m.tagPickerOpen = true
-		modal := renderConfirmModal(m.width, m.height, m.renderTagPicker())
-		assertPlacedModalBordersAligned(t, "tagPickerModal", modal, m.width)
+			m := NewModel(hosts, "", false, "v1.3.0", true)
+			m.ready = true
+			m.width = 100
+			m.height = 30
+			m.tagPickerOpen = true
+			modal := renderConfirmModal(m.width, m.height, m.renderTagPicker())
+			assertPlacedModalBordersAligned(t, "tagPickerModal", modal, m.width)
 		})
 	}
 }
@@ -521,14 +521,14 @@ func TestTagPickerModalCoversFullCanvas(t *testing.T) {
 func TestStandardTerminalPeekModalBorderAlignment(t *testing.T) {
 	for _, lang := range []string{i18n.LangZHCN, i18n.LangEN} {
 		t.Run("Lang_"+lang, func(t *testing.T) {
-		i18n.SetLang(lang)
-		t.Setenv("TERMINAL_EMULATOR", "xterm-256color")
-		t.Setenv("TERM_PROGRAM", "")
-		t.Setenv("JETBRAINS_INTELLIJ_COMMAND_X", "")
-		t.Setenv("IDEA_INITIAL_DIRECTORY", "")
-		if isJetBrainsTerminal() {
-			t.Fatal("expected standard terminal detection")
-		}
+			i18n.SetLang(lang)
+			t.Setenv("TERMINAL_EMULATOR", "xterm-256color")
+			t.Setenv("TERM_PROGRAM", "")
+			t.Setenv("JETBRAINS_INTELLIJ_COMMAND_X", "")
+			t.Setenv("IDEA_INITIAL_DIRECTORY", "")
+			if isJetBrainsTerminal() {
+				t.Fatal("expected standard terminal detection")
+			}
 
 			hosts := []config.SSHHost{
 				{Name: "prod-server-01", Hostname: "10.0.0.1"},
@@ -545,25 +545,25 @@ func TestStandardTerminalPeekModalBorderAlignment(t *testing.T) {
 			loadingPlaced := renderConfirmModal(m.width, m.height, loadingBox)
 			assertPlacedModalBordersAligned(t, "loadingPlaced", loadingPlaced, m.width)
 
-		m.peekLoading = false
-		m.peekStats = &HostStats{
-			Uptime:      "15 days, 4:20",
-			Users:       "2",
-			Load1:       "0.15",
-			Load5:       "0.20",
-			Load15:      "0.18",
-			MemTotalMB:  8192,
-			MemUsedMB:   4096,
-			MemPercent:  50.0,
-			DiskTotal:   "100G",
-			DiskUsed:    "25G",
-			DiskPercent: 25.0,
-		}
-		statsBox := m.renderPeekModal()
-		assertBoxRightBordersAligned(t, "statsBox", statsBox)
+			m.peekLoading = false
+			m.peekStats = &HostStats{
+				Uptime:      "15 days, 4:20",
+				Users:       "2",
+				Load1:       "0.15",
+				Load5:       "0.20",
+				Load15:      "0.18",
+				MemTotalMB:  8192,
+				MemUsedMB:   4096,
+				MemPercent:  50.0,
+				DiskTotal:   "100G",
+				DiskUsed:    "25G",
+				DiskPercent: 25.0,
+			}
+			statsBox := m.renderPeekModal()
+			assertBoxRightBordersAligned(t, "statsBox", statsBox)
 
-		statsPlaced := renderConfirmModal(m.width, m.height, statsBox)
-		assertPlacedModalBordersAligned(t, "statsPlaced", statsPlaced, m.width)
+			statsPlaced := renderConfirmModal(m.width, m.height, statsBox)
+			assertPlacedModalBordersAligned(t, "statsPlaced", statsPlaced, m.width)
 		})
 	}
 }

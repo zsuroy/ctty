@@ -130,7 +130,7 @@ func TestSettingsFormNavigation(t *testing.T) {
 	f := NewSettingsForm(NewStyles(80), 80, 24, &config.AppConfig{})
 	f.Init()
 
-	expectedKeys := []string{"lang", "theme", "update", "esc", "ftp", "sftp", "webdav", "s3", "save"}
+	expectedKeys := []string{"lang", "theme", "update", "esc", "ftp", "sftp", "webdav", "s3", "serial_mode", "save"}
 
 	// Check initial field
 	if f.form.GetFocusedField().GetKey() != expectedKeys[0] {
@@ -195,6 +195,7 @@ func TestSettingsFormNavigation(t *testing.T) {
 	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // sftp
 	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // webdav
 	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // s3
+	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // serial_mode
 	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // save
 	if got := f.form.GetFocusedField().GetKey(); got != "save" {
 		t.Fatalf("expected 'save' after tabs, got %q", got)
@@ -212,10 +213,16 @@ func TestSettingsFormNavigation(t *testing.T) {
 		t.Fatalf("expected 'save' after Shift+Tab on 'lang' (loop), got %q", got)
 	}
 
-	// Shift+Tab on "save" should go to "s3"
+	// Shift+Tab on "save" should go to "serial_mode"
+	f.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if got := f.form.GetFocusedField().GetKey(); got != "serial_mode" {
+		t.Fatalf("expected 'serial_mode' after Shift+Tab on 'save', got %q", got)
+	}
+
+	// Shift+Tab on "serial_mode" should go to "s3"
 	f.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	if got := f.form.GetFocusedField().GetKey(); got != "s3" {
-		t.Fatalf("expected 's3' after Shift+Tab on 'save', got %q", got)
+		t.Fatalf("expected 's3' after Shift+Tab on 'serial_mode', got %q", got)
 	}
 
 	// Shift+Tab on "s3" should go to "webdav"

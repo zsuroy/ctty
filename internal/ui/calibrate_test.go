@@ -97,8 +97,8 @@ func TestCalibrateGlyphAdvancesMeasuresDeltas(t *testing.T) {
 	// ansi.StringWidth (the PyCharm measurement) and the status circle one
 	// narrower; everything else matches the measurement.
 	fake := &fakeProbeTTY{advances: map[string]int{
-		labelTagEmoji:  ansi.StringWidth(labelTagEmoji) + 1,
-		"\U000026AB":   ansi.StringWidth("\U000026AB") - 1,
+		labelTagEmoji: ansi.StringWidth(labelTagEmoji) + 1,
+		"\U000026AB":  ansi.StringWidth("\U000026AB") - 1,
 	}}
 	if !CalibrateGlyphAdvances(fake) {
 		t.Fatal("CalibrateGlyphAdvances failed against a responsive fake terminal")

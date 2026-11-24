@@ -35,17 +35,23 @@ func (c *serialExecCommand) SetStdin(r io.Reader)  { c.stdin = r }
 func (c *serialExecCommand) SetStdout(w io.Writer) { c.stdout = w }
 func (c *serialExecCommand) SetStderr(w io.Writer) { c.stderr = w }
 
+// Open opens a saved device with its stored parameters. Both the legacy
+// passthrough bridge and the in-app monitor use this so port setup stays in
+// one place (tests stub serialOpen through the same path).
+func Open(dev SerialDevice) (serial.Port, error) {
+	mode := &serial.Mode{
+		BaudRate: dev.BaudRate,
+		DataBits: dev.DataBits,
+		Parity:   ParityFromString(dev.Parity),
+		StopBits: StopBitsFromString(dev.StopBits),
+	}
+	return serialOpen(dev.Device, mode)
+}
+
 // Run opens the serial port and bridges terminal stdin/stdout to it
 // until the user presses or Ctrl+].
 func (c *serialExecCommand) Run() error {
-	mode := &serial.Mode{
-		BaudRate: c.dev.BaudRate,
-		DataBits: c.dev.DataBits,
-		Parity:   ParityFromString(c.dev.Parity),
-		StopBits: StopBitsFromString(c.dev.StopBits),
-	}
-
-	port, err := serialOpen(c.dev.Device, mode)
+	port, err := Open(c.dev)
 	if err != nil {
 		return fmt.Errorf("opening serial port %s: %w", c.dev.Device, err)
 	}

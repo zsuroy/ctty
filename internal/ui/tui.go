@@ -11,6 +11,7 @@ import (
 	"github.com/zsuroy/ctty/internal/connectivity"
 	"github.com/zsuroy/ctty/internal/history"
 	"github.com/zsuroy/ctty/internal/i18n"
+	"github.com/zsuroy/ctty/internal/serialconfig"
 	"github.com/zsuroy/ctty/internal/ui/theme"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -282,6 +283,21 @@ func RunSerialMode(currentVersion string, noUpdateCheck bool) error {
 	m.serialForm = NewSerialForm(m.styles, m.width, m.height)
 	m.viewMode = ViewSerial
 	m.serialOnly = true
+
+	return runTUIModel(m, "error running TUI")
+}
+
+// RunSerialConnect starts the TUI and connects to dev immediately, skipping
+// the device list. mode forces the connect UI (serialconfig.ModeAssistant /
+// ModeRaw); an empty mode resolves like any other connection.
+func RunSerialConnect(dev serialconfig.SerialDevice, mode, currentVersion string, noUpdateCheck bool) error {
+	calibrateTerminalGlyphs()
+	m := NewModel(nil, "", false, currentVersion, noUpdateCheck)
+	m.serialForm = NewSerialForm(m.styles, m.width, m.height)
+	m.viewMode = ViewSerial
+	m.serialOnly = true
+	m.serialForceMode = serialconfig.NormalizeMode(mode)
+	m.pendingSerial = &dev
 
 	return runTUIModel(m, "error running TUI")
 }

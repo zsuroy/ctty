@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type FTPLayout string
@@ -99,6 +100,31 @@ type AppConfig struct {
 	SFTPLayout      SFTPLayout        `json:"sftp_layout,omitempty"`
 	WebDAVLayout    WebDAVLayout      `json:"webdav_layout,omitempty"`
 	S3Layout        S3Layout          `json:"s3_layout,omitempty"`
+	// SerialStartMode picks how serial devices open by default:
+	// SerialStartAuto keeps the per-entry default (raw for 'ctty serial',
+	// assistant monitor from the TUI); SerialStartAssistant / SerialStartRaw
+	// force one everywhere. A device's own mode still wins over this.
+	SerialStartMode string `json:"serial_start_mode,omitempty"`
+}
+
+// Default serial start modes. "auto" preserves the historical split so an
+// upgraded config keeps behaving exactly as before.
+const (
+	SerialStartAuto      = "auto"
+	SerialStartAssistant = "assistant"
+	SerialStartRaw       = "raw"
+)
+
+// NormalizeSerialStartMode maps stored values onto a known start mode,
+// falling back to auto for empty or legacy values.
+func NormalizeSerialStartMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case SerialStartAssistant:
+		return SerialStartAssistant
+	case SerialStartRaw:
+		return SerialStartRaw
+	}
+	return SerialStartAuto
 }
 
 // IsUpdateCheckEnabled returns true if the update check is enabled (default: true)
@@ -120,11 +146,12 @@ func GetDefaultKeyBindings() KeyBindings {
 // GetDefaultAppConfig returns the default application configuration
 func GetDefaultAppConfig() AppConfig {
 	return AppConfig{
-		KeyBindings:  GetDefaultKeyBindings(),
-		Theme:        "default",
-		FTPLayout:    FTPLayoutDual,
-		SFTPLayout:   SFTPLayoutDual,
-		WebDAVLayout: WebDAVLayoutDual,
+		KeyBindings:     GetDefaultKeyBindings(),
+		Theme:           "default",
+		FTPLayout:       FTPLayoutDual,
+		SFTPLayout:      SFTPLayoutDual,
+		WebDAVLayout:    WebDAVLayoutDual,
+		SerialStartMode: SerialStartAuto,
 	}
 }
 

@@ -6,17 +6,87 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // SerialDevice represents a saved serial connection configuration.
 type SerialDevice struct {
-	Name        string `json:"name"`         // User-friendly alias, e.g. "Switch-Console"
-	Device      string `json:"device"`       // Device path, e.g. /dev/cu.usbserial-1420
-	BaudRate    int    `json:"baud_rate"`    // e.g. 9600, 115200
-	DataBits    int    `json:"data_bits"`    // 5, 6, 7, 8 (default 8)
-	Parity      string `json:"parity"`       // "none", "even", "odd" (default "none")
-	StopBits    int    `json:"stop_bits"`    // 1 or 2 (default 1)
-	FlowControl string `json:"flow_control"` // "none", "hardware", "software" (default "none")
+	Name        string  `json:"name"`         // User-friendly alias, e.g. "Switch-Console"
+	Device      string  `json:"device"`       // Device path, e.g. /dev/cu.usbserial-1420
+	BaudRate    int     `json:"baud_rate"`    // e.g. 9600, 115200
+	DataBits    int     `json:"data_bits"`    // 5, 6, 7, 8 (default 8)
+	Parity      string  `json:"parity"`       // "none", "even", "odd" (default "none")
+	StopBits    float64 `json:"stop_bits"`    // 1, 1.5 or 2 (default 1)
+	FlowControl string  `json:"flow_control"` // "none", "hardware", "software" (default "none")
+	// Mode picks the UI used when this device is opened: ModeAssistant
+	// (in-app monitor) or ModeRaw (terminal passthrough). ModeInherit,
+	// the zero value, follows the global setting and then the built-in
+	// per-entry default, so old config files keep their behaviour.
+	Mode string `json:"mode,omitempty"`
+}
+
+// Connect modes shared by the TUI, the settings page and the CLI.
+const (
+	ModeInherit   = ""          // follow settings, then the built-in default
+	ModeAssistant = "assistant" // in-app assistant monitor
+	ModeRaw       = "raw"       // raw terminal passthrough
+)
+
+// NormalizeMode maps user input (and legacy aliases) onto one of the three
+// connect modes. Anything unrecognised inherits.
+func NormalizeMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case ModeAssistant, "monitor", "assistant-monitor":
+		return ModeAssistant
+	case ModeRaw, "terminal", "passthrough", "direct":
+		return ModeRaw
+	}
+	return ModeInherit
+}
+
+// ResolveMode decides how a connection opens. Precedence: an explicit
+// override (CLI flag) wins, then the device's own mode, then the global
+// setting, and finally the built-in default — raw for standalone
+// 'ctty serial' launches (scriptable, no chrome) and the assistant monitor
+// when opened from the main TUI.
+func ResolveMode(override, deviceMode, globalMode string, standalone bool) string {
+	if m := NormalizeMode(override); m != ModeInherit {
+		return m
+	}
+	if m := NormalizeMode(deviceMode); m != ModeInherit {
+		return m
+	}
+	switch strings.ToLower(strings.TrimSpace(globalMode)) {
+	case ModeAssistant:
+		return ModeAssistant
+	case ModeRaw:
+		return ModeRaw
+	}
+	if standalone {
+		return ModeRaw
+	}
+	return ModeAssistant
+}
+
+// SetMode stores the connect mode for a saved device. Unknown names are a
+// no-op so a stale form cannot resurrect a deleted device.
+func SetMode(name, mode string) error {
+	devices, err := Load()
+	if err != nil {
+		return err
+	}
+	changed := false
+	for i := range devices {
+		if devices[i].Name != name {
+			continue
+		}
+		devices[i].Mode = NormalizeMode(mode)
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return Save(devices)
 }
 
 // Config is the on-disk JSON structure for saved serial devices.

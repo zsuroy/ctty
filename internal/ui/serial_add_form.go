@@ -37,6 +37,7 @@ type serialAddFormModel struct {
 	dataCustomVal   string
 	parityVal       string
 	stopBitsVal     string
+	modeVal         string
 	confirmVal      bool
 
 	done      bool
@@ -57,6 +58,7 @@ func newSerialAddForm(styles Styles, width, height int, ports []string) *serialA
 		dataCustomVal: "8",
 		parityVal:     "none",
 		stopBitsVal:   "1",
+		modeVal:       serialconfig.ModeInherit,
 		confirmVal:    true,
 	}
 
@@ -225,6 +227,8 @@ func (m *serialAddFormModel) buildForm() {
 				huh.NewOption(i18n.T("serial.parity_none"), "none"),
 				huh.NewOption(i18n.T("serial.parity_even"), "even"),
 				huh.NewOption(i18n.T("serial.parity_odd"), "odd"),
+				huh.NewOption(i18n.T("serial.parity_mark"), "mark"),
+				huh.NewOption(i18n.T("serial.parity_space"), "space"),
 			).
 			Value(&m.parityVal),
 
@@ -233,10 +237,22 @@ func (m *serialAddFormModel) buildForm() {
 			Title(strings.TrimSpace(strings.TrimSuffix(i18n.T("serial.field_stop"), ":"))).
 			Inline(true).
 			Options(
-				huh.NewOption("1", "1"),
-				huh.NewOption("2", "2"),
+				huh.NewOption(i18n.T("serial.stop_1"), "1"),
+				huh.NewOption(i18n.T("serial.stop_1_5"), "1.5"),
+				huh.NewOption(i18n.T("serial.stop_2"), "2"),
 			).
 			Value(&m.stopBitsVal),
+
+		huh.NewSelect[string]().
+			Key("mode").
+			Title(strings.TrimSpace(strings.TrimSuffix(i18n.T("serial.field_mode"), ":"))).
+			Inline(true).
+			Options(
+				huh.NewOption(i18n.T("serial.mode_inherit"), serialconfig.ModeInherit),
+				huh.NewOption(i18n.T("serial.mode_assistant"), serialconfig.ModeAssistant),
+				huh.NewOption(i18n.T("serial.mode_raw"), serialconfig.ModeRaw),
+			).
+			Value(&m.modeVal),
 
 		huh.NewConfirm().
 			Key("confirm").
@@ -441,10 +457,11 @@ func (m *serialAddFormModel) submit() {
 	}
 	m.dataBitsVal = strconv.Itoa(dataBits)
 
-	stopBits, _ := strconv.Atoi(m.stopBitsVal)
-	if stopBits <= 0 {
+	stopBits, _ := strconv.ParseFloat(m.stopBitsVal, 64)
+	if stopBits != 1 && stopBits != 1.5 && stopBits != 2 {
 		stopBits = 1
 	}
+	m.stopBitsVal = serialconfig.FormatStopBits(stopBits)
 	parity := strings.TrimSpace(m.parityVal)
 	if parity == "" {
 		parity = "none"
@@ -457,6 +474,7 @@ func (m *serialAddFormModel) submit() {
 		DataBits: dataBits,
 		Parity:   parity,
 		StopBits: stopBits,
+		Mode:     serialconfig.NormalizeMode(m.modeVal),
 	}
 	if err := serialconfig.Add(dev); err != nil {
 		m.err = err.Error()
@@ -485,6 +503,8 @@ func (m *serialAddFormModel) getFieldTitle(key string) string {
 		return strings.TrimSpace(strings.TrimSuffix(i18n.T("serial.field_parity"), ":"))
 	case "stop":
 		return strings.TrimSpace(strings.TrimSuffix(i18n.T("serial.field_stop"), ":"))
+	case "mode":
+		return strings.TrimSpace(strings.TrimSuffix(i18n.T("serial.field_mode"), ":"))
 	case "confirm":
 		return i18n.T("form.btn_save")
 	default:

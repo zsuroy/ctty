@@ -53,3 +53,16 @@ func execInTerminal(command tea.ExecCommand, fn tea.ExecCallback) tea.Cmd {
 func execProcess(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd {
 	return execInTerminal(&osExecCommand{Cmd: cmd}, fn)
 }
+
+// monitorMouseCmd switches terminal mouse reporting on for the serial
+// assistant and off again on the way out. The assistant needs wheel events to
+// scroll its receive pane; other views keep native drag-select, so this is
+// scoped to that one page instead of a global tea.WithMouseCellMotion.
+func monitorMouseCmd(on bool) tea.Cmd {
+	return func() tea.Msg {
+		if on {
+			return tea.EnableMouseCellMotion()
+		}
+		return tea.DisableMouse()
+	}
+}

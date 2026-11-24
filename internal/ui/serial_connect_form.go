@@ -35,6 +35,8 @@ type serialConnectFormModel struct {
 	dataCustomVal string
 	parityVal     string
 	stopBitsVal   string
+	modeVal       string
+	storedMode    string
 	confirmVal    bool
 
 	done      bool
@@ -87,10 +89,13 @@ func newSerialConnectForm(styles Styles, width, height int, dev serialconfig.Ser
 		m.parityVal = "none"
 	}
 
-	m.stopBitsVal = strconv.Itoa(dev.StopBits)
+	m.stopBitsVal = serialconfig.FormatStopBits(dev.StopBits)
 	if m.stopBitsVal == "" || m.stopBitsVal == "0" {
 		m.stopBitsVal = "1"
 	}
+
+	m.storedMode = serialconfig.NormalizeMode(dev.Mode)
+	m.modeVal = m.storedMode
 
 	m.buildForm()
 	return m
@@ -191,6 +196,8 @@ func (m *serialConnectFormModel) buildForm() {
 				huh.NewOption(i18n.T("serial.parity_none"), "none"),
 				huh.NewOption(i18n.T("serial.parity_even"), "even"),
 				huh.NewOption(i18n.T("serial.parity_odd"), "odd"),
+				huh.NewOption(i18n.T("serial.parity_mark"), "mark"),
+				huh.NewOption(i18n.T("serial.parity_space"), "space"),
 			).
 			Value(&m.parityVal),
 
@@ -199,10 +206,22 @@ func (m *serialConnectFormModel) buildForm() {
 			Title(strings.TrimSpace(strings.TrimSuffix(i18n.T("serial.field_stop"), ":"))).
 			Inline(true).
 			Options(
-				huh.NewOption("1", "1"),
-				huh.NewOption("2", "2"),
+				huh.NewOption(i18n.T("serial.stop_1"), "1"),
+				huh.NewOption(i18n.T("serial.stop_1_5"), "1.5"),
+				huh.NewOption(i18n.T("serial.stop_2"), "2"),
 			).
 			Value(&m.stopBitsVal),
+
+		huh.NewSelect[string]().
+			Key("mode").
+			Title(strings.TrimSpace(strings.TrimSuffix(i18n.T("serial.field_mode"), ":"))).
+			Inline(true).
+			Options(
+				huh.NewOption(i18n.T("serial.mode_inherit"), serialconfig.ModeInherit),
+				huh.NewOption(i18n.T("serial.mode_assistant"), serialconfig.ModeAssistant),
+				huh.NewOption(i18n.T("serial.mode_raw"), serialconfig.ModeRaw),
+			).
+			Value(&m.modeVal),
 
 		huh.NewConfirm().
 			Key("confirm").
@@ -389,10 +408,11 @@ func (m *serialConnectFormModel) submit() {
 	}
 	m.dataBitsVal = strconv.Itoa(dataBits)
 
-	stopBits, _ := strconv.Atoi(m.stopBitsVal)
-	if stopBits <= 0 {
+	stopBits, _ := strconv.ParseFloat(m.stopBitsVal, 64)
+	if stopBits != 1 && stopBits != 1.5 && stopBits != 2 {
 		stopBits = 1
 	}
+	m.stopBitsVal = serialconfig.FormatStopBits(stopBits)
 	parity := strings.TrimSpace(m.parityVal)
 	if parity == "" {
 		parity = "none"
@@ -402,6 +422,12 @@ func (m *serialConnectFormModel) submit() {
 	m.device.DataBits = dataBits
 	m.device.Parity = parity
 	m.device.StopBits = stopBits
+	// The connect mode is a saved-device property: remember it when the
+	// user actually changes it, so the next connection opens the same way.
+	m.device.Mode = serialconfig.NormalizeMode(m.modeVal)
+	if m.device.Mode != m.storedMode {
+		_ = serialconfig.SetMode(m.device.Name, m.device.Mode)
+	}
 	m.done = true
 }
 
@@ -419,6 +445,8 @@ func (m *serialConnectFormModel) getFieldTitle(key string) string {
 		return strings.TrimSpace(strings.TrimSuffix(i18n.T("serial.field_parity"), ":"))
 	case "stop":
 		return strings.TrimSpace(strings.TrimSuffix(i18n.T("serial.field_stop"), ":"))
+	case "mode":
+		return strings.TrimSpace(strings.TrimSuffix(i18n.T("serial.field_mode"), ":"))
 	case "confirm":
 		return i18n.T("serial.connect_button")
 	default:
