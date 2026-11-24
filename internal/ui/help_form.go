@@ -154,11 +154,17 @@ func (m *helpModel) View() string {
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("←/→   "), m.styles.HelpText.Render(i18n.T("help.serial_baud"))),
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("a     "), m.styles.HelpText.Render(i18n.T("help.serial_add"))),
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("d     "), m.styles.HelpText.Render(i18n.T("help.serial_delete"))),
+		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("      "), m.styles.HelpText.Render(i18n.T("help.serial_assistant"))),
 		"",
 		m.styles.FocusedLabel.Render(i18n.T("help.cat_telnet")),
 		"",
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("⏎     "), m.styles.HelpText.Render(i18n.T("help.telnet_connect"))),
+		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("i     "), m.styles.HelpText.Render(i18n.T("help.telnet_info"))),
+		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("e     "), m.styles.HelpText.Render(i18n.T("help.telnet_edit"))),
+		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("a     "), m.styles.HelpText.Render(i18n.T("help.telnet_add"))),
+		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("d     "), m.styles.HelpText.Render(i18n.T("help.telnet_delete"))),
 		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("p     "), m.styles.HelpText.Render(i18n.T("help.telnet_probe"))),
+		lipgloss.JoinHorizontal(lipgloss.Left, m.styles.FocusedLabel.Render("      "), m.styles.HelpText.Render(i18n.T("help.telnet_assistant"))),
 	)
 
 	col3 := lipgloss.JoinVertical(lipgloss.Left,
