@@ -174,3 +174,33 @@ func TestIsPortClosed(t *testing.T) {
 		t.Fatal("I/O error should not be PortClosed")
 	}
 }
+
+func TestOpenMapsMarkParityAndHalfStopBit(t *testing.T) {
+	origOpen := serialOpen
+	defer func() { serialOpen = origOpen }()
+	var got *serial.Mode
+	serialOpen = func(_ string, mode *serial.Mode) (serial.Port, error) {
+		got = mode
+		return &fakePort{readDone: make(chan struct{})}, nil
+	}
+	dev := SerialDevice{
+		Name:     "extended",
+		Device:   "/tmp/fake0",
+		BaudRate: 9600,
+		DataBits: 8,
+		Parity:   "mark",
+		StopBits: 1.5,
+	}
+	if _, err := Open(dev); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if got == nil {
+		t.Fatal("serialOpen was not called")
+	}
+	if got.Parity != serial.MarkParity {
+		t.Fatalf("parity = %v, want MarkParity", got.Parity)
+	}
+	if got.StopBits != serial.OnePointFiveStopBits {
+		t.Fatalf("stop bits = %v, want OnePointFiveStopBits", got.StopBits)
+	}
+}

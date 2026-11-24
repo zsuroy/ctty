@@ -231,7 +231,7 @@ func (m *serialFormModel) buildTable() {
 				d.Device,
 				fmt.Sprintf("%d", d.BaudRate),
 				fmt.Sprintf("%d", d.DataBits),
-				fmt.Sprintf("%d", d.StopBits),
+				serialconfig.FormatStopBits(d.StopBits),
 			})
 		} else {
 			rows = append(rows, table.Row{
@@ -240,7 +240,7 @@ func (m *serialFormModel) buildTable() {
 				fmt.Sprintf("%d", d.BaudRate),
 				fmt.Sprintf("%d", d.DataBits),
 				d.Parity,
-				fmt.Sprintf("%d", d.StopBits),
+				serialconfig.FormatStopBits(d.StopBits),
 			})
 		}
 	}
@@ -544,6 +544,18 @@ func (m *serialFormModel) handleInfoKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// serialModeLabel renders a stored connect mode for display. Inherit means
+// "follow the settings page", so it reads as such rather than as a mode.
+func serialModeLabel(mode string) string {
+	switch serialconfig.NormalizeMode(mode) {
+	case serialconfig.ModeAssistant:
+		return i18n.T("serial.mode_assistant")
+	case serialconfig.ModeRaw:
+		return i18n.T("serial.mode_raw")
+	}
+	return i18n.T("serial.mode_inherit")
+}
+
 func (m *serialFormModel) renderInfo() string {
 	if m.infoIndex < 0 || m.infoIndex >= len(m.filteredDevices) {
 		return ""
@@ -563,7 +575,8 @@ func (m *serialFormModel) renderInfo() string {
 		{strings.TrimSpace(i18n.T("serial.field_baud")), fmt.Sprintf("%d", dev.BaudRate)},
 		{strings.TrimSpace(i18n.T("serial.field_data")), fmt.Sprintf("%d", dev.DataBits)},
 		{strings.TrimSpace(i18n.T("serial.field_parity")), dev.Parity},
-		{strings.TrimSpace(i18n.T("serial.field_stop")), fmt.Sprintf("%d", dev.StopBits)},
+		{strings.TrimSpace(i18n.T("serial.field_stop")), serialconfig.FormatStopBits(dev.StopBits)},
+		{strings.TrimSpace(i18n.T("serial.field_mode")), serialModeLabel(dev.Mode)},
 		{i18n.T("serial.col_saved") + ":", saved},
 	}
 

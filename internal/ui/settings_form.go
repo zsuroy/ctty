@@ -33,6 +33,7 @@ type settingsFormModel struct {
 	sftpLayoutVal   string
 	webdavLayoutVal string
 	s3LayoutVal     string
+	serialModeVal   string
 	confirmSave     bool
 
 	prevTheme string
@@ -64,6 +65,7 @@ func NewSettingsForm(styles Styles, width, height int, appConfig *config.AppConf
 	sftpLayoutVal := string(config.NormalizeSFTPLayout(cfg.SFTPLayout))
 	webdavLayoutVal := string(config.NormalizeWebDAVLayout(cfg.WebDAVLayout))
 	s3LayoutVal := string(config.NormalizeS3Layout(cfg.S3Layout))
+	serialModeVal := config.NormalizeSerialStartMode(cfg.SerialStartMode)
 
 	m := &settingsFormModel{
 		styles:          styles,
@@ -78,6 +80,7 @@ func NewSettingsForm(styles Styles, width, height int, appConfig *config.AppConf
 		sftpLayoutVal:   sftpLayoutVal,
 		webdavLayoutVal: webdavLayoutVal,
 		s3LayoutVal:     s3LayoutVal,
+		serialModeVal:   serialModeVal,
 		confirmSave:     true,
 		prevTheme:       themeVal,
 	}
@@ -178,6 +181,17 @@ func (m *settingsFormModel) buildForm() {
 					huh.NewOption(i18n.T("s3.layout_single"), "single"),
 				).
 				Value(&m.s3LayoutVal),
+
+			huh.NewSelect[string]().
+				Key("serial_mode").
+				Title(i18n.T("settings.serial_mode_label")).
+				Inline(true).
+				Options(
+					huh.NewOption(i18n.T("settings.serial_mode_auto"), config.SerialStartAuto),
+					huh.NewOption(i18n.T("settings.serial_mode_assistant"), config.SerialStartAssistant),
+					huh.NewOption(i18n.T("settings.serial_mode_raw"), config.SerialStartRaw),
+				).
+				Value(&m.serialModeVal),
 
 			huh.NewConfirm().
 				Key("save").
@@ -324,6 +338,7 @@ func (m *settingsFormModel) saveSettings() tea.Cmd {
 		m.appConfig.SFTPLayout = config.SFTPLayout(m.sftpLayoutVal)
 		m.appConfig.WebDAVLayout = config.WebDAVLayout(m.webdavLayoutVal)
 		m.appConfig.S3Layout = config.S3Layout(m.s3LayoutVal)
+		m.appConfig.SerialStartMode = config.NormalizeSerialStartMode(m.serialModeVal)
 
 		_ = config.SaveAppConfig(&m.appConfig)
 		i18n.Init(m.appConfig.Language)
@@ -406,6 +421,8 @@ func (m *settingsFormModel) View() string {
 					titleKey = i18n.T("settings.ftp_layout_label")
 				case "sftp":
 					titleKey = i18n.T("settings.sftp_layout_label")
+				case "serial_mode":
+					titleKey = i18n.T("settings.serial_mode_label")
 				case "save":
 					titleKey = i18n.T("settings.save_prompt")
 				}

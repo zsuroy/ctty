@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-11-24
+
+### Added
+
+- **🖥️ Serial Assistant monitor** — serial devices opened from the main TUI now land in a built-in serial console instead of suspending to a raw terminal: a scrollable receive pane (PgUp/PgDn, mouse wheel, Alt+↑/↓) with LIVE/PAUSED follow-on-scroll, timestamps (`F3`), HEX / ASCII / aligned HEX+ASCII receive views (`F1`), live RX/TX rate and byte counts, a send box with ↑/↓ history, and drag-a-file-to-send. The assistant owns its port for the whole session, so leaving it closes the handle before the device list (or the raw bridge) takes over.
+- **⌨️ Quick-command bar** — eight slots per page (`Alt+1`–`8` to send, `Tab` to focus, `Alt`/`Ctrl`+`←/→` to page) with an `F9` editor to add, rename, switch encoding and delete entries (`Ctrl+S` saves). Every slot stores its own ASCII/HEX flag, so a global send-mode change can never mis-decode a plain `AT` command or split a binary frame. Slots live in `~/.config/ctty/serial-quick.json`, and the built-in Modbus RTU preset is healed automatically.
+- **🔁 Loop send, logging and search** — `F5` repeats the last payload at an adjustable interval (`F6`/`F7`, 100–10000 ms), `Ctrl+L` streams raw RX to a log file and toggles it off again, and `Ctrl+F` searches the receive buffer with highlighting plus next/previous match jumps.
+- **⚙️ Persistent assistant settings (`F10`)** — `~/.config/ctty/serial-prefs.json` now backs the assistant's defaults: HEX receive/send, timestamps, HEX+ASCII view, line ending (CRLF/CR/LF/LFCR/none) and CRLF-on-send, loop interval, receive-buffer cap (100–50000 lines), log directory and append mode, and the quick-bar paging modifier (Alt or Ctrl). Session toggles (`F1`/`F2`/`F3`/`F8`) apply immediately without overwriting the saved defaults.
+- **🔌 Serial connect mode** — a saved device can choose Raw passthrough, Assistant monitor, or Follow settings, and Settings now has a global **Serial connect mode** (Auto / Assistant / Raw). Resolution is CLI flag → device → global → built-in default (raw for standalone `ctty serial`, monitor from the TUI), so existing configs keep their old behaviour.
+- **⌨️ Direct serial connect from the CLI** — `ctty serial <name|device>` connects straight away, resolving a saved device name first and otherwise treating the argument as a device path (`COM3`, `/dev/ttyUSB0`), with `--raw`, `--monitor` and `--baud` overrides. `ctty serial --help` documents the resolution order.
+- **🧩 Extended serial framing** — the add/edit forms, `ctty serial list` and `ctty serial info` now support Mark/Space parity and 1.5 stop bits, and stop bits render without a trailing `.0`.
+
 ## [1.3.6] - 2026-11-18
 
 ### Fixed

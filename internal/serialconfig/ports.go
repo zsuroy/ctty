@@ -2,6 +2,7 @@ package serialconfig
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"go.bug.st/serial"
@@ -26,23 +27,35 @@ func AvailablePorts() []string {
 	return result
 }
 
-// ParityFromString converts a string like "none"/"even"/"odd" to the
+// ParityFromString converts "none"/"even"/"odd"/"mark"/"space" to the
 // serial.Parity constant.
 func ParityFromString(s string) serial.Parity {
-	switch strings.ToLower(s) {
-	case "even":
-		return serial.EvenParity
+	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "odd":
 		return serial.OddParity
+	case "even":
+		return serial.EvenParity
+	case "mark":
+		return serial.MarkParity
+	case "space":
+		return serial.SpaceParity
 	default:
 		return serial.NoParity
 	}
 }
 
-// StopBitsFromString converts 1 or 2 to the serial.StopBits constant.
-func StopBitsFromString(n int) serial.StopBits {
-	if n == 2 {
+// StopBitsFromString converts 1, 1.5 or 2 to the serial.StopBits constant.
+func StopBitsFromString(n float64) serial.StopBits {
+	if n >= 1.75 {
 		return serial.TwoStopBits
 	}
+	if n >= 1.25 {
+		return serial.OnePointFiveStopBits
+	}
 	return serial.OneStopBit
+}
+
+// FormatStopBits renders a stored stop-bit value without a trailing .0.
+func FormatStopBits(n float64) string {
+	return strconv.FormatFloat(n, 'g', -1, 64)
 }

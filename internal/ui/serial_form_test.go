@@ -155,7 +155,7 @@ func TestSerialAddForm_ManualInputAndTabNavigation(t *testing.T) {
 	form = newSerialAddForm(styles, 80, 16, []string{"/dev/ttyUSB0"})
 	_ = form.Init()
 
-	expectedOrder := []string{"name", "device", "baud", "data", "parity", "stop", "confirm"}
+	expectedOrder := []string{"name", "device", "baud", "data", "parity", "stop", "mode", "confirm"}
 	for _, expectedKey := range expectedOrder {
 		currentKey := form.form.GetFocusedField().GetKey()
 		if currentKey != expectedKey {
@@ -208,7 +208,7 @@ func TestSerialConnectForm_ManualInputAndTabNavigation(t *testing.T) {
 	form = newSerialConnectForm(styles, 80, 16, dev)
 	_ = form.Init()
 
-	expectedOrder := []string{"baud", "data", "parity", "stop", "confirm"}
+	expectedOrder := []string{"baud", "data", "parity", "stop", "mode", "confirm"}
 	for _, expectedKey := range expectedOrder {
 		currentKey := form.form.GetFocusedField().GetKey()
 		if currentKey != expectedKey {
@@ -245,7 +245,7 @@ func TestSerialForm_UpDownAndEnterNavigation(t *testing.T) {
 	// 1. Test KeyDown (↓) navigation in serialConnectForm
 	form := newSerialConnectForm(styles, 80, 24, dev)
 	_ = form.Init()
-	expectedOrder := []string{"baud", "data", "parity", "stop", "confirm"}
+	expectedOrder := []string{"baud", "data", "parity", "stop", "mode", "confirm"}
 
 	for i, expected := range expectedOrder {
 		focused := form.form.GetFocusedField().GetKey()
@@ -268,11 +268,11 @@ func TestSerialForm_UpDownAndEnterNavigation(t *testing.T) {
 	// 3. Test KeyEnter navigation in serialConnectForm
 	form = newSerialConnectForm(styles, 80, 24, dev)
 	_ = form.Init()
-	for i := 0; i < 4; i++ { // baud -> data -> parity -> stop -> confirm
+	for i := 0; i < 5; i++ { // baud -> data -> parity -> stop -> mode -> confirm
 		_, _ = form.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	}
 	if form.form.GetFocusedField().GetKey() != "confirm" {
-		t.Fatalf("expected focus on 'confirm' after 4 Enters, got %q", form.form.GetFocusedField().GetKey())
+		t.Fatalf("expected focus on 'confirm' after 5 Enters, got %q", form.form.GetFocusedField().GetKey())
 	}
 	// Enter on confirm submits form
 	_, _ = form.Update(tea.KeyMsg{Type: tea.KeyEnter})

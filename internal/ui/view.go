@@ -50,6 +50,10 @@ func (m Model) View() string {
 		if m.serialForm != nil {
 			content = m.serialForm.View()
 		}
+	case ViewSerialMonitor:
+		if m.serialMonitor != nil {
+			content = m.serialMonitor.View()
+		}
 	case ViewTelnet:
 		if m.telnetForm != nil {
 			content = m.telnetForm.View()

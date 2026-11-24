@@ -104,6 +104,12 @@ func (m Model) Init() tea.Cmd {
 	if m.s3Form != nil && m.viewMode == ViewS3Browse {
 		cmds = append(cmds, m.s3Form.Init())
 	}
+	// 'ctty serial <name>' connects straight away instead of parking the
+	// user on the device list they just typed a name to skip.
+	if m.pendingSerial != nil {
+		dev := *m.pendingSerial
+		cmds = append(cmds, func() tea.Msg { return serialConnectMsg{device: dev} })
+	}
 
 	return tea.Batch(cmds...)
 }
@@ -122,6 +128,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if sizeMsg, ok := msg.(tea.WindowSizeMsg); ok && isWindowsLegacyConsole() && sizeMsg.Width > 1 {
 		sizeMsg.Width--
 		msg = sizeMsg
+	}
+
+	// While the in-app serial assistant is on screen it owns the keyboard
+	// and its own port; only its two exit messages go through the normal
+	// dispatch below.
+	if m.viewMode == ViewSerialMonitor && m.serialMonitor != nil {
+		switch msg.(type) {
+		case serialMonitorDoneMsg, serialMonitorSwitchMsg:
+		default:
+			if sizeMsg, ok := msg.(tea.WindowSizeMsg); ok {
+				m.width = sizeMsg.Width
+				m.height = sizeMsg.Height
+				m.styles = NewStyles(m.width)
+			}
+			var monitorCmd tea.Cmd
+			m.serialMonitor, monitorCmd = m.serialMonitor.Update(msg)
+			return m, monitorCmd
+		}
 	}
 
 	// Handle different message types
@@ -511,14 +535,58 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case serialConnectMsg:
 		m.serialForm = nil
-		if m.serialOnly {
+		// How this connection opens is a setting, not a hard-coded split:
+		// the CLI flag wins, then the device's own mode, then the global
+		// start mode, and only then the per-entry default (raw for
+		// 'ctty serial', the monitor inside the TUI).
+		if m.serialConnectMode(msg.device) == serialconfig.ModeRaw {
 			return m, execInTerminal(serialconfig.NewExecCommand(msg.device), func(err error) tea.Msg {
-				return tea.Quit()
+				return serialConnectDoneMsg{err: err}
 			})
 		}
+		monitor := newSerialMonitor(m.styles, m.width, m.height, msg.device)
+		m.serialMonitor = monitor
+		m.viewMode = ViewSerialMonitor
+		// Mouse reporting is a serial-console affordance (wheel = scroll the
+		// receive pane). It is switched on for this page only, so every other
+		// view keeps the terminal's native drag-select.
+		return m, tea.Batch(monitor.Init(), monitorMouseCmd(true))
+
+	case serialMonitorDoneMsg:
+		mouseCmd := tea.Cmd(nil)
+		if m.serialMonitor != nil {
+			m.serialMonitor.closePort()
+			m.serialMonitor = nil
+			mouseCmd = monitorMouseCmd(false)
+		}
+		// 'ctty serial' launched straight into the assistant: Esc means
+		// quit the program, not fall back to a device list the user never
+		// opened. Keep this in sync with serialConnectDoneMsg so the port
+		// is always closed before the process exits.
+		if m.serialOnly {
+			return m, tea.Quit
+		}
+		m.viewMode = ViewSerial
+		m.serialForm = NewSerialForm(m.styles, m.width, m.height)
+		if msg.err != nil {
+			m.serialForm.setStatus("Serial: " + msg.err.Error())
+		} else {
+			m.serialForm.setStatus(i18n.T("serial.monitor.disconnected"))
+		}
+		return m, mouseCmd
+
+	case serialMonitorSwitchMsg:
+		if m.serialMonitor == nil {
+			m.viewMode = ViewSerial
+			m.serialForm = NewSerialForm(m.styles, m.width, m.height)
+			return m, nil
+		}
+		dev := m.serialMonitor.dev
+		m.serialMonitor.closePort()
+		m.serialMonitor = nil
 		m.viewMode = ViewList
 		m.table.Focus()
-		return m, execInTerminal(serialconfig.NewExecCommand(msg.device), func(err error) tea.Msg {
+		return m, execInTerminal(serialconfig.NewExecCommand(dev), func(err error) tea.Msg {
 			return serialConnectDoneMsg{err: err}
 		})
 
@@ -538,6 +606,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.viewMode == ViewSFTP && m.sftpForm != nil && m.sftpForm.client != nil {
 			_ = m.sftpForm.client.Close()
+		}
+		if m.serialMonitor != nil {
+			m.serialMonitor.closePort()
+			m.serialMonitor = nil
 		}
 		m.serialForm = nil
 		m.telnetForm = nil
@@ -593,6 +665,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case serialDoneMsg:
+		if m.serialMonitor != nil {
+			m.serialMonitor.closePort()
+			m.serialMonitor = nil
+		}
 		m.serialForm = nil
 		if m.serialOnly {
 			return m, tea.Quit
@@ -602,6 +678,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case serialConnectDoneMsg:
+		if m.serialMonitor != nil {
+			m.serialMonitor.closePort()
+			m.serialMonitor = nil
+		}
 		m.serialForm = nil
 		if m.serialOnly {
 			return m, tea.Quit

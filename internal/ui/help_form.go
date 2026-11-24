@@ -296,38 +296,38 @@ func (m *helpModel) View() string {
 		}
 		visibleContent := strings.Join(truncatedLines, "\n")
 
-	promptText := i18n.T("help.close_prompt")
-	if len(contentLines) > viewportHeight {
-		promptText = "↑/↓/PgUp/PgDn: scroll • " + promptText
-	}
-	promptText = legacyGlyphFallback(promptText)
-	promptTrunc := centerRow(ansi.Truncate(m.styles.HelpText.Render(promptText), contentMaxW, ""))
+		promptText := i18n.T("help.close_prompt")
+		if len(contentLines) > viewportHeight {
+			promptText = "↑/↓/PgUp/PgDn: scroll • " + promptText
+		}
+		promptText = legacyGlyphFallback(promptText)
+		promptTrunc := centerRow(ansi.Truncate(m.styles.HelpText.Render(promptText), contentMaxW, ""))
 
-	parts := []string{titleTrunc, repoTrunc}
-	if !compact {
-		parts = append(parts, "")
-	}
-	parts = append(parts, visibleContent)
-	if !compact {
-		parts = append(parts, "")
-	}
-	parts = append(parts, promptTrunc)
+		parts := []string{titleTrunc, repoTrunc}
+		if !compact {
+			parts = append(parts, "")
+		}
+		parts = append(parts, visibleContent)
+		if !compact {
+			parts = append(parts, "")
+		}
+		parts = append(parts, promptTrunc)
 
-	// JoinVertical(Left) pins every row to one left edge for a continuous
-	// frame; centerRow already centered the header rows within contentMaxW.
-	// The modal itself is centered by Place below.
-	inner := lipgloss.JoinVertical(lipgloss.Left, parts...)
-	// Clamp the joined key-hint columns to contentMaxW: on narrow terminals
-	// their combined width overflows the box and boxStyle's right border
-	// falls outside the frame (the missing border beside the help title).
-	var clamped []string
-	for _, ln := range strings.Split(inner, "\n") {
-		clamped = append(clamped, ansi.Truncate(ln, contentMaxW, ""))
-	}
-	inner = strings.Join(clamped, "\n")
-	// Re-fit every row in real terminal advance after the border is drawn,
-	// so ambiguous glyphs cannot push the title row's border off the body's.
-	box = alignJetBrainsBox(boxStyle.MaxWidth(totalWidth).Render(inner))
+		// JoinVertical(Left) pins every row to one left edge for a continuous
+		// frame; centerRow already centered the header rows within contentMaxW.
+		// The modal itself is centered by Place below.
+		inner := lipgloss.JoinVertical(lipgloss.Left, parts...)
+		// Clamp the joined key-hint columns to contentMaxW: on narrow terminals
+		// their combined width overflows the box and boxStyle's right border
+		// falls outside the frame (the missing border beside the help title).
+		var clamped []string
+		for _, ln := range strings.Split(inner, "\n") {
+			clamped = append(clamped, ansi.Truncate(ln, contentMaxW, ""))
+		}
+		inner = strings.Join(clamped, "\n")
+		// Re-fit every row in real terminal advance after the border is drawn,
+		// so ambiguous glyphs cannot push the title row's border off the body's.
+		box = alignJetBrainsBox(boxStyle.MaxWidth(totalWidth).Render(inner))
 		if lipgloss.Height(box) <= totalHeight || viewportHeight <= 1 {
 			break
 		}
