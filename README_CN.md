@@ -11,8 +11,6 @@
 [![License](https://img.shields.io/github/license/zsuroy/ctty?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)](https://github.com/zsuroy/ctty/releases)
 
-> **一个轻量级的一体化终端连接管理器 —— SSH、串口、Telnet、SFTP、FTP、WebDAV 尽在一个 TUI** 🔥
-
 > **一个轻量全能的终端连接管理器 —— 在单个 TUI 中融合 SSH、串口、Telnet、SFTP、FTP、WebDAV 和 S3 对象存储** 🔥
 
 ctty 是一个快速、原生的终端工具，用于管理你的所有连接 —— SSH 主机、串口设备、Telnet 端点、SFTP 文件传输、FTP 站点、WebDAV 云盘以及 S3 对象存储 —— 无需 Electron 的开销。使用 Go 编写，拥有直观的 TUI 界面，将 Tabby 等图形化连接管理器的便利性带到终端中，零臃肿。
