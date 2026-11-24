@@ -44,8 +44,8 @@ ctty is a fast, native terminal tool for managing all your connections — SSH h
 - **📝 Easy Management** - Add, edit, move, and manage SSH configurations seamlessly; typing in search and pressing `a` auto-fills the host name
 - **🔍 Smart Search** - Find hosts quickly with real-time filtering across names, addresses, and `#tags`
 - **📝 Real-time Status** - Live SSH connectivity indicators with latency gradient colors (🟢 <100ms, 🟡 100-300ms, 🔴 >300ms / offline)
-- **🔌 Serial Connections** - Manage and connect to serial devices (mcu, console, switch, router) with configurable baud rate, data bits, parity, and stop bits; auto-detected ports appear in the list instantly
-- **📡 Telnet Connections** - Native RFC 854 telnet client (no system telnet needed): save and manage lab equipment, console servers, and legacy devices; reachability probe with one keypress
+- **🔌 Serial Assistant** - Manage serial devices (mcu, console, switch, router) and connect into a built-in monitor: scrollable RX with timestamps and HEX/ASCII views, eight quick-command slots, loop send, logging and search, all with persisted settings. Auto-detected ports appear instantly.
+- **📡 Telnet Assistant** - Native RFC 854 telnet client (no system telnet needed) with an assistant-style plain-text terminal: scrollable history, quick commands, display mode with ANSI colour rendering, automatic login and reachability probe. For lab equipment, console servers and legacy gear.
 - **📂 SFTP File Transfer** - Full-featured SFTP browser (`o` key) with remote browsing, upload/download queue with progress and cancel, transfer bell (`\a`), search, mkdir/delete, plus headless CLI transfers (`put`/`get`/`scp` + `sftp ls/mkdir/rm/rmdir/rename`)
 - **📁 FTP Site Manager** - Plain-FTP support (`F` key) for hosts without SSH: tagged site inventory, dual-pane local|remote browser, mkdir/delete/rename in both panes, single/dual layout toggle, passwords in the encrypted vault, plus headless CLI transfers (`ftp ls/get/put/mkdir/rm/rmdir/rename`)
 - **🌐 WebDAV Site Manager** - WebDAV support (`W` key) for cloud storage (Nextcloud, ownCloud, NAS, Apache/Nginx WebDAV): tagged site inventory, dual-pane browser, directory recursion, single/dual layout toggle, passwords in the encrypted vault, plus headless CLI operations (`webdav ls/get/put/mkdir/rm/rmdir/rename`)
@@ -238,24 +238,43 @@ Press `t` from the main TUI to enter the serial device manager. Available serial
 - `e` or `Enter` - Edit parameters (baud rate, data bits, parity, stop bits) before connecting
 - `Esc`/`i` - Back to device list
 
+**Editing parameters before connect:**
+- Baud rate can be typed directly or cycled with `←/→` through presets (9600 / 19200 / 38400 / 57600 / 115200 / 230400 / 460800 / 921600)
+- Press `Enter` to connect with the modified parameters
+
 **Adding a serial device:**
 - **Name** - Friendly alias (e.g., `Switch-Console`)
 - **Device** - Port path (e.g., `/dev/cu.usbserial-1420`); use `←/→` to pick from detected ports
-- **Baud Rate** - Default: 115200
-- **Data Bits** - 5, 6, 7, or 8 (default: 8)
-- **Parity** - `none`, `even`, or `odd` (default: `none`)
-- **Stop Bits** - 1 or 2 (default: 1)
+- **Baud Rate** - Default: 115200; **Data Bits** - 5/6/7/8 (default 8); **Parity** - none/even/odd/Mark/Space; **Stop Bits** - 1/1.5/2
+- Press `Ctrl+S` to save from any field
 
-**Editing parameters before connect:**
-- Baud rate can be typed directly or cycled via `←/→` through presets (9600/19200/38400/57600/115200/230400/460800/921600)
-- Press `Enter` to connect with the modified parameters
+**The Serial Assistant:** connecting opens a built-in monitor instead of suspending the TUI to a raw terminal. The receive pane scrolls with `PgUp`/`PgDn`, the mouse wheel, or `Alt`+`↑/↓`, and pauses follow-on-scroll while you browse history (`LIVE` / `PAUSED +N`; `End` returns to live). Key controls:
 
-**Connecting:** The TUI suspends and bridges your terminal directly to the serial port. Press `Ctrl+]` to disconnect and return to the TUI.
+| Key | Action |
+| --- | --- |
+| `F1` / `F2` | Cycle receive view (ASCII / HEX / aligned HEX+ASCII) / toggle HEX send |
+| `F3` / `F4` | Toggle timestamps / clear the pane |
+| `F5` / `F6` / `F7` | Toggle loop send / decrease / increase interval |
+| `F8` | Hand over to a raw passthrough terminal (`Ctrl+]` returns) |
+| `F9` | Edit the selected quick command |
+| `F10` | Open persisted settings |
+| `Ctrl+L` / `Ctrl+F` | Start/stop raw RX logging / find in the buffer |
+| `Tab` + `Alt+1`–`8` | Focus and fire quick commands |
+| `Esc` | Disconnect |
 
-You can also launch the serial manager directly:
+Type in the send box and press `Enter` to transmit; `↑`/`↓` recall history, and you can drag a file onto the window to send its bytes. Quick commands have eight slots per page (`Alt+1`–`8` to send, `Tab` to focus, Alt or Ctrl+`←/→` to page, `F9` to add/rename/re-encode/delete). Each slot stores its own ASCII/HEX flag, so switching the global send mode can never mis-decode a plain `AT` command or split a binary frame.
+
+`F10` settings are saved to `~/.config/ctty/serial-prefs.json`: default HEX receive/send, timestamps, HEX+ASCII view, line ending (CRLF/CR/LF/LFCR/none) with CRLF-on-send, loop interval, receive-buffer cap, log directory and append mode, quick-command modifier (`Auto` / `Alt` / `Option`) and page key. Two display toggles are independent: **Show TX/RX prefix** paints the `TX > ` / `RX < ` row markers (on by default for serial), while **Show [label] on quick TX** controls the `[name] ` tag on quick-command echoes (also on by default). Session toggles (`F1`/`F2`/`F3`/`F8`) apply immediately without overwriting the saved defaults.
+
+**Connect modes & CLI:** a saved device can choose Raw passthrough, Assistant monitor, or Follow settings; a global **Serial connect mode** (Auto / Assistant / Raw) does the same. Resolution is CLI flag → device → global → default (raw for `ctty serial`, monitor from the TUI), so existing configs keep their behaviour. Raw passthrough is the classic bridge — the TUI suspends and your terminal talks straight to the port; press `Ctrl+]` to disconnect and return.
+
 ```bash
-ctty serial    # Skip the SSH host list, go straight to serial devices
+ctty serial                # Serial device manager TUI
+ctty serial <name|device>  # Connect straight away (saved name or path like COM3)
+ctty serial <name> --monitor --baud 115200
 ```
+
+Device configs live in `~/.config/ctty/serial.json`.
 
 
 ### Telnet Connections
@@ -274,16 +293,30 @@ Press `T` (Shift+T) from the main TUI to open the telnet device manager — for 
 - `/` - Search/filter devices by name, host, or tags
 - `Esc`/`q` - Return to SSH host list
 
-**Automatic login:** `a` / `e` can store a user name and password (password in the encrypted credential vault, same as SSH/FTP/WebDAV/S3). On connect, ctty auto-answers `login:` / `Username:` / `user:` / `login as:` and `Password:` / `passwd:` prompts (user name optional). It only matches real prompts at line end, answers each at most once with no retries, and falls back to manual input when unrecognized. Telnet is cleartext — this saves typing, not security.
+**The Telnet Assistant:** connecting opens an assistant-style **plain-text terminal** rather than a bare passthrough. It adds timestamps, RX/TX counters with a live rate, input history, search with match jumping, session logging, and `F8` exclusive passthrough for interactive sessions. The receive pane scrolls by page, wheel or `Alt`+`↑/↓`; parking the view in history does not drag it forward as bytes arrive (`PAUSED +N`, `End` returns to live). Quick commands work the same way as serial — eight plain-text slots per page, `Alt+1`–`8` to send, `Tab` to focus, Alt or Ctrl+`←/→` to page, `F9` to edit. `F10` opens settings.
 
-**Connecting:** The TUI suspends and bridges your terminal directly to the telnet session. Press `Ctrl+]` (classic telnet escape) to disconnect and return to the TUI. The client negotiates conservatively: it accepts ECHO / SGA / BINARY, refuses other options, and answers window-size queries with 80×24.
+| Key | Action |
+| --- | --- |
+| `F3` / `F4` | Toggle timestamps / clear the pane |
+| `F8` | Hand over to a raw passthrough terminal (`Ctrl+]` returns) |
+| `F9` / `F10` | Edit quick command / open settings |
+| `F12` | Toggle the full key map |
+| `Ctrl+L` / `Ctrl+F` | Start/stop RX logging / find in the buffer |
+| `Esc` | Disconnect |
 
-You can also connect without opening the manager:
+All traffic goes through the shared RFC 854 session: IAC negotiation, CR-NUL handling and the refusal-first policy stay active under the monitor, and NAWS reports the monitor's real window size. The client accepts ECHO / SGA / BINARY, refuses the other options, and never echoes raw escapes into the pane. **Display mode** (`F10`, ASCII by default or HEX) changes only how bytes are painted — sending stays plain text with the NVT CRLF terminator. **Render ANSI colours** is on by default, so peer SGR colour codes display correctly while other control sequences are filtered; HEX view and logs keep the raw bytes. **Show TX/RX prefix** (off by default) and **Show [label] on quick TX** (on by default) are independent row-marker toggles. Preferences persist in `~/.config/ctty/telnet-prefs.json`.
+
+As a text terminal, Telnet deliberately has no HEX send/receive, MODBUS frames, configurable line endings (NVT is always CRLF), timed resend, or binary file transfer — those are serial-port debugging concepts.
+
+**Automatic login:** `a` / `e` can store a user name and password (password in the encrypted credential vault, same as SSH/FTP/WebDAV/S3). On connect, ctty auto-answers `login:` / `Username:` / `user:` / `login as:` and `Password:` / `passwd:` prompts (user name optional). It only matches real prompts at line end, answers each at most once with no retries, and falls back to manual input when unrecognized. Telnet is cleartext — this saves typing, not security. Answered credentials are echoed as TX so the exchange stays visible.
+
+**Connect modes & CLI:** each device carries a connect mode (follow settings / assistant / raw passthrough) and the settings page adds a global **Telnet connect mode** (auto / assistant / raw). `auto` keeps the historical default — raw for `ctty telnet`, monitor from the TUI. Flags override both saved and global settings. Raw passthrough is the classic escape hatchet for interactive programs: the TUI suspends, your terminal talks straight to the host, and `Ctrl+]` (the classic telnet escape) disconnects and returns.
+
 ```bash
-ctty telnet                  # Telnet device manager TUI
-ctty telnet core-sw          # Connect to a saved device by name
-ctty telnet 192.168.1.1      # Direct connection (port 23)
-ctty telnet 10.0.0.5:2001    # Direct connection with explicit port
+ctty telnet                         # Telnet device manager TUI
+ctty telnet core-sw                 # Connect to a saved device by name
+ctty telnet 192.168.1.1             # Direct connection (port 23)
+ctty telnet 10.0.0.5:2001 --monitor # Direct connection, explicit port + assistant
 ```
 
 Saved devices live in `~/.config/ctty/telnet.json`, separate from your SSH config.

@@ -315,7 +315,7 @@ func RunTelnetMode(currentVersion string, noUpdateCheck bool) error {
 }
 
 // RunTelnetConnect dials a telnet host straight into the assistant monitor.
-// mode is the CLI's --raw/--monitor override ('' resolves through the normal
+// mode is the CLI's --raw/--monitor override (” resolves through the normal
 // precedence: this entry point is standalone, so no override means raw).
 func RunTelnetConnect(host telnetconfig.TelnetHost, mode, currentVersion string, noUpdateCheck bool) error {
 	calibrateTerminalGlyphs()
