@@ -307,3 +307,33 @@ func TestAppConfigTheme(t *testing.T) {
 		t.Errorf("Expected custom theme 'catppuccin', got %q", custom.Theme)
 	}
 }
+
+func TestAppConfigQuiet(t *testing.T) {
+	cfg := GetDefaultAppConfig()
+	if cfg.Quiet {
+		t.Error("Expected default Quiet to be false")
+	}
+
+	merged := mergeWithDefaults(AppConfig{Quiet: true})
+	if !merged.Quiet {
+		t.Error("Expected mergeWithDefaults to preserve Quiet=true")
+	}
+
+	tempDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	t.Setenv("HOME", tempDir)
+
+	toSave := GetDefaultAppConfig()
+	toSave.Quiet = true
+	if err := SaveAppConfig(&toSave); err != nil {
+		t.Fatalf("SaveAppConfig failed: %v", err)
+	}
+
+	loaded, err := LoadAppConfig()
+	if err != nil {
+		t.Fatalf("LoadAppConfig failed: %v", err)
+	}
+	if !loaded.Quiet {
+		t.Error("Expected loaded Quiet to be true after round-trip")
+	}
+}

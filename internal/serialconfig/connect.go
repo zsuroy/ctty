@@ -22,6 +22,7 @@ type serialExecCommand struct {
 	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
+	quiet  bool
 }
 
 // NewExecCommand creates an ExecCommand for the given serial device.
@@ -34,6 +35,12 @@ func NewExecCommand(dev SerialDevice) *serialExecCommand {
 func (c *serialExecCommand) SetStdin(r io.Reader)  { c.stdin = r }
 func (c *serialExecCommand) SetStdout(w io.Writer) { c.stdout = w }
 func (c *serialExecCommand) SetStderr(w io.Writer) { c.stderr = w }
+
+// WithQuiet suppresses the connection banner written to stderr on startup.
+func (c *serialExecCommand) WithQuiet(quiet bool) *serialExecCommand {
+	c.quiet = quiet
+	return c
+}
 
 // Open opens a saved device with its stored parameters. Both the legacy
 // passthrough bridge and the in-app monitor use this so port setup stays in
@@ -74,8 +81,10 @@ func (c *serialExecCommand) Run() error {
 		errOut = os.Stderr
 	}
 
-	fmt.Fprintf(errOut, "Connected to %s (%s @ %d baud). Press Ctrl+] to disconnect.\n",
-		c.dev.Name, c.dev.Device, c.dev.BaudRate)
+	if !c.quiet {
+		fmt.Fprintf(errOut, "Connected to %s (%s @ %d baud). Press Ctrl+] to disconnect.\n",
+			c.dev.Name, c.dev.Device, c.dev.BaudRate)
+	}
 
 	oldState, err := setRawStdinFn()
 	if err != nil {

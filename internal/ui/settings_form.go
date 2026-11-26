@@ -29,6 +29,7 @@ type settingsFormModel struct {
 	themeVal        string
 	updateVal       bool
 	disableEscVal   bool
+	quietVal        bool
 	ftpLayoutVal    string
 	sftpLayoutVal   string
 	webdavLayoutVal string
@@ -61,6 +62,7 @@ func NewSettingsForm(styles Styles, width, height int, appConfig *config.AppConf
 
 	updateVal := cfg.IsUpdateCheckEnabled()
 	disableEscVal := cfg.KeyBindings.DisableEscQuit
+	quietVal := cfg.Quiet
 
 	ftpLayoutVal := string(config.NormalizeFTPLayout(cfg.FTPLayout))
 	sftpLayoutVal := string(config.NormalizeSFTPLayout(cfg.SFTPLayout))
@@ -78,6 +80,7 @@ func NewSettingsForm(styles Styles, width, height int, appConfig *config.AppConf
 		themeVal:        themeVal,
 		updateVal:       updateVal,
 		disableEscVal:   disableEscVal,
+		quietVal:        quietVal,
 		ftpLayoutVal:    ftpLayoutVal,
 		sftpLayoutVal:   sftpLayoutVal,
 		webdavLayoutVal: webdavLayoutVal,
@@ -144,6 +147,16 @@ func (m *settingsFormModel) buildForm() {
 					huh.NewOption(i18n.T("settings.esc_off"), true),
 				).
 				Value(&m.disableEscVal),
+
+			huh.NewSelect[bool]().
+				Key("quiet").
+				Title(i18n.T("settings.quiet_label")).
+				Inline(true).
+				Options(
+					huh.NewOption(i18n.T("settings.quiet_off"), false),
+					huh.NewOption(i18n.T("settings.quiet_on"), true),
+				).
+				Value(&m.quietVal),
 
 			huh.NewSelect[string]().
 				Key("ftp").
@@ -348,6 +361,7 @@ func (m *settingsFormModel) saveSettings() tea.Cmd {
 		enableUpdates := m.updateVal
 		m.appConfig.CheckForUpdates = &enableUpdates
 		m.appConfig.KeyBindings.DisableEscQuit = m.disableEscVal
+		m.appConfig.Quiet = m.quietVal
 		m.appConfig.FTPLayout = config.FTPLayout(m.ftpLayoutVal)
 		m.appConfig.SFTPLayout = config.SFTPLayout(m.sftpLayoutVal)
 		m.appConfig.WebDAVLayout = config.WebDAVLayout(m.webdavLayoutVal)
@@ -432,6 +446,8 @@ func (m *settingsFormModel) View() string {
 					titleKey = i18n.T("settings.update_label")
 				case "esc":
 					titleKey = i18n.T("settings.esc_quit_label")
+				case "quiet":
+					titleKey = i18n.T("settings.quiet_label")
 				case "ftp":
 					titleKey = i18n.T("settings.ftp_layout_label")
 				case "sftp":

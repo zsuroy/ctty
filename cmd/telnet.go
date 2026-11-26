@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -107,7 +108,7 @@ Esc.`,
 		}
 
 		target := args[0]
-		runTelnetDirect(target)
+		runTelnetDirect(cmd, target)
 	},
 }
 
@@ -115,7 +116,7 @@ Esc.`,
 // host[:port] address — and opens it in the resolved mode. --raw/--monitor
 // override the saved device's mode and the global setting; a standalone CLI
 // connect defaults to raw so scripts keep the classic passthrough.
-func runTelnetDirect(target string) {
+func runTelnetDirect(cmd *cobra.Command, target string) {
 	if telnetRaw && telnetMonitor {
 		fmt.Fprintf(os.Stderr, "Error: --raw and --monitor are mutually exclusive\n")
 		os.Exit(2)
@@ -147,7 +148,7 @@ func runTelnetDirect(target string) {
 
 	mode := telnetconfig.ResolveMode(override, dev.Mode, globalMode, true)
 	if mode == telnetconfig.ModeRaw {
-		connectTelnetDevice(dev)
+		connectTelnetDevice(cmd, dev)
 		return
 	}
 	if err := ui.RunTelnetConnect(dev, override, AppVersion, noUpdateCheck); err != nil {
@@ -261,22 +262,29 @@ func outputTelnetHosts(hosts []telnetconfig.TelnetHost) {
 // answering login prompts automatically when the device (or ad-hoc address)
 // has credentials configured. Ad-hoc addresses have no name and no vault
 // entry, so they stay fully manual — same rules as the TUI.
-func connectTelnetDevice(dev telnetconfig.TelnetHost) {
+func connectTelnetDevice(cmd *cobra.Command, dev telnetconfig.TelnetHost) {
 	addr := dev.Addr()
 	conn, err := telnetclient.Dial(addr)
 	if err != nil {
 		log.Fatalf("Error connecting to %s: %v", addr, err)
 	}
 	defer conn.Close()
-	if dev.Name != "" {
-		fmt.Printf("Connected to %s (%s). Press Ctrl-] to disconnect.\n", dev.Name, addr)
-	} else {
-		fmt.Printf("Connected to %s. Press Ctrl-] to disconnect.\n", addr)
-	}
+	writeTelnetConnectedBanner(os.Stderr, dev, addr, isQuietMode(cmd))
 	bridge := telnetclient.NewBridge(conn).WithAutoLogin(telnetclient.AutoLoginFor(dev))
 	if err := bridge.Run(nil, nil, nil); err != nil {
 		log.Fatalf("Session error: %v", err)
 	}
+}
+
+func writeTelnetConnectedBanner(w io.Writer, dev telnetconfig.TelnetHost, addr string, quiet bool) {
+	if quiet || w == nil {
+		return
+	}
+	if dev.Name != "" {
+		fmt.Fprintf(w, "Connected to %s (%s). Press Ctrl-] to disconnect.\n", dev.Name, addr)
+		return
+	}
+	fmt.Fprintf(w, "Connected to %s. Press Ctrl-] to disconnect.\n", addr)
 }
 
 func init() {

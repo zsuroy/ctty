@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -37,6 +38,9 @@ var noUpdateCheck bool
 // langFlag overrides the interface language
 var langFlag string
 
+// quietFlag suppresses ctty's own informational output when connecting
+var quietFlag bool
+
 // RootCmd is the base command when called without any subcommands
 var RootCmd = &cobra.Command{
 	Use:   "ctty [host] [command...]",
@@ -55,6 +59,7 @@ Hosts are read from your ~/.ssh/config file by default.
 Examples:
   ctty                           # Open interactive TUI
   ctty prod-server               # Connect to host interactively
+  ctty -q prod-server            # Connect without ctty informational output
   ctty prod-server uptime        # Execute 'uptime' on remote host
   ctty prod-server ls -la /var   # Execute command with arguments
   ctty -t prod-server sudo reboot # Force TTY for interactive commands
@@ -120,7 +125,7 @@ Examples:
 		if len(args) > 1 {
 			remoteCommand = args[1:]
 		}
-		connectToHost(hostName, remoteCommand)
+		connectToHostWithQuiet(hostName, remoteCommand, isQuietMode(cmd))
 		return nil
 	},
 }
@@ -146,7 +151,45 @@ func runInteractiveMode() {
 	}
 }
 
+type sshRunner func(args, env []string, errOut io.Writer) int
+
+// isQuietMode resolves whether ctty should suppress its own informational output.
+// An explicit CLI --quiet / -q flag (including --quiet=false) overrides the
+// persistent config setting.
+func isQuietMode(cmd *cobra.Command) bool {
+	if cmd != nil {
+		if f := cmd.Flags().Lookup("quiet"); f != nil && f.Changed {
+			return quietFlag
+		}
+	}
+	if quietFlag {
+		return true
+	}
+	cfg, err := config.LoadAppConfig()
+	if err == nil && cfg != nil {
+		return cfg.Quiet
+	}
+	return false
+}
+
 func connectToHost(hostName string, remoteCommand []string) {
+	connectToHostWithQuiet(hostName, remoteCommand, isQuietMode(RootCmd))
+}
+
+func connectToHostWithQuiet(hostName string, remoteCommand []string, quiet bool) {
+	if code := connectToHostWithDeps(hostName, remoteCommand, quiet, os.Stderr, defaultSSHRunner); code != 0 {
+		os.Exit(code)
+	}
+}
+
+func connectToHostWithDeps(hostName string, remoteCommand []string, quiet bool, errOut io.Writer, runSSH sshRunner) int {
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+	if runSSH == nil {
+		runSSH = defaultSSHRunner
+	}
+
 	var hostFound bool
 	var err error
 
@@ -157,22 +200,25 @@ func connectToHost(hostName string, remoteCommand []string) {
 	}
 
 	if err != nil {
-		log.Fatalf("Error checking SSH config: %v", err)
+		fmt.Fprintf(errOut, "Error checking SSH config: %v\n", err)
+		return 1
 	}
 
 	if !hostFound {
-		fmt.Printf("Error: Host '%s' not found in SSH configuration.\n", hostName)
-		fmt.Println("Use 'ctty' to see available hosts.")
-		os.Exit(1)
+		fmt.Fprintf(errOut, "Error: Host '%s' not found in SSH configuration.\n", hostName)
+		fmt.Fprintln(errOut, "Use 'ctty' to see available hosts.")
+		return 1
 	}
 
 	historyManager, err := history.NewHistoryManager()
 	if err != nil {
-		fmt.Printf("Warning: Could not initialize connection history: %v\n", err)
+		if !quiet {
+			fmt.Fprintf(errOut, "Warning: Could not initialize connection history: %v\n", err)
+		}
 	} else {
 		err = historyManager.RecordConnection(hostName)
-		if err != nil {
-			fmt.Printf("Warning: Could not record connection history: %v\n", err)
+		if err != nil && !quiet {
+			fmt.Fprintf(errOut, "Warning: Could not record connection history: %v\n", err)
 		}
 	}
 
@@ -190,8 +236,8 @@ func connectToHost(hostName string, remoteCommand []string) {
 
 	if len(remoteCommand) > 0 {
 		args = append(args, remoteCommand...)
-	} else {
-		fmt.Printf("Connecting to %s...\n", hostName)
+	} else if !quiet {
+		fmt.Fprintf(errOut, "Connecting to %s...\n", hostName)
 	}
 
 	env := os.Environ()
@@ -207,6 +253,10 @@ func connectToHost(hostName string, remoteCommand []string) {
 		}
 	}
 
+	return runSSH(args, env, errOut)
+}
+
+func defaultSSHRunner(args, env []string, errOut io.Writer) int {
 	sshPath, lookErr := exec.LookPath("ssh")
 	if lookErr == nil {
 		argv := append([]string{"ssh"}, args...)
@@ -226,17 +276,18 @@ func connectToHost(hostName string, remoteCommand []string) {
 	// the non-TUI fallback used on Windows (syscall.Exec is unsupported), so
 	// restore the shell's input/output modes before exiting.
 	restoreConsole := winterm.PrepareForCLIChild()
-	err = sshCmd.Run()
+	err := sshCmd.Run()
 	restoreConsole()
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
-				os.Exit(status.ExitStatus())
+				return status.ExitStatus()
 			}
 		}
-		fmt.Printf("Error executing SSH command: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(errOut, "Error executing SSH command: %v\n", err)
+		return 1
 	}
+	return 0
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -271,6 +322,7 @@ func init() {
 	RootCmd.PersistentFlags().BoolVarP(&searchMode, "search", "s", false, "Focus on search input at startup")
 	RootCmd.PersistentFlags().BoolVar(&noUpdateCheck, "no-update-check", false, "Disable automatic update check")
 	RootCmd.PersistentFlags().StringVar(&langFlag, "lang", "", "Language for interface (auto, en, zh)")
+	RootCmd.PersistentFlags().BoolVarP(&quietFlag, "quiet", "q", false, "Suppress ctty's own informational output")
 
 	RootCmd.SetVersionTemplate("{{.Name}} version {{.Version}}\n")
 }

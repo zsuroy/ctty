@@ -669,6 +669,9 @@ ctty
 # Connect directly to a specific host (with history tracking)
 ctty my-server
 
+# Connect quietly (suppress ctty informational output; banners/warnings go to stderr by default)
+ctty -q my-server
+
 # Execute a command on a remote host
 ctty my-server uptime
 
@@ -1288,6 +1291,7 @@ ctty supports a configuration file to customize its behavior, including language
 **Available Options:**
 - **language**: Interface language: `"auto"` (follow OS locale), `"zh_CN"` (Simplified Chinese), or `"en"` (English). Default: `"auto"`.
 - **check_for_updates**: Boolean to enable or disable the automatic update check at startup. Default: `true`. Set to `false` on air-gapped or offline machines to avoid connection delays.
+- **quiet**: Boolean to suppress ctty's own informational output (e.g. `Connecting to ...`) when connecting. Default: `false`. Can also be toggled per-invocation via `-q` / `--quiet` (or `--quiet=false` to override).
 - **key_bindings.quit_keys**: Array of keys that will quit the application. Default: `["q", "ctrl+c"]`
 - **key_bindings.disable_esc_quit**: Boolean flag to disable ESC key from quitting the application. Default: `false`. Useful for Vim users.
 - **tag_colors**: Map of custom hex color codes for specific tags (e.g. `{"prod": "#FF0055"}`). Overrides built-in semantic colors and hash palette.

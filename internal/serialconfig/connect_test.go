@@ -88,6 +88,40 @@ func TestRun_NormalDisconnect_ReturnsNil(t *testing.T) {
 	}
 }
 
+func TestRun_QuietSuppressesConnectedBanner(t *testing.T) {
+	origOpen := serialOpen
+	origRaw := setRawStdinFn
+	origRestore := restoreStdinFn
+	defer func() {
+		serialOpen = origOpen
+		setRawStdinFn = origRaw
+		restoreStdinFn = origRestore
+	}()
+	setRawStdinFn = func() (*termState, error) { return nil, nil }
+	restoreStdinFn = func(_ *termState) {}
+
+	fp := &fakePort{readDone: make(chan struct{})}
+	serialOpen = func(_ string, _ *serial.Mode) (serial.Port, error) { return fp, nil }
+
+	dev := SerialDevice{Name: "test", Device: "/tmp/fake0", BaudRate: 115200, DataBits: 8, Parity: "none", StopBits: 1}
+	cmd := NewExecCommand(dev).WithQuiet(true)
+	cmd.SetStdin(bytes.NewReader([]byte{0x1d}))
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd.SetStdout(&out)
+	cmd.SetStderr(&errOut)
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("normal Ctrl+] should return nil, got %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("expected empty stdout in quiet mode, got %q", out.String())
+	}
+	if bytes.Contains(errOut.Bytes(), []byte("Connected to")) {
+		t.Fatalf("expected Connected banner suppressed in quiet mode, got %q", errOut.String())
+	}
+}
+
 func TestRun_WriteError_Bubbles(t *testing.T) {
 	origOpen := serialOpen
 	origRaw := setRawStdinFn

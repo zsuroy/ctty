@@ -665,6 +665,9 @@ ctty
 # 直接连接到指定主机（带历史记录）
 ctty my-server
 
+# 静默模式直连（抑制 ctty 自身信息性提示；默认提示和警告输出到 stderr）
+ctty -q my-server
+
 # 在远程主机上执行命令
 ctty my-server uptime
 
@@ -1284,6 +1287,7 @@ ctty 支持配置文件来自定义行为，包括界面语言、快捷键、自
 **可用选项：**
 - **language**: 界面语言，支持 `"auto"`（跟随操作系统语言）、`"zh_CN"`（简体中文）或 `"en"`（English）。默认：`"auto"`。
 - **check_for_updates**: 布尔值，启用或禁用启动时的自动更新检查。默认：`true`。在离线机器上设为 `false` 可避免连接延迟。
+- **quiet**: 布尔值，连接时抑制 `ctty` 自身的信息性提示输出（例如 `Connecting to ...`）。默认：`false`。也可在命令行通过 `-q` / `--quiet` 临时开启（或 `--quiet=false` 临时关闭）。
 - **key_bindings.quit_keys**: 退出应用的按键数组。默认：`["q", "ctrl+c"]`
 - **key_bindings.disable_esc_quit**: 布尔值，禁用 ESC 键退出应用。默认：`false`。适合 Vim 用户避免误按 ESC 退出。
 - **tag_colors**: 标签自定义颜色 Hex 映射字典（如 `{"prod": "#FF0055"}`），优先级高于内置语义色及哈希分配色。

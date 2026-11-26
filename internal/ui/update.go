@@ -518,7 +518,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.historyManager != nil && m.portForwardForm != nil {
 					err := m.historyManager.RecordConnection(m.portForwardForm.hostName)
 					if err != nil {
-						fmt.Printf("Warning: Could not record connection history: %v\n", err)
+						fmt.Fprintf(os.Stderr, "Warning: Could not record connection history: %v\n", err)
 					}
 				}
 
@@ -1542,7 +1542,7 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					err := m.historyManager.RecordConnection(hostName)
 					if err != nil {
 						// Log the error but don't prevent the connection
-						fmt.Printf("Warning: Could not record connection history: %v\n", err)
+						fmt.Fprintf(os.Stderr, "Warning: Could not record connection history: %v\n", err)
 					}
 				}
 

@@ -10,6 +10,7 @@ Serial/telnet/FTP/WebDAV/S3 inventories are JSON files under the ctty config dir
 |------|---------|
 | `--lang en` | English messages (also `zh`, `auto`) |
 | `--no-update-check` | Skip GitHub version check |
+| `-q, --quiet` | Suppress ctty's own informational output |
 | `-c path` | SSH config file instead of `~/.ssh/config` |
 
 Root also has `-t` / `--tty` (force TTY on `ctty <host> <cmd>`) and

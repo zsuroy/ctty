@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.1] - 2026-11-24
+
+### Added
+
+- **🔇 Quiet mode (`-q` / `--quiet`) and persistent `quiet` setting (issue #67)** — added global `-q` / `--quiet` flag to suppress `ctty`'s own informational output (`Connecting to ...`, `Connected to ...`, and non-fatal history warnings) during direct SSH, telnet, and raw serial connections while preserving actual errors and remote command output. Can be persisted via `"quiet": true` in `~/.config/ctty/config.json` or toggled in System Settings (`S` → *Quiet connect mode*), and overridden per invocation with `--quiet=false`.
+
+### Changed
+
+- **📤 Direct-connection informational and error routing** — `Connecting to ...`, telnet `Connected to ...`, history/config warnings, and direct SSH error messages now write to `stderr` instead of `stdout`, keeping `stdout` clean for scripts and automation.
+
 ## [1.4.0] - 2026-11-24
 
 ### Added

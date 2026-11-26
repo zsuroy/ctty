@@ -18,6 +18,7 @@ func TestSettingsFormInitialization(t *testing.T) {
 		KeyBindings: config.KeyBindings{
 			DisableEscQuit: true,
 		},
+		Quiet:      true,
 		FTPLayout:  config.FTPLayoutSingle,
 		SFTPLayout: config.SFTPLayoutSingle,
 	}
@@ -34,6 +35,9 @@ func TestSettingsFormInitialization(t *testing.T) {
 	}
 	if f.disableEscVal != true {
 		t.Errorf("expected disableEscVal true, got %v", f.disableEscVal)
+	}
+	if f.quietVal != true {
+		t.Errorf("expected quietVal true, got %v", f.quietVal)
 	}
 	if f.ftpLayoutVal != "single" {
 		t.Errorf("expected ftpLayoutVal single, got %q", f.ftpLayoutVal)
@@ -93,6 +97,7 @@ func TestSettingsFormSave(t *testing.T) {
 	f.langVal = "en"
 	f.themeVal = "dracula"
 	f.updateVal = true
+	f.quietVal = true
 
 	cmd := f.saveSettings()
 	if cmd == nil {
@@ -108,6 +113,9 @@ func TestSettingsFormSave(t *testing.T) {
 	}
 	if closeMsg.AppConfig.Theme != "dracula" {
 		t.Errorf("expected saved theme dracula, got %q", closeMsg.AppConfig.Theme)
+	}
+	if !closeMsg.AppConfig.Quiet {
+		t.Errorf("expected saved quiet true, got false")
 	}
 }
 
@@ -130,7 +138,7 @@ func TestSettingsFormNavigation(t *testing.T) {
 	f := NewSettingsForm(NewStyles(80), 80, 24, &config.AppConfig{})
 	f.Init()
 
-	expectedKeys := []string{"lang", "theme", "update", "esc", "ftp", "sftp", "webdav", "s3", "serial_mode", "telnet_mode", "save"}
+	expectedKeys := []string{"lang", "theme", "update", "esc", "quiet", "ftp", "sftp", "webdav", "s3", "serial_mode", "telnet_mode", "save"}
 
 	// Check initial field
 	if f.form.GetFocusedField().GetKey() != expectedKeys[0] {
@@ -191,6 +199,7 @@ func TestSettingsFormNavigation(t *testing.T) {
 
 	// Advance with Tab until "save"
 	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // esc
+	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // quiet
 	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // ftp
 	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // sftp
 	f.Update(tea.KeyMsg{Type: tea.KeyTab}) // webdav
