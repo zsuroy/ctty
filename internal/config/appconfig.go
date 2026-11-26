@@ -110,6 +110,8 @@ type AppConfig struct {
 	// assistant monitor from the TUI); TelnetStartAssistant / TelnetStartRaw
 	// force one everywhere. A host's own mode still wins over this.
 	TelnetStartMode string `json:"telnet_start_mode,omitempty"`
+	// Quiet suppresses ctty's own informational output when connecting.
+	Quiet bool `json:"quiet,omitempty"`
 }
 
 // Default start modes. "auto" preserves the historical split so an

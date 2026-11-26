@@ -108,3 +108,31 @@ func TestTelnetListSearchJSON(t *testing.T) {
 		t.Fatalf("search: %v", hosts)
 	}
 }
+
+func TestTelnetConnectedBannerQuietAndStderr(t *testing.T) {
+	dev := telnetconfig.TelnetHost{Name: "core-sw", Host: "192.168.1.1", Port: 23}
+
+	var errBuf bytes.Buffer
+	out := captureStdout(t, func() error {
+		writeTelnetConnectedBanner(&errBuf, dev, "192.168.1.1:23", false)
+		return nil
+	})
+	if out != "" {
+		t.Errorf("expected empty stdout, got %q", out)
+	}
+	if !bytes.Contains(errBuf.Bytes(), []byte("Connected to core-sw (192.168.1.1:23)")) {
+		t.Errorf("expected named banner on stderr, got %q", errBuf.String())
+	}
+
+	errBuf.Reset()
+	writeTelnetConnectedBanner(&errBuf, telnetconfig.TelnetHost{}, "10.0.0.5:23", false)
+	if !bytes.Contains(errBuf.Bytes(), []byte("Connected to 10.0.0.5:23.")) {
+		t.Errorf("expected ad-hoc banner on stderr, got %q", errBuf.String())
+	}
+
+	errBuf.Reset()
+	writeTelnetConnectedBanner(&errBuf, dev, "192.168.1.1:23", true)
+	if errBuf.Len() != 0 {
+		t.Errorf("expected quiet banner suppression, got %q", errBuf.String())
+	}
+}

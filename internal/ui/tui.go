@@ -28,7 +28,7 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 	appConfig, err := config.LoadAppConfig()
 	if err != nil {
 		// Log the error but continue with default configuration
-		fmt.Printf("Warning: Could not load application config: %v, using defaults\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: Could not load application config: %v, using defaults\n", err)
 		defaultConfig := config.GetDefaultAppConfig()
 		appConfig = &defaultConfig
 	}
@@ -53,7 +53,7 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 	historyManager, err := history.NewHistoryManager()
 	if err != nil {
 		// Log the error but continue without the history functionality
-		fmt.Printf("Warning: Could not initialize history manager: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: Could not initialize history manager: %v\n", err)
 		historyManager = nil
 	}
 

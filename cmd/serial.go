@@ -91,7 +91,7 @@ Auto-detected ports appear in the TUI only; CLI list/search/info read
 			}
 			runSerialInfo(args[1])
 		default:
-			runSerialDirect(args[0])
+			runSerialDirect(cmd, args[0])
 		}
 	},
 }
@@ -116,7 +116,7 @@ func completeSerialNames(toComplete string) []string {
 // 'ctty serial COM3 --raw'. Mode resolution matches the TUI: --raw /
 // --monitor win, then the saved device mode, then the global setting,
 // then the standalone default (raw).
-func runSerialDirect(target string) {
+func runSerialDirect(cmd *cobra.Command, target string) {
 	if serialRaw && serialMonitor {
 		fmt.Fprintln(os.Stderr, "Error: --raw and --monitor are mutually exclusive")
 		os.Exit(2)
@@ -148,7 +148,7 @@ func runSerialDirect(target string) {
 	if mode == serialconfig.ModeRaw {
 		// No TUI at all for the passthrough path: the terminal is already
 		// in its normal state, so the bridge can own stdin/stdout directly.
-		if err := serialconfig.NewExecCommand(dev).Run(); err != nil {
+		if err := serialconfig.NewExecCommand(dev).WithQuiet(isQuietMode(cmd)).Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
